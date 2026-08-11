@@ -2367,6 +2367,6 @@ const server = http.createServer(async (req, res) => {
   sendText(res, 405, "Method Not Allowed");
 });
 
-server.listen(PORT, () => {
-  console.log(`Paystack server running on http://localhost:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Paystack server running on port ${PORT}`);
 });
