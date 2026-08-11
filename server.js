@@ -29,6 +29,17 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function formatGhanaCedis(value) {
+  const safeValue = Number(value) || 0;
+  return new Intl.NumberFormat("en-GH", {
+    style: "currency",
+    currency: "GHS",
+    currencyDisplay: "symbol",
+    minimumFractionDigits: Number.isInteger(safeValue) ? 0 : 2,
+    maximumFractionDigits: Number.isInteger(safeValue) ? 0 : 2,
+  }).format(safeValue);
+}
+
 function normalizeShipmentType(value) {
   const normalized = clean(value).toLowerCase();
 
@@ -1307,8 +1318,9 @@ async function syncOrderPaymentStatus(orderId, status) {
     throw currentOrderError;
   }
 
+  const currentStatus = clean(currentOrder?.status).toLowerCase();
   const nextOrderStatus =
-    paymentStatus === "paid" && clean(currentOrder?.status).toLowerCase() === "pending_payment"
+    paymentStatus === "paid" && !["processing", "delivered", "cancelled", "canceled"].includes(currentStatus)
       ? "processing"
       : currentOrder?.status;
 
@@ -1413,6 +1425,133 @@ function sendText(res, statusCode, payload, contentType = "text/plain; charset=u
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   });
   res.end(payload);
+}
+
+function sendBuffer(res, statusCode, buffer, contentType = "application/octet-stream", fileName = "") {
+  const payload = Buffer.isBuffer(buffer) ? buffer : Buffer.from(String(buffer ?? ""));
+
+  res.writeHead(statusCode, {
+    "Content-Type": contentType,
+    "Content-Length": payload.length,
+    "Content-Disposition": fileName ? `attachment; filename="${fileName}"` : "inline",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-paystack-signature",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  });
+  res.end(payload);
+}
+
+function escapePdfText(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/\r?\n/g, " ");
+}
+
+function wrapPdfText(value, maxLength = 72) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return [""];
+  }
+
+  const words = text.split(/\s+/);
+  const lines = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxLength && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines.length > 0 ? lines : [text];
+}
+
+function buildReceiptPdfBuffer(receipt = {}, items = []) {
+  const lines = [
+    "Nexus Imports Receipt",
+    `Order Number: ${receipt.orderNumber || ""}`,
+    `Payment Reference: ${receipt.paymentReference || ""}`,
+    `Payment Status: ${receipt.paymentStatus || ""}`,
+    `Order Status: ${receipt.orderStatus || ""}`,
+    `Amount Paid: ${formatGhanaCedis(receipt.amountPaid || 0)}`,
+    `Payment Method: ${receipt.paymentNetwork ? receipt.paymentNetwork : receipt.paymentMethod || ""}`,
+    `Created: ${receipt.createdAt || ""}`,
+    "",
+    "Items:",
+  ];
+
+  for (const item of Array.isArray(items) ? items : []) {
+    lines.push(
+      `- ${item.product_name || item.name || "Item"} x${Math.max(Number(item.quantity) || 1, 1)} (${formatGhanaCedis((Number(item.line_subtotal) || 0) + (Number(item.line_shipping) || 0))})`,
+    );
+  }
+
+  if (receipt.shipment) {
+    lines.push(
+      "",
+      "Shipment:",
+      `- Batch Number: ${receipt.shipment.batchNumber || ""}`,
+      `- Status: ${receipt.shipment.currentStatusLabel || receipt.shipment.currentStatus || ""}`,
+      `- Step: ${receipt.shipment.stepLabel || ""}`,
+      `- Progress: ${receipt.shipment.progressPercent ?? ""}%`,
+    );
+  }
+
+  const contentLines = [];
+  let currentY = 740;
+
+  contentLines.push("BT");
+  contentLines.push("/F1 12 Tf");
+
+  for (const rawLine of lines.flatMap((line) => wrapPdfText(line))) {
+    const safeLine = escapePdfText(rawLine);
+    contentLines.push(`1 0 0 1 50 ${currentY} Tm`);
+    contentLines.push(`(${safeLine}) Tj`);
+    currentY -= 16;
+    if (currentY < 60) {
+      break;
+    }
+  }
+
+  contentLines.push("ET");
+
+  const contentStream = contentLines.join("\n");
+
+  const objects = [];
+  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
+  objects.push("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  objects.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  objects.push(`<< /Length ${Buffer.byteLength(contentStream)} >>\nstream\n${contentStream}\nendstream`);
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+
+  for (let index = 0; index < objects.length; index += 1) {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  }
+
+  const xrefOffset = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += "0000000000 65535 f \n";
+
+  for (let index = 1; index < offsets.length; index += 1) {
+    pdf += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+  }
+
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, "binary");
 }
 
 function readRequestBody(req, asText = false) {
@@ -1905,7 +2044,8 @@ async function handleVerify(req, res, reference) {
   const isGuestCheckout = Boolean(metadata.guestCheckout);
 
   const upstreamAmountMinor = Math.round(Number(paystackData.amount ?? 0));
-  const upstreamCurrency = clean(paystackData.currency).toUpperCase();
+  const upstreamCurrency = clean(paystackData.currency).toUpperCase() || "GHS";
+  const verifiedAmount = upstreamAmountMinor / 100;
   const normalizedStatus = normalizePaymentStatus(paystackData.status ?? paystackData.gateway_response ?? paystackData.channel);
 
   if (isGuestCheckout) {
@@ -1918,6 +2058,26 @@ async function handleVerify(req, res, reference) {
     }
 
     if (paymentRow && normalizePaymentStatus(paymentRow.status) === "successful" && paymentRow.user_id) {
+      let completedPayment = paymentRow;
+
+      try {
+        completedPayment = await updatePaymentRow(paymentRow.id, {
+          amount: verifiedAmount,
+          amount_minor: upstreamAmountMinor,
+          currency: upstreamCurrency,
+          status: "successful",
+          paid_at: paystackData.paid_at ?? paymentRow.paid_at ?? new Date().toISOString(),
+        });
+      } catch {
+        // Keep the finalization flow moving for already-completed guest payments.
+      }
+
+      try {
+        await syncOrderPaymentStatus(paymentRow.order_id, "paid");
+      } catch {
+        // Keep the finalization flow moving for already-completed guest payments.
+      }
+
       const orderResult = await loadOrderBundle(paymentRow.order_id);
       if (!orderResult.ok) {
         sendJson(res, 500, {
@@ -1930,7 +2090,7 @@ async function handleVerify(req, res, reference) {
       sendJson(res, 200, {
         ok: true,
         data: paystackData,
-        payment: paymentRow,
+        payment: completedPayment,
         order: mapOrderBundle(orderResult.order, orderResult.items).order,
         items: orderResult.items.map((item) => ({
           id: item.id,
@@ -1970,6 +2130,7 @@ async function handleVerify(req, res, reference) {
     }
 
     const expectedCheckout = await resolveGuestCheckoutProducts(guestCartRows);
+    const guestBatchNumber = clean(metadata.batchNumber) || clean(expectedCheckout.batchNumber) || null;
     const expectedAmountMinor = Math.round(Number(expectedCheckout.total) * 100);
     const expectedCurrency = "GHS";
 
@@ -2021,7 +2182,7 @@ async function handleVerify(req, res, reference) {
         status: "processing",
         payment_status: "paid",
         shipment_type: expectedCheckout.shipmentType ?? null,
-        batch_number: clean(metadata.batchNumber) || clean(body.batchNumber) || clean(expectedCheckout.batchNumber) || null,
+        batch_number: guestBatchNumber,
         shipping_address_snapshot: guestShippingAddress,
         subtotal: Number(guestTotals.subtotal ?? expectedCheckout.subtotal) || expectedCheckout.subtotal,
         shipping_total: Number(guestTotals.shippingTotal ?? expectedCheckout.shippingTotal) || expectedCheckout.shippingTotal,
@@ -2039,6 +2200,9 @@ async function handleVerify(req, res, reference) {
       const paymentUpdateValues = {
         user_id: linkedUserId || undefined,
         status: "successful",
+        amount: verifiedAmount,
+        amount_minor: upstreamAmountMinor,
+        currency: upstreamCurrency,
         paid_at: paystackData.paid_at ?? new Date().toISOString(),
       };
 
@@ -2149,6 +2313,9 @@ async function handleVerify(req, res, reference) {
 
   const paymentUpdate = {
     status: normalizedStatus,
+    amount: verifiedAmount,
+    amount_minor: upstreamAmountMinor,
+    currency: upstreamCurrency,
   };
 
   if (normalizedStatus === "successful") {
@@ -2175,6 +2342,63 @@ async function handleVerify(req, res, reference) {
     order: orderBundle?.order ?? null,
     items: orderBundle?.items ?? [],
   });
+}
+
+async function handleReceiptPdf(req, res, reference) {
+  const cleanReference = clean(reference);
+
+  if (!cleanReference) {
+    sendJson(res, 400, { ok: false, message: "A receipt reference is required." });
+    return;
+  }
+
+  const paymentRow = await getPaymentByReference(cleanReference);
+
+  if (!paymentRow) {
+    sendJson(res, 404, { ok: false, message: "Receipt not found." });
+    return;
+  }
+
+  const orderResult = await loadOrderBundle(paymentRow.order_id);
+
+  if (!orderResult.ok || !orderResult.order) {
+    sendJson(res, 404, { ok: false, message: orderResult.message || "Receipt not found." });
+    return;
+  }
+
+  const authResult = await getAuthenticatedUser(req).catch(() => ({ ok: false, user: null }));
+  const profileResult = authResult?.user ? await loadProfile(authResult.user.id).catch(() => null) : null;
+  const isAdmin = profileResult?.profile ? isActiveAdminProfile(profileResult.profile) : false;
+  const orderUserId = clean(orderResult.order.customerId ?? orderResult.order.customer_id ?? orderResult.order.userId ?? orderResult.order.user_id);
+
+  if (authResult?.user?.id && !isAdmin && orderUserId && orderUserId !== authResult.user.id) {
+    sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
+    return;
+  }
+
+  const receiptBundle = mapOrderBundle(orderResult.order, orderResult.items);
+  const receipt = receiptBundle?.order ?? {};
+  const pdfBuffer = buildReceiptPdfBuffer(
+    {
+      orderNumber: receipt.orderNumber,
+      paymentReference: cleanReference,
+      paymentStatus: normalizePaymentStatus(paymentRow.status) === "successful" ? "Successful" : clean(paymentRow.status),
+      orderStatus: receipt.status,
+      amountPaid: Number(paymentRow.amount) || Number(paymentRow.amount_minor) / 100 || receipt.total || 0,
+      paymentMethod: paymentRow.payment_method,
+      paymentNetwork: paymentRow.payment_network,
+      createdAt: paymentRow.paid_at ?? paymentRow.created_at,
+    },
+    orderResult.items,
+  );
+
+  sendBuffer(
+    res,
+    200,
+    pdfBuffer,
+    "application/pdf",
+    `Nexus-Receipt-${receipt.orderNumber || "receipt"}.pdf`,
+  );
 }
 
 async function handleWebhook(req, res) {
@@ -2334,6 +2558,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname.startsWith("/api/paystack/verify/") && req.method === "GET") {
     await handleVerify(req, res, pathname.replace("/api/paystack/verify/", ""));
+    return;
+  }
+
+  if (pathname.startsWith("/api/receipts/") && pathname.endsWith("/pdf") && req.method === "GET") {
+    await handleReceiptPdf(req, res, pathname.replace("/api/receipts/", "").replace(/\/pdf$/, ""));
     return;
   }
 

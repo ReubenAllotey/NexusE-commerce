@@ -144,7 +144,7 @@ function getPaymentStatusLabel(status) {
   switch (clean(status).toLowerCase()) {
     case "successful":
     case "paid":
-      return "Completed";
+      return "Successful";
     case "failed":
     case "cancelled":
       return "Failed";
@@ -297,6 +297,7 @@ function mapPaymentRowToHistoryItem(paymentRow = {}, orderRow = null, itemCount 
   const status = clean(paymentRow.status).toLowerCase();
   const label = getPaymentStatusLabel(status);
   const tone = getPaymentStatusTone(status);
+  const amountPaid = Number(paymentRow.amount) || Number(paymentRow.amount_minor) / 100 || 0;
 
   return {
     id: clean(paymentRow.id),
@@ -308,7 +309,7 @@ function mapPaymentRowToHistoryItem(paymentRow = {}, orderRow = null, itemCount 
     paymentPhoneNumber: clean(paymentRow.payment_phone_number),
     paymentStatus: label,
     paymentTone: tone,
-    amountPaid: Number(paymentRow.amount) || 0,
+    amountPaid,
     currency: clean(paymentRow.currency) || "GHS",
     itemCount,
     orderStatus: clean(orderRow?.status),
@@ -324,6 +325,7 @@ function mapPaymentReceipt(paymentRow = {}, orderRow = null, items = []) {
   }
 
   const paymentStatus = clean(paymentRow.status).toLowerCase();
+  const amountPaid = Number(paymentRow.amount) || Number(paymentRow.amount_minor) / 100 || 0;
 
   return {
     id: clean(paymentRow.id),
@@ -335,7 +337,7 @@ function mapPaymentReceipt(paymentRow = {}, orderRow = null, items = []) {
     paymentPhoneNumber: clean(paymentRow.payment_phone_number),
     paymentStatus: getPaymentStatusLabel(paymentStatus),
     paymentTone: getPaymentStatusTone(paymentStatus),
-    amountPaid: Number(paymentRow.amount) || 0,
+    amountPaid,
     currency: clean(paymentRow.currency) || "GHS",
     orderStatus: clean(orderRow.status),
     items: items.map((item) => ({

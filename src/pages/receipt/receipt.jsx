@@ -285,21 +285,44 @@ function Receipt() {
     };
   }, [receiptState.receipt?.orderId]);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!receiptState.receipt || typeof window === "undefined") {
       return;
     }
 
-    const blob = new Blob([buildReceiptText(receiptRecord)], { type: "text/plain;charset=utf-8" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    try {
+      const response = await fetch(`/api/receipts/${encodeURIComponent(receiptReference)}/pdf`, {
+        headers: {
+          Accept: "application/pdf",
+        },
+      });
 
-    link.href = url;
-    link.download = `${receiptRecord.orderNumber || "receipt"}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+      if (!response.ok) {
+        throw new Error("Unable to download the receipt right now.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `${receiptRecord.orderNumber || "receipt"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      const blob = new Blob([buildReceiptText(receiptRecord)], { type: "text/plain;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `${receiptRecord.orderNumber || "receipt"}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    }
   };
 
   if (receiptState.loading) {

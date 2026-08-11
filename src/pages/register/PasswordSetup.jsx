@@ -36,14 +36,25 @@ function PasswordSetup() {
 
     const loadSession = async () => {
       const url = new URL(window.location.href);
+      const hashParams = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : "");
       const authCode = url.searchParams.get("code") || "";
       const tokenHash = url.searchParams.get("token_hash") || "";
       const authType = url.searchParams.get("type") || "";
+      const hashAccessToken = hashParams.get("access_token") || "";
+      const hashRefreshToken = hashParams.get("refresh_token") || "";
+      const hashType = hashParams.get("type") || "";
       let sessionResult = null;
       let sessionError = null;
 
       if (authCode) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
+        sessionResult = data ?? null;
+        sessionError = error ?? null;
+      } else if (hashAccessToken && hashRefreshToken) {
+        const { data, error } = await supabase.auth.setSession({
+          access_token: hashAccessToken,
+          refresh_token: hashRefreshToken,
+        });
         sessionResult = data ?? null;
         sessionError = error ?? null;
       } else if (tokenHash && authType === "recovery") {
@@ -69,7 +80,7 @@ function PasswordSetup() {
         return;
       }
 
-      if (authCode || tokenHash) {
+      if (authCode || tokenHash || hashAccessToken || hashRefreshToken || hashType) {
         window.history.replaceState({}, document.title, "/account/set-password");
       }
 
