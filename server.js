@@ -129,6 +129,7 @@ const paystackSecret =
   clean(fileEnv.PAYSTACK_SECRET_KEY) ||
   clean(fileEnv.PAYSTACK_LIVE_SECRET_KEY) ||
   clean(fileEnv.PAYSTACK_SECRET) ||
+  clean(fileEnv.Test_Secret_Key) ||
   clean(fileEnv["Test Secret Key"]) ||
   clean(fileEnv["Test Secret Key "]) ||
   clean(fileEnv["SECRET_KEY"]);
