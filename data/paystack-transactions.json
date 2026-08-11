@@ -1,0 +1,437 @@
+{
+  "updatedAt": "2026-08-05T16:44:02.553Z",
+  "transactions": {
+    "n3s8091hm5": {
+      "reference": "n3s8091hm5",
+      "createdAt": "2026-08-04T03:24:33.893Z",
+      "status": "success",
+      "paymentStatus": "success",
+      "amount": 0.2,
+      "currency": "GHS",
+      "email": "reubenallotey434@gmail.com",
+      "callbackUrl": "http://localhost:5173/payment/success",
+      "channels": [
+        "mobile_money"
+      ],
+      "metadata": {
+        "orderId": "1785813873029-b5666b7fdb94e",
+        "orderNumber": "#NX873029",
+        "customerId": "1784252196702-b0f67f058f5a3",
+        "customerName": "Reuben Allotey Kpakpo",
+        "paymentMethod": "mobile-money",
+        "paymentNetwork": "mtn",
+        "phoneNumber": "+233546546382"
+      },
+      "authorizationUrl": "https://checkout.paystack.com/1jvtgsxy7iiuhjy",
+      "accessCode": "1jvtgsxy7iiuhjy",
+      "paystack": {
+        "id": 6422603126,
+        "domain": "live",
+        "status": "success",
+        "reference": "n3s8091hm5",
+        "receipt_number": "86673188243",
+        "amount": 20,
+        "message": "madePayment",
+        "gateway_response": "Approved",
+        "paid_at": "2026-08-04T03:25:32.000Z",
+        "created_at": "2026-08-04T03:24:33.000Z",
+        "channel": "mobile_money",
+        "currency": "GHS",
+        "ip_address": "154.161.224.153",
+        "metadata": {
+          "orderId": "1785813873029-b5666b7fdb94e",
+          "orderNumber": "#NX873029",
+          "customerId": "1784252196702-b0f67f058f5a3",
+          "customerName": "Reuben Allotey Kpakpo",
+          "paymentMethod": "mobile-money",
+          "paymentNetwork": "mtn",
+          "phoneNumber": "+233546546382",
+          "referrer": "http://localhost:5173/"
+        },
+        "log": {
+          "start_time": 1785813877,
+          "time_spent": 56,
+          "attempts": 1,
+          "errors": 0,
+          "success": true,
+          "mobile": false,
+          "input": [],
+          "history": [
+            {
+              "type": "action",
+              "message": "Attempted to pay with mobile money",
+              "time": 36
+            },
+            {
+              "type": "success",
+              "message": "Successfully paid with mobile_money",
+              "time": 56
+            }
+          ]
+        },
+        "fees": 1,
+        "fees_split": null,
+        "authorization": {
+          "authorization_code": "AUTH_ygzomrknwx",
+          "bin": "054XXX",
+          "last4": "X382",
+          "exp_month": "12",
+          "exp_year": "9999",
+          "channel": "mobile_money",
+          "card_type": "",
+          "bank": "MTN",
+          "country_code": "GH",
+          "brand": "Mtn",
+          "reusable": false,
+          "signature": null,
+          "account_name": null,
+          "mobile_money_number": "0546546382",
+          "receiver_bank_account_number": null,
+          "receiver_bank": null
+        },
+        "customer": {
+          "id": 353586573,
+          "first_name": null,
+          "last_name": null,
+          "email": "reubenallotey434@gmail.com",
+          "customer_code": "CUS_tcjsrx6nn22275h",
+          "phone": null,
+          "metadata": null,
+          "risk_action": "default",
+          "international_format_phone": null
+        },
+        "plan": null,
+        "split": {},
+        "order_id": null,
+        "paidAt": "2026-08-04T03:25:32.000Z",
+        "createdAt": "2026-08-04T03:24:33.000Z",
+        "requested_amount": 20,
+        "pos_transaction_data": null,
+        "source": null,
+        "fees_breakdown": [
+          {
+            "amount": 1,
+            "formula": null,
+            "type": "paystack"
+          }
+        ],
+        "connect": null,
+        "transaction_date": "2026-08-04T03:24:33.000Z",
+        "plan_object": {},
+        "subaccount": {}
+      },
+      "orderId": "1785813873029-b5666b7fdb94e",
+      "orderNumber": "#NX873029",
+      "customerId": "1784252196702-b0f67f058f5a3",
+      "customerName": "Reuben Allotey Kpakpo",
+      "paymentMethod": "mobile-money",
+      "paymentNetwork": "mtn",
+      "phoneNumber": "+233546546382",
+      "updatedAt": "2026-08-04T03:25:38.462Z",
+      "gatewayResponse": "Approved",
+      "channel": "mobile_money",
+      "paidAt": "2026-08-04T03:25:32.000Z",
+      "requestedAmount": 0.2
+    },
+    "zgwfwgx8ym": {
+      "reference": "zgwfwgx8ym",
+      "createdAt": "2026-08-04T03:35:22.630Z",
+      "status": "initialized",
+      "paymentStatus": "initiated",
+      "amount": 20,
+      "currency": "GHS",
+      "email": "reubenallotey434@gmail.com",
+      "callbackUrl": "http://localhost:5173/payment/success",
+      "channels": [
+        "card"
+      ],
+      "metadata": {
+        "orderId": "1785814521720-02b10cb3ceda3",
+        "orderNumber": "#NX521720",
+        "customerId": "1784252196702-b0f67f058f5a3",
+        "customerName": "Reuben Allotey Kpakpo",
+        "paymentMethod": "card",
+        "paymentNetwork": "",
+        "phoneNumber": ""
+      },
+      "authorizationUrl": "https://checkout.paystack.com/sbq7zxo98022jz1",
+      "accessCode": "sbq7zxo98022jz1",
+      "paystack": {
+        "authorization_url": "https://checkout.paystack.com/sbq7zxo98022jz1",
+        "access_code": "sbq7zxo98022jz1",
+        "reference": "zgwfwgx8ym"
+      },
+      "orderId": "1785814521720-02b10cb3ceda3",
+      "orderNumber": "#NX521720",
+      "customerId": "1784252196702-b0f67f058f5a3",
+      "customerName": "Reuben Allotey Kpakpo",
+      "paymentMethod": "card",
+      "paymentNetwork": "",
+      "phoneNumber": "",
+      "updatedAt": "2026-08-04T03:35:22.630Z"
+    },
+    "91y5tql8cj": {
+      "reference": "91y5tql8cj",
+      "createdAt": "2026-08-04T03:55:40.754Z",
+      "status": "success",
+      "paymentStatus": "success",
+      "amount": 0.2,
+      "currency": "GHS",
+      "email": "swiftbuy333@gmail.com",
+      "callbackUrl": "http://localhost:5173/payment/success",
+      "channels": [
+        "mobile_money"
+      ],
+      "metadata": {
+        "orderId": "1785815739533-0bfb44e28c9cb8",
+        "orderNumber": "#NX739533",
+        "customerId": "guest",
+        "customerName": "Joshua Allotey Kpakpo",
+        "paymentMethod": "mobile-money",
+        "paymentNetwork": "telecel",
+        "phoneNumber": "054 654 6382"
+      },
+      "authorizationUrl": "https://checkout.paystack.com/y7zy73bmrn1bd09",
+      "accessCode": "y7zy73bmrn1bd09",
+      "paystack": {
+        "id": 6422618766,
+        "domain": "live",
+        "status": "success",
+        "reference": "91y5tql8cj",
+        "receipt_number": "86673338637",
+        "amount": 20,
+        "message": "madePayment",
+        "gateway_response": "Approved",
+        "paid_at": "2026-08-04T03:56:14.000Z",
+        "created_at": "2026-08-04T03:55:39.000Z",
+        "channel": "mobile_money",
+        "currency": "GHS",
+        "ip_address": "154.161.224.153",
+        "metadata": {
+          "orderId": "1785815739533-0bfb44e28c9cb8",
+          "orderNumber": "#NX739533",
+          "customerId": "guest",
+          "customerName": "Joshua Allotey Kpakpo",
+          "paymentMethod": "mobile-money",
+          "paymentNetwork": "telecel",
+          "phoneNumber": "054 654 6382",
+          "referrer": "http://localhost:5173/"
+        },
+        "log": {
+          "start_time": 1785815743,
+          "time_spent": 33,
+          "attempts": 1,
+          "errors": 0,
+          "success": true,
+          "mobile": false,
+          "input": [],
+          "history": [
+            {
+              "type": "action",
+              "message": "Attempted to pay with mobile money",
+              "time": 15
+            },
+            {
+              "type": "success",
+              "message": "Successfully paid with mobile_money",
+              "time": 33
+            }
+          ]
+        },
+        "fees": 1,
+        "fees_split": null,
+        "authorization": {
+          "authorization_code": "AUTH_y88cx7rxkx",
+          "bin": "054XXX",
+          "last4": "X382",
+          "exp_month": "12",
+          "exp_year": "9999",
+          "channel": "mobile_money",
+          "card_type": "",
+          "bank": "MTN",
+          "country_code": "GH",
+          "brand": "Mtn",
+          "reusable": false,
+          "signature": null,
+          "account_name": null,
+          "mobile_money_number": "0546546382",
+          "receiver_bank_account_number": null,
+          "receiver_bank": null
+        },
+        "customer": {
+          "id": 388116604,
+          "first_name": null,
+          "last_name": null,
+          "email": "swiftbuy333@gmail.com",
+          "customer_code": "CUS_0iwd5aidw1ad5kj",
+          "phone": null,
+          "metadata": null,
+          "risk_action": "default",
+          "international_format_phone": null
+        },
+        "plan": null,
+        "split": {},
+        "order_id": null,
+        "paidAt": "2026-08-04T03:56:14.000Z",
+        "createdAt": "2026-08-04T03:55:39.000Z",
+        "requested_amount": 20,
+        "pos_transaction_data": null,
+        "source": null,
+        "fees_breakdown": [
+          {
+            "amount": 1,
+            "formula": null,
+            "type": "paystack"
+          }
+        ],
+        "connect": null,
+        "transaction_date": "2026-08-04T03:55:39.000Z",
+        "plan_object": {},
+        "subaccount": {}
+      },
+      "orderId": "1785815739533-0bfb44e28c9cb8",
+      "orderNumber": "#NX739533",
+      "customerId": "guest",
+      "customerName": "Joshua Allotey Kpakpo",
+      "paymentMethod": "mobile-money",
+      "paymentNetwork": "telecel",
+      "phoneNumber": "054 654 6382",
+      "updatedAt": "2026-08-04T03:56:19.241Z",
+      "gatewayResponse": "Approved",
+      "channel": "mobile_money",
+      "paidAt": "2026-08-04T03:56:14.000Z",
+      "requestedAmount": 0.2
+    },
+    "ja3dbl2j3e": {
+      "reference": "ja3dbl2j3e",
+      "createdAt": "2026-08-05T16:43:16.631Z",
+      "status": "success",
+      "paymentStatus": "success",
+      "amount": 0.2,
+      "currency": "GHS",
+      "email": "emmanuelbanasco21@gmail.com",
+      "callbackUrl": "http://localhost:5173/payment/success",
+      "channels": [
+        "mobile_money"
+      ],
+      "metadata": {
+        "orderId": "1785948193294-b85732e5dafb6",
+        "orderNumber": "#NX193294",
+        "customerId": "1785948046422-fd5600a1241ca8",
+        "customerName": "Pablo Banasco",
+        "paymentMethod": "mobile-money",
+        "paymentNetwork": "mtn",
+        "phoneNumber": "0551382692",
+        "paymentPurpose": "order",
+        "shippingBalanceDue": 0
+      },
+      "authorizationUrl": "https://checkout.paystack.com/pc90q8olpo6v00k",
+      "accessCode": "pc90q8olpo6v00k",
+      "paystack": {
+        "id": 6428256892,
+        "domain": "live",
+        "status": "success",
+        "reference": "ja3dbl2j3e",
+        "receipt_number": "86777764563",
+        "amount": 20,
+        "message": "madePayment",
+        "gateway_response": "Approved",
+        "paid_at": "2026-08-05T16:43:56.000Z",
+        "created_at": "2026-08-05T16:43:16.000Z",
+        "channel": "mobile_money",
+        "currency": "GHS",
+        "ip_address": "154.161.243.98",
+        "metadata": {
+          "orderId": "1785948193294-b85732e5dafb6",
+          "orderNumber": "#NX193294",
+          "customerId": "1785948046422-fd5600a1241ca8",
+          "customerName": "Pablo Banasco",
+          "paymentMethod": "mobile-money",
+          "paymentNetwork": "mtn",
+          "phoneNumber": "0551382692",
+          "paymentPurpose": "order",
+          "shippingBalanceDue": "0",
+          "referrer": "http://localhost:5173/"
+        },
+        "log": {
+          "start_time": 1785948207,
+          "time_spent": 15,
+          "attempts": 1,
+          "errors": 0,
+          "success": false,
+          "mobile": false,
+          "input": [],
+          "history": [
+            {
+              "type": "action",
+              "message": "Attempted to pay with mobile money",
+              "time": 15
+            }
+          ]
+        },
+        "fees": 1,
+        "fees_split": null,
+        "authorization": {
+          "authorization_code": "AUTH_cwqvfxo88o",
+          "bin": "055XXX",
+          "last4": "X692",
+          "exp_month": "12",
+          "exp_year": "9999",
+          "channel": "mobile_money",
+          "card_type": "",
+          "bank": "MTN",
+          "country_code": "GH",
+          "brand": "Mtn",
+          "reusable": false,
+          "signature": null,
+          "account_name": null,
+          "mobile_money_number": "0551382692",
+          "receiver_bank_account_number": null,
+          "receiver_bank": null
+        },
+        "customer": {
+          "id": 355051050,
+          "first_name": null,
+          "last_name": null,
+          "email": "emmanuelbanasco21@gmail.com",
+          "customer_code": "CUS_97w5w0oum2rbdxv",
+          "phone": null,
+          "metadata": null,
+          "risk_action": "default",
+          "international_format_phone": null
+        },
+        "plan": null,
+        "split": {},
+        "order_id": null,
+        "paidAt": "2026-08-05T16:43:56.000Z",
+        "createdAt": "2026-08-05T16:43:16.000Z",
+        "requested_amount": 20,
+        "pos_transaction_data": null,
+        "source": null,
+        "fees_breakdown": [
+          {
+            "amount": 1,
+            "formula": null,
+            "type": "paystack"
+          }
+        ],
+        "connect": null,
+        "transaction_date": "2026-08-05T16:43:16.000Z",
+        "plan_object": {},
+        "subaccount": {}
+      },
+      "orderId": "1785948193294-b85732e5dafb6",
+      "orderNumber": "#NX193294",
+      "customerId": "1785948046422-fd5600a1241ca8",
+      "customerName": "Pablo Banasco",
+      "paymentMethod": "mobile-money",
+      "paymentNetwork": "mtn",
+      "phoneNumber": "0551382692",
+      "updatedAt": "2026-08-05T16:44:02.553Z",
+      "gatewayResponse": "Approved",
+      "channel": "mobile_money",
+      "paidAt": "2026-08-05T16:43:56.000Z",
+      "requestedAmount": 0.2
+    }
+  }
+}

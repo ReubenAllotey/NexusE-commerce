@@ -1,0 +1,14 @@
+export { default as ProfileSectionShell } from "./ProfileSectionShell";
+export { profileSections } from "./profileSections";
+export { default as Dashboard } from "./Dashboard";
+export { default as MyOrders } from "./MyOrders";
+export { default as Shipments } from "./Shipments";
+export { default as Notifications } from "./Notifications";
+export { default as OrderHistory } from "./OrderHistory";
+export { default as Wishlist } from "./Wishlist";
+export { default as Addresses } from "./Addresses";
+export { default as Payments } from "./Payments";
+export { default as Invoices } from "./Invoices";
+export { default as Support } from "./Support";
+export { default as AccountSettings } from "./AccountSettings";
+export { default as Logout } from "./Logout";

@@ -1,0 +1,571 @@
+import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useCategoryRecords } from "../../shared/categoryStorage";
+import { getProductPath, useProducts } from "./productData";
+import logo from "../../assets/images/nexuslogo.png";
+
+const ITEMS_PER_PAGE = 6;
+
+function parseCategorySelection(value, categorySlugSet) {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter((slug) => Boolean(slug) && categorySlugSet.has(slug))
+    .filter(Boolean);
+}
+
+const brandOptions = ["Nexus", "Canon", "Samsung", "TechPro", "NBG", "Omni"];
+
+const sortOptions = [
+  { value: "featured", label: "Featured" },
+  { value: "price-asc", label: "Price: Low to High" },
+  { value: "price-desc", label: "Price: High to Low" },
+  { value: "rating-desc", label: "Top Rated" },
+  { value: "name-asc", label: "Name: A to Z" },
+];
+
+const footerLinks = {
+  support: ["Accra-Ghana", "nexusimport@gmail.com", "+233 53-404-8292"],
+  account: [
+    { label: "My Account", to: "/profile/dashboard" },
+    { label: "Login", to: "/register/login" },
+    { label: "Register", to: "/register/signup" },
+    { label: "Cart", to: "/cart" },
+    { label: "Wishlist", to: "/wishlist" },
+    { label: "Shop", to: "/products" },
+  ],
+  quickLink: [
+    { label: "About", to: "/about" },
+    { label: "Contact", to: "/contact" },
+  ],
+};
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m21 21-4.3-4.3" />
+      <circle cx="11" cy="11" r="6.5" />
+    </svg>
+  );
+}
+
+function HeartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 20.35 10.55 19C5.4 14.36 2 11.28 2 7.5A5.4 5.4 0 0 1 7.5 2c1.74 0 3.41.81 4.5 2.08A6.06 6.06 0 0 1 16.5 2 5.4 5.4 0 0 1 22 7.5c0 3.78-3.4 6.86-8.55 11.5L12 20.35Z" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 5c5.5 0 9.8 4 11 7-1.2 3-5.5 7-11 7S2.2 15 1 12c1.2-3 5.5-7 11-7Zm0 2C8 7 4.7 9.6 3.5 12 4.7 14.4 8 17 12 17s7.3-2.6 8.5-5C19.3 9.6 16 7 12 7Zm0 1.8A3.2 3.2 0 1 1 8.8 12 3.2 3.2 0 0 1 12 8.8Z" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ direction = "right" }) {
+  const d = direction === "left" ? "m14 6-6 6 6 6" : "m10 6 6 6-6 6";
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
+
+function ShopBagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 9h12l-1 11H7L6 9Z" />
+      <path d="M9 9a3 3 0 0 1 6 0" />
+    </svg>
+  );
+}
+
+function StarIcon({ filled = false }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={filled ? "is-filled" : ""}
+    >
+      <path d="m12 3 2.9 5.9 6.5.9-4.7 4.5 1.1 6.4L12 17.6 6.2 20.7l1.1-6.4L2.6 9.8l6.5-.9L12 3Z" />
+    </svg>
+  );
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat("en-GH", {
+    style: "currency",
+    currency: "GHS",
+    currencyDisplay: "symbol",
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+}
+
+function toggleItem(list, item) {
+  return list.includes(item)
+    ? list.filter((entry) => entry !== item)
+    : [...list, item];
+}
+
+function renderStars(score) {
+  const stars = Array.from(
+    { length: 5 },
+    (_, index) => index < Math.round(score),
+  );
+
+  return stars.map((filled, index) => (
+    <StarIcon key={`${index}-${filled}`} filled={filled} />
+  ));
+}
+
+function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
+  return (
+    <article className="shop-card">
+      <button
+        type="button"
+        className={`shop-card__wishlist${isWishlisted ? " is-active" : ""}`}
+        onClick={() => onToggleWishlist(item.name)}
+        aria-label={`${isWishlisted ? "Remove" : "Add"} ${item.name} to wishlist`}
+      >
+        <HeartIcon />
+      </button>
+
+      <div className="shop-card__image">
+        <span className="shop-card__badge">{item.badge}</span>
+        <img
+          src={item.image}
+          alt={item.name}
+          className={
+            item.imageClassName
+              ? `shop-card__photo ${item.imageClassName}`
+              : "shop-card__photo"
+          }
+          loading="lazy"
+        />
+      </div>
+
+      <div className="shop-card__body">
+        <p className="shop-card__meta">
+          {item.brand} <span>•</span> {item.category}
+        </p>
+        <h3>{item.name}</h3>
+        <p className="shop-card__description">{item.description}</p>
+
+        <div className="shop-card__rating" aria-label={`${item.rating} out of 5 stars`}>
+          <div className="shop-card__stars">{renderStars(item.rating)}</div>
+          <span>
+            {item.rating.toFixed(1)} ({item.reviews})
+          </span>
+        </div>
+
+          <div className="shop-card__footer">
+            <div className="shop-card__pricing">
+              <strong>{formatMoney(item.price)}</strong>
+              <span>{item.compareAt ? formatMoney(item.compareAt) : "—"}</span>
+            </div>
+
+            <div className="shop-card__cta-group">
+              <Link to={getProductPath(item.slug)} className="shop-card__view">
+                <EyeIcon />
+                View
+              </Link>
+            <button
+              type="button"
+              className="shop-card__add"
+              onClick={() => onAddToCart(item.slug)}
+            >
+              <ShopBagIcon />
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function Products({
+  onAddToCart = () => {},
+  onToggleWishlist = () => {},
+  wishlistItems = [],
+}) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    products,
+    loading: productsLoading,
+    error: productsError,
+  } = useProducts();
+  const {
+    records: categoryRecords,
+    loading: categoriesLoading,
+    error: categoriesError,
+  } = useCategoryRecords();
+  const categoryParam = searchParams.get("category") ?? "";
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedBrands, setSelectedBrands] = useState([]);
+  const [sortBy, setSortBy] = useState("featured");
+  const [priceLimit, setPriceLimit] = useState(1500);
+  const [currentPage, setCurrentPage] = useState(1);
+  const visibleCategoryRecords = useMemo(
+    () =>
+      categoryRecords
+        .filter((category) => category.status === "active" && !category.deletedAt && !category.parentId)
+        .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.name.localeCompare(right.name)),
+    [categoryRecords],
+  );
+  const categoryOptions = useMemo(
+    () =>
+      visibleCategoryRecords
+        .map((record) => {
+          return {
+            slug: record.slug,
+            label: record.name,
+            name: record.name,
+          };
+        }),
+    [visibleCategoryRecords],
+  );
+  const categorySlugSet = useMemo(
+    () => new Set(visibleCategoryRecords.map((category) => category.slug)),
+    [visibleCategoryRecords],
+  );
+  const selectedCategoryTokens = categoryParam
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+  const selectedCategories = parseCategorySelection(categoryParam, categorySlugSet);
+  const hasInvalidCategorySelection =
+    selectedCategoryTokens.length > 0 && selectedCategories.length !== selectedCategoryTokens.length;
+
+  const filteredProducts = useMemo(
+    () =>
+      (Array.isArray(products) ? products : [])
+        .filter((item) => {
+          const haystack =
+            `${item.name} ${item.description} ${item.brand} ${item.category}`.toLowerCase();
+          const matchesSearch = haystack.includes(searchTerm.toLowerCase());
+          const matchesCategory = hasInvalidCategorySelection
+            ? false
+            : selectedCategories.length === 0 || selectedCategories.includes(item.categorySlug);
+          const matchesBrand =
+            selectedBrands.length === 0 || selectedBrands.includes(item.brand);
+          const matchesPrice = item.price <= priceLimit;
+
+          return matchesSearch && matchesCategory && matchesBrand && matchesPrice;
+        })
+        .sort((a, b) => {
+          switch (sortBy) {
+            case "price-asc":
+              return a.price - b.price;
+            case "price-desc":
+              return b.price - a.price;
+            case "rating-desc":
+              return b.rating - a.rating;
+            case "name-asc":
+              return a.name.localeCompare(b.name);
+            default:
+              return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
+          }
+        }),
+    [hasInvalidCategorySelection, priceLimit, products, searchTerm, selectedBrands, selectedCategories, sortBy],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * ITEMS_PER_PAGE;
+  const visibleProducts = filteredProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handleCategoryToggle = (category) => {
+    const nextCategories = toggleItem(selectedCategories, category);
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (nextCategories.length === 0) {
+      nextParams.delete("category");
+    } else {
+      nextParams.set(
+        "category",
+        nextCategories
+          .join(","),
+      );
+    }
+
+    setSearchParams(nextParams, { replace: true });
+    setCurrentPage(1);
+  };
+
+  const handleBrandToggle = (brand) => {
+    setSelectedBrands((current) => toggleItem(current, brand));
+    setCurrentPage(1);
+  };
+
+  const handleSortChange = (value) => {
+    setSortBy(value);
+    setCurrentPage(1);
+  };
+
+  const handlePriceChange = (value) => {
+    setPriceLimit(Number(value));
+    setCurrentPage(1);
+  };
+
+  return (
+    <main className="shop-page" id="top">
+      <div className="shop-page__content">
+        <div className="shop-shell">
+          <div className="shop-breadcrumb">
+            <Link to="/">Home</Link>
+            <ChevronIcon direction="right" />
+            <span>Products</span>
+          </div>
+
+          <section className="shop-layout" id="catalog">
+            <aside className="shop-sidebar" id="filters">
+              <div className="shop-filter">
+                <h3>Categories</h3>
+                {categoriesError ? <p className="shop-filter__note">Unable to load categories.</p> : null}
+                <div className="shop-filter__list">
+                  {categoriesLoading && categoryOptions.length === 0 ? (
+                    <p className="shop-filter__note">Loading categories...</p>
+                  ) : categoryOptions.length > 0 ? (
+                    categoryOptions.map((category) => (
+                      <label key={category.slug} className="shop-check">
+                        <input
+                          type="checkbox"
+                        checked={selectedCategories.includes(category.slug)}
+                        onChange={() => handleCategoryToggle(category.slug)}
+                      />
+                        <span>{category.label}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p className="shop-filter__note">No categories available.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="shop-filter">
+                <h3>Brand</h3>
+                <div className="shop-filter__list">
+                  {brandOptions.map((brand) => (
+                    <label key={brand} className="shop-check">
+                      <input
+                        type="checkbox"
+                        checked={selectedBrands.includes(brand)}
+                        onChange={() => handleBrandToggle(brand)}
+                      />
+                      <span>{brand}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="shop-filter">
+                <h3>Price Range</h3>
+                <div className="shop-range">
+                  <input
+                    type="range"
+                    min="0"
+                    max="1500"
+                    step="25"
+                    value={priceLimit}
+                    onChange={(event) => handlePriceChange(event.target.value)}
+                  />
+                  <div className="shop-range__labels">
+                    <span>$0</span>
+                    <span>{formatMoney(priceLimit)} max</span>
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            <div className="shop-main">
+              <div className="shop-toolbar">
+                <label className="shop-toolbar__search" htmlFor="shop-toolbar-search">
+                  <SearchIcon />
+                  <input
+                    id="shop-toolbar-search"
+                    type="search"
+                    value={searchTerm}
+                    onChange={(event) => handleSearchChange(event.target.value)}
+                    placeholder="Search in Nexus catalog..."
+                  />
+                </label>
+
+                <label className="shop-toolbar__sort" htmlFor="shop-sort">
+                  <span>Sort by:</span>
+                  <select
+                    id="shop-sort"
+                    value={sortBy}
+                    onChange={(event) => handleSortChange(event.target.value)}
+                  >
+                    {sortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {productsError ? (
+                <div className="shop-empty">
+                  <h3>Unable to load products right now.</h3>
+                  <p>{productsError.message || "Please try again in a moment."}</p>
+                </div>
+              ) : null}
+
+              {productsLoading && filteredProducts.length === 0 ? (
+                <div className="shop-empty">
+                  <h3>Loading products...</h3>
+                  <p>We are pulling the current catalog from Supabase.</p>
+                </div>
+              ) : null}
+
+              <p className="shop-summary">
+                Showing {filteredProducts.length} product
+                {filteredProducts.length === 1 ? "" : "s"}
+              </p>
+
+              <div className="shop-grid">
+                {visibleProducts.length > 0 ? (
+                  visibleProducts.map((item) => (
+                    <ProductCard
+                      key={item.name}
+                      item={item}
+                      isWishlisted={wishlistItems.includes(item.name)}
+                      onAddToCart={onAddToCart}
+                      onToggleWishlist={onToggleWishlist}
+                    />
+                  ))
+                ) : (
+                  <div className="shop-empty">
+                    <h3>No products match your filters.</h3>
+                    <p>Try clearing a category, brand, or search term to see more items.</p>
+                  </div>
+                )}
+              </div>
+
+              {filteredProducts.length > 0 ? (
+                <div className="shop-pagination" aria-label="Pagination">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                    disabled={safePage === 1}
+                    aria-label="Previous page"
+                  >
+                    <ChevronIcon direction="left" />
+                  </button>
+
+                  {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                    <button
+                      type="button"
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={page === safePage ? "is-active" : ""}
+                      aria-label={`Page ${page}`}
+                      aria-current={page === safePage ? "page" : undefined}
+                    >
+                      {page}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((page) => Math.min(page + 1, totalPages))}
+                    disabled={safePage === totalPages}
+                    aria-label="Next page"
+                  >
+                    <ChevronIcon direction="right" />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <footer className="site-footer" id="footer">
+        <div className="site-shell site-footer__inner">
+          <div className="site-footer__brand">
+            <div className="site-footer__brand-row">
+              <img src={logo} alt="Nexus logo " className="site-footer__logo" />
+              <div>
+                <h3>Nexus Imports </h3>
+                <p>Subscribe</p>
+              </div>
+            </div>
+            <span>Get 10% off your first order</span>
+
+            <form
+              className="site-footer__form"
+              onSubmit={(event) => event.preventDefault()}
+            >
+              <input
+                type="email"
+                placeholder="Enter your email"
+                aria-label="Email address"
+              />
+              <button type="submit" aria-label="Subscribe">
+                &rarr;
+              </button>
+            </form>
+          </div>
+
+          <div className="site-footer__column">
+            <h3>Support</h3>
+            {footerLinks.support.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
+
+          <div className="site-footer__column">
+            <h3>Account</h3>
+            {footerLinks.account.map((item) => (
+              <Link to={item.to} key={item.label}>
+                {item.label}
+              </Link>
+            ))}
+          </div>
+
+          <div className="site-footer__column">
+            <h3>Quick Link</h3>
+            {footerLinks.quickLink.map((item) => (
+              <Link to={item.to} key={item.label}>
+                {item.label}
+              </Link>
+            ))}
+          </div>
+
+          <div className="site-footer__column">
+            <h3>Connect</h3>
+            <div className="site-footer__socials" aria-label="Social links">
+              <span>f</span>
+              <span>t</span>
+              <span>i</span>
+              <span>in</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="site-shell site-footer__bottom">
+          <p>Copyright @ Nexus 2026</p>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+export default Products;

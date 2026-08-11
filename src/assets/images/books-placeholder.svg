@@ -1,0 +1,21 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Books illustration">
+  <defs>
+    <linearGradient id="booksBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f2937" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <linearGradient id="booksCover" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fde68a" />
+      <stop offset="100%" stop-color="#fb7185" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="72" fill="url(#booksBg)" />
+  <rect x="110" y="120" width="220" height="260" rx="22" fill="#111827" opacity="0.85" />
+  <rect x="140" y="95" width="220" height="260" rx="22" fill="url(#booksCover)" transform="rotate(8 140 95)" />
+  <rect x="176" y="132" width="144" height="18" rx="9" fill="#111827" opacity="0.6" transform="rotate(8 176 132)" />
+  <rect x="176" y="170" width="126" height="18" rx="9" fill="#111827" opacity="0.55" transform="rotate(8 176 170)" />
+  <rect x="176" y="208" width="98" height="18" rx="9" fill="#111827" opacity="0.5" transform="rotate(8 176 208)" />
+  <circle cx="356" cy="344" r="42" fill="#fff" opacity="0.14" />
+  <path d="M348 316h16v56h-16z" fill="#fff" opacity="0.85" />
+  <path d="M330 334h52v16h-52z" fill="#fff" opacity="0.85" />
+</svg>
