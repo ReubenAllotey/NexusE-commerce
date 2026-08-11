@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 
+const INVALID_RESET_MESSAGE =
+  "This password reset link is invalid or has expired. Please request a new one.";
+
 async function getAccessToken() {
   const { data, error } = await supabase.auth.getSession();
 
@@ -23,6 +26,7 @@ function PasswordSetup() {
   const [isLoading, setIsLoading] = useState(true);
   const [sessionEmail, setSessionEmail] = useState("");
   const [sessionAccessToken, setSessionAccessToken] = useState("");
+  const [sessionReady, setSessionReady] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     newPassword: "",
     confirmPassword: "",
@@ -33,8 +37,20 @@ function PasswordSetup() {
 
   useEffect(() => {
     let isMounted = true;
+    let unsubscribe = () => {};
 
-    const loadSession = async () => {
+    const applySession = (session) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setSessionEmail(session?.user?.email ?? "");
+      setSessionAccessToken(session?.access_token ?? "");
+      setSessionReady(Boolean(session?.access_token));
+      setIsLoading(false);
+    };
+
+    const restoreSession = async () => {
       const url = new URL(window.location.href);
       const hashParams = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : "");
       const authCode = url.searchParams.get("code") || "";
@@ -43,6 +59,9 @@ function PasswordSetup() {
       const hashAccessToken = hashParams.get("access_token") || "";
       const hashRefreshToken = hashParams.get("refresh_token") || "";
       const hashType = hashParams.get("type") || "";
+      const hasRecoveryPayload = Boolean(
+        authCode || tokenHash || hashAccessToken || hashRefreshToken || hashType,
+      );
       let sessionResult = null;
       let sessionError = null;
 
@@ -75,24 +94,43 @@ function PasswordSetup() {
       }
 
       if (sessionError) {
-        setError(sessionError.message || "Unable to restore your password setup session.");
+        setError(INVALID_RESET_MESSAGE);
         setIsLoading(false);
         return;
       }
 
-      if (authCode || tokenHash || hashAccessToken || hashRefreshToken || hashType) {
+      if (!sessionResult?.session) {
+        setError(INVALID_RESET_MESSAGE);
+        setIsLoading(false);
+        return;
+      }
+
+      if (hasRecoveryPayload) {
         window.history.replaceState({}, document.title, "/account/set-password");
       }
 
-      setSessionEmail(sessionResult?.session?.user?.email ?? "");
-      setSessionAccessToken(sessionResult?.session?.access_token ?? "");
-      setIsLoading(false);
+      applySession(sessionResult?.session ?? null);
     };
 
-    void loadSession();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) {
+        return;
+      }
+
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        applySession(session ?? null);
+      }
+    });
+
+    unsubscribe = () => subscription.unsubscribe();
+
+    void restoreSession();
 
     return () => {
       isMounted = false;
+      unsubscribe();
     };
   }, []);
 
@@ -125,10 +163,11 @@ function PasswordSetup() {
     setIsSubmitting(true);
 
     try {
-      const token = sessionAccessToken || (await getAccessToken()).accessToken;
+      const { data: currentSession } = await supabase.auth.getSession();
+      const token = currentSession?.session?.access_token || sessionAccessToken || (await getAccessToken()).accessToken;
 
       if (!token) {
-        throw new Error("Please open the password setup link from your email again.");
+        throw new Error(INVALID_RESET_MESSAGE);
       }
 
       const { error: updateError } = await supabase.auth.updateUser({
@@ -139,11 +178,14 @@ function PasswordSetup() {
         throw updateError;
       }
 
+      const { data: refreshedSession } = await supabase.auth.getSession();
+      const refreshedToken = refreshedSession?.session?.access_token || token;
+
       const response = await fetch("/api/account/change-password", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${refreshedToken}`,
         },
         body: JSON.stringify({
           newPassword,
@@ -217,7 +259,11 @@ function PasswordSetup() {
             />
           </label>
 
-          <button type="submit" className="auth-form__button" disabled={isLoading || isSubmitting}>
+          <button
+            type="submit"
+            className="auth-form__button"
+            disabled={isLoading || isSubmitting || !sessionReady}
+          >
             {isSubmitting ? "Saving password..." : "Save password"}
           </button>
         </form>
