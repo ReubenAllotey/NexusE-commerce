@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
-const ROOT_DIR = process.cwd();
+const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 const PORT = Number(process.env.PORT || 3001);
 
@@ -126,6 +127,7 @@ const paystackSecret =
   clean(process.env.PAYSTACK_SECRET_KEY) ||
   clean(process.env.PAYSTACK_LIVE_SECRET_KEY) ||
   clean(process.env.PAYSTACK_SECRET) ||
+  clean(process.env.Test_Secret_Key) ||
   clean(fileEnv.PAYSTACK_SECRET_KEY) ||
   clean(fileEnv.PAYSTACK_LIVE_SECRET_KEY) ||
   clean(fileEnv.PAYSTACK_SECRET) ||
