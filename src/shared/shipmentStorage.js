@@ -349,6 +349,33 @@ function buildShipmentBatchSummaries(shipments = []) {
     );
 }
 
+function getPrimaryTrackedShipmentSummary({ orders = [], shipments = [] } = {}) {
+  const orderedOrders = [...(Array.isArray(orders) ? orders : [])]
+    .filter((order) => order && typeof order === "object" && clean(order.id))
+    .sort(
+      (left, right) =>
+        new Date(right.updatedAt ?? right.createdAt ?? 0) -
+        new Date(left.updatedAt ?? left.createdAt ?? 0),
+    );
+  const shipmentSummaries = Array.isArray(shipments) ? shipments : [];
+
+  for (const order of orderedOrders) {
+    const batchNumber = normalizeKey(order.batchNumber ?? order.batch_number);
+
+    if (!batchNumber) {
+      continue;
+    }
+
+    const match = shipmentSummaries.find((summary) => normalizeKey(summary.batchNumber) === batchNumber);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return shipmentSummaries[0] ?? null;
+}
+
 async function loadShipmentRows({ orderIds = [] } = {}) {
   const orderIdList = [...new Set((Array.isArray(orderIds) ? orderIds : []).map((value) => clean(value)).filter(Boolean))];
 
@@ -594,6 +621,7 @@ export async function loadShipmentDashboard({ orders = [] } = {}) {
   const shipmentsByOrderId = new Map(mappedRows.map((shipment) => [shipment.orderId, shipment]));
   const shipmentsByBatchNumber = new Map(mappedRows.map((shipment) => [normalizeKey(shipment.batchNumber), shipment]));
   const shipments = buildShipmentBatchSummaries(mappedRows);
+  const primaryShipment = getPrimaryTrackedShipmentSummary({ orders, shipments });
 
   return {
     ok: true,
@@ -601,6 +629,7 @@ export async function loadShipmentDashboard({ orders = [] } = {}) {
     shipmentRows: mappedRows,
     shipmentsByOrderId,
     shipmentsByBatchNumber,
+    primaryShipment,
   };
 }
 
@@ -700,6 +729,7 @@ export function useShipmentBatches({ orders = [] } = {}) {
     shipmentRows: [],
     shipmentsByOrderId: new Map(),
     shipmentsByBatchNumber: new Map(),
+    primaryShipment: null,
   });
   const [refreshToken, setRefreshToken] = useState(0);
   const requestIdRef = useRef(0);
@@ -747,6 +777,7 @@ export function useShipmentBatches({ orders = [] } = {}) {
           shipmentRows: [],
           shipmentsByOrderId: new Map(),
           shipmentsByBatchNumber: new Map(),
+          primaryShipment: null,
         });
         return;
       }
@@ -758,6 +789,7 @@ export function useShipmentBatches({ orders = [] } = {}) {
         shipmentRows: result.shipmentRows,
         shipmentsByOrderId: result.shipmentsByOrderId,
         shipmentsByBatchNumber: result.shipmentsByBatchNumber,
+        primaryShipment: result.primaryShipment,
       });
     };
 
@@ -777,6 +809,7 @@ export function useShipmentBatches({ orders = [] } = {}) {
 export {
   getProgressPercent as getShipmentProgressPercent,
   getShippingMethodLabel as getShipmentShippingMethodLabel,
+  getPrimaryTrackedShipmentSummary,
   getStatusForStep as getShipmentStatusForStep,
   getStepLabel as getShipmentStepLabel,
   getStepState as getShipmentStepState,

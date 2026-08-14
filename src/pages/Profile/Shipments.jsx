@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import ProfileSectionShell from "./ProfileSectionShell";
 import { loadSessionUser } from "../register/authStorage";
-import { isDeliveredOrder, isInTransitOrder, isOwnedOrder } from "./ordersStorage";
+import { isOwnedOrder } from "./ordersStorage";
 import { SHIPMENT_STEPS, useShipmentBatches } from "../../shared/shipmentStorage";
 import ShipmentTrack from "../../shared/ShipmentTrack";
 
@@ -27,55 +27,45 @@ function formatMoney(value) {
   }).format(Number(value) || 0);
 }
 
-function getShipmentLabel(order, shipment) {
-  if (shipment?.currentStatus) {
-    if (shipment.currentStatus === "delivered") {
-      return "Delivered";
-    }
-
-    if (shipment.currentStatus === "out_for_delivery") {
-      return "Out for delivery";
-    }
-
-    if (shipment.currentStatus === "arrived_in_ghana") {
-      return "Arrived in Ghana";
-    }
-
-    if (shipment.currentStatus === "in_transit") {
-      return "In transit";
-    }
-  }
-
-  if (isDeliveredOrder(order)) {
+function getShipmentLabel(shipment) {
+  if (shipment?.currentStatus === "delivered") {
     return "Delivered";
   }
 
-  if (isInTransitOrder(order)) {
+  if (shipment?.currentStatus === "out_for_delivery") {
+    return "Out for delivery";
+  }
+
+  if (shipment?.currentStatus === "arrived_in_ghana") {
+    return "Arrived in Ghana";
+  }
+
+  if (shipment?.currentStatus === "in_transit") {
     return "In transit";
   }
 
-  return "Preparing";
+  if (shipment?.currentStatus === "shipped_from_china") {
+    return "Shipped from China";
+  }
+
+  if (shipment) {
+    return "Preparing";
+  }
+
+  return "Waiting for admin tracking";
 }
 
-function getShipmentProgress(order, shipment) {
+function getShipmentProgress(shipment) {
   if (shipment) {
     return shipment.progressPercent ?? 0;
   }
 
-  if (isDeliveredOrder(order)) {
-    return 100;
-  }
-
-  if (isInTransitOrder(order)) {
-    return 68;
-  }
-
-  return 34;
+  return 0;
 }
 
 function getEstimatedDeliveryDate(order, shipment) {
   const baseDate = new Date(order?.updatedAt ?? order?.createdAt ?? Date.now());
-  const offsetDays = shipment?.currentStatus === "delivered" || isDeliveredOrder(order) ? 0 : 5;
+  const offsetDays = shipment?.currentStatus === "delivered" ? 0 : 5;
   baseDate.setDate(baseDate.getDate() + offsetDays);
   return baseDate;
 }
@@ -84,9 +74,7 @@ function Shipments({ orders = [], authUser = null }) {
   const sessionUser = authUser ?? loadSessionUser();
 
   const visibleOrders = orders
-    .filter((order) => {
-      return isOwnedOrder(order, sessionUser);
-    })
+    .filter((order) => isOwnedOrder(order, sessionUser))
     .slice()
     .sort((a, b) => new Date(b.updatedAt ?? b.createdAt ?? 0) - new Date(a.updatedAt ?? a.createdAt ?? 0));
 
@@ -95,15 +83,17 @@ function Shipments({ orders = [], authUser = null }) {
     shipmentsByOrderId,
     loading: shipmentsLoading,
     error: shipmentsError,
+    primaryShipment,
   } = useShipmentBatches({ orders: visibleOrders });
 
-  const activeShipments = visibleOrders.filter((order) => {
+  const trackedOrders = visibleOrders.filter((order) => shipmentsByOrderId.has(order.id));
+  const activeShipments = trackedOrders.filter((order) => {
     const shipment = shipmentsByOrderId.get(order.id);
-    return shipment ? shipment.currentStatus !== "delivered" : !isDeliveredOrder(order);
+    return shipment ? shipment.currentStatus !== "delivered" : false;
   });
-  const deliveredShipments = visibleOrders.filter((order) => {
+  const deliveredShipments = trackedOrders.filter((order) => {
     const shipment = shipmentsByOrderId.get(order.id);
-    return shipment ? shipment.currentStatus === "delivered" : isDeliveredOrder(order);
+    return shipment ? shipment.currentStatus === "delivered" : false;
   });
   const totalItems = visibleOrders.reduce(
     (sum, order) =>
@@ -114,13 +104,18 @@ function Shipments({ orders = [], authUser = null }) {
     0,
   );
 
-  const featuredSummary = shipmentSummaries[0] ?? null;
-  const featuredOrder = featuredSummary?.orders?.[0] ?? visibleOrders[0] ?? null;
+  const featuredSummary = primaryShipment ?? shipmentSummaries[0] ?? null;
+  const featuredOrder =
+    featuredSummary?.orders?.[0] ??
+    visibleOrders.find((order) => order.batchNumber && order.batchNumber === featuredSummary?.batchNumber) ??
+    trackedOrders[0] ??
+    visibleOrders[0] ??
+    null;
 
   const stats = [
     {
       label: "Total Shipments",
-      value: visibleOrders.length,
+      value: trackedOrders.length,
       note: "All tracked orders in your account.",
     },
     {
@@ -147,20 +142,9 @@ function Shipments({ orders = [], authUser = null }) {
       return summary.stepStates;
     }
 
-    const fallbackIndex = isDeliveredOrder(order)
-      ? SHIPMENT_STEPS.length - 1
-      : isInTransitOrder(order)
-        ? 3
-        : 0;
-
-    return SHIPMENT_STEPS.map((step, index) => ({
+    return SHIPMENT_STEPS.map((step) => ({
       ...step,
-      state:
-        index < fallbackIndex
-          ? "done"
-          : index === fallbackIndex
-            ? "active"
-            : "pending",
+      state: "pending",
     }));
   };
 
@@ -208,7 +192,7 @@ function Shipments({ orders = [], authUser = null }) {
               </h2>
             </div>
             {featuredSummary || featuredOrder ? (
-              <span>{getShipmentLabel(featuredOrder, featuredSummary)}</span>
+              <span>{getShipmentLabel(featuredSummary)}</span>
             ) : (
               <span>Waiting for your first order</span>
             )}
@@ -220,26 +204,24 @@ function Shipments({ orders = [], authUser = null }) {
                 <div className="shipment-progress__meta">
                   <div>
                     <strong>
-                      {featuredSummary?.stepLabel ?? getShipmentLabel(featuredOrder, featuredSummary)}
+                      {featuredSummary?.stepLabel ?? getShipmentLabel(featuredSummary)}
                     </strong>
                     <span>
                       {featuredSummary?.body ||
                         featuredSummary?.latestEvent?.message ||
-                        (getShipmentLabel(featuredOrder, featuredSummary) === "Delivered"
-                          ? "Your order has reached the customer."
-                          : "Your order is on the move between hubs.")}
+                        (featuredSummary
+                          ? "Your order is on the move between admin-tracked hubs."
+                          : "Your order is waiting for admin tracking.")}
                     </span>
                   </div>
-                  <strong>
-                    {getShipmentProgress(featuredOrder, featuredSummary)}%
-                  </strong>
+                  <strong>{getShipmentProgress(featuredSummary)}%</strong>
                 </div>
 
                 <div className="shipment-progress__track" aria-hidden="true">
                   <span
                     className="shipment-progress__fill"
                     style={{
-                      width: `${getShipmentProgress(featuredOrder, featuredSummary)}%`,
+                      width: `${getShipmentProgress(featuredSummary)}%`,
                     }}
                   />
                 </div>
@@ -284,7 +266,7 @@ function Shipments({ orders = [], authUser = null }) {
           ) : (
             <div className="shipment-empty">
               <p>No shipment data yet.</p>
-              <span>Once you place an order, its tracking details will appear here.</span>
+              <span>Once the admin creates a shipment batch for your order, it will appear here.</span>
               <Link to="/products" className="shipment-empty__button">
                 Shop now
               </Link>
@@ -314,15 +296,15 @@ function Shipments({ orders = [], authUser = null }) {
                     <div className="shipment-card__header">
                       <div>
                         <p>{order.orderNumber}</p>
-                        <strong>{shipment?.stepLabel ?? getShipmentLabel(order, shipment)}</strong>
+                        <strong>{shipment?.stepLabel ?? getShipmentLabel(shipment)}</strong>
                       </div>
-                      <span>{getShipmentProgress(order, shipment)}%</span>
+                      <span>{getShipmentProgress(shipment)}%</span>
                     </div>
 
                     <div className="shipment-card__bar" aria-hidden="true">
                       <span
                         style={{
-                          width: `${getShipmentProgress(order, shipment)}%`,
+                          width: `${getShipmentProgress(shipment)}%`,
                         }}
                       />
                     </div>
@@ -369,7 +351,7 @@ function Shipments({ orders = [], authUser = null }) {
           ) : (
             <div className="shipment-empty">
               <p>No shipments to track yet.</p>
-              <span>Orders you place will show up here with live progress.</span>
+              <span>Orders you place will show up here once the admin creates a shipment batch.</span>
             </div>
           )}
         </section>

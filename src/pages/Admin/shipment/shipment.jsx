@@ -461,6 +461,8 @@ function ShipmentPage({
       }
 
       await refreshProducts();
+      await refreshShipments();
+
       setFeeDraft(getEmptyFeeDraft());
       setFeeModalOpen(false);
     } finally {

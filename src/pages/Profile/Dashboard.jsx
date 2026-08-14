@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import ProfileSectionShell from "./ProfileSectionShell";
 import { getNotificationsForUser } from "./notificationsStorage";
-import { isDeliveredOrder, isInTransitOrder, isOwnedOrder } from "./ordersStorage";
+import { isOwnedOrder } from "./ordersStorage";
 import { SHIPMENT_STEPS, useShipmentBatches } from "../../shared/shipmentStorage";
 import ShipmentTrack from "../../shared/ShipmentTrack";
 
@@ -44,47 +44,27 @@ function Dashboard({
         )
     : [];
   const visibleNotifications = getNotificationsForUser(notifications, sessionUser);
-  const { shipments: shipmentSummaries } = useShipmentBatches({ orders: visibleOrders });
-  const trackableOrders = visibleOrders.filter(
-    (order) => isInTransitOrder(order) || isDeliveredOrder(order),
-  );
-  const latestTrackableOrder = trackableOrders[0] ?? null;
-  const activeShipment = shipmentSummaries[0] ?? null;
-  const hasShipmentTracking = Boolean(activeShipment || latestTrackableOrder);
+  const { primaryShipment: activeShipment } = useShipmentBatches({
+    orders: visibleOrders,
+  });
+  const hasShipmentTracking = Boolean(activeShipment);
 
   const activeOrders = visibleOrders.filter(
     (order) => order.status !== "delivered",
   ).length;
-  const shipments = visibleOrders.filter(
-    (order) => order.status === "in_transit",
-  ).length;
+  const shipments = activeShipment ? 1 : 0;
   const paymentCount = visibleOrders.length;
   const recentOrders = visibleOrders.slice(0, 3);
   const recentNotifications = visibleNotifications.slice(0, 3);
   const latestOrder = visibleOrders[0] ?? null;
   const currentMilestone = activeShipment
     ? `${activeShipment.batchNumber} · ${activeShipment.stepLabel}`
-    : latestTrackableOrder
-      ? latestTrackableOrder.status === "delivered"
-        ? `Order ${latestTrackableOrder.orderNumber} delivered`
-        : `Order ${latestTrackableOrder.orderNumber} in transit`
-      : "Awaiting your first order";
+    : "Awaiting your first tracked shipment";
   const shipmentSteps =
     activeShipment?.stepStates ??
-    SHIPMENT_STEPS.map((step, index) => ({
+    SHIPMENT_STEPS.map((step) => ({
       ...step,
-      state:
-        index === 0
-          ? latestTrackableOrder
-            ? "done"
-            : "pending"
-          : latestTrackableOrder
-            ? latestTrackableOrder.status === "delivered"
-              ? "done"
-              : index === 1
-                ? "active"
-                : "pending"
-            : "pending",
+      state: "pending",
     }));
 
   const stats = [
@@ -142,13 +122,7 @@ function Dashboard({
               <div className="dashboard-progress__meta">
                 <div>
                   <strong>{currentMilestone}</strong>
-                  <span>
-                    {activeShipment
-                      ? "Your latest tracked shipment is being shown here."
-                      : latestTrackableOrder
-                        ? `Order ${latestTrackableOrder.orderNumber} is now visible in your tracking feed.`
-                        : "Your tracking feed is ready."}
-                  </span>
+                  <span>Your latest admin-tracked shipment is being shown here.</span>
                 </div>
               </div>
 
@@ -157,7 +131,7 @@ function Dashboard({
           ) : (
             <div className="dashboard-empty">
               <p>No shipment tracking yet.</p>
-              <span>Place and confirm your first order to see shipment progress here.</span>
+              <span>Your shipment progress will appear here once the admin creates a tracking batch.</span>
             </div>
           )}
         </section>
