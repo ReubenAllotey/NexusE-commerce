@@ -1523,8 +1523,8 @@
   min-height: 2.6rem;
   padding: 0 0.85rem;
   border-radius: 0.7rem;
-  background: linear-gradient(180deg, #f6c65b 0%, #e6a62f 100%);
-  color: #201300;
+  background: linear-gradient(180deg, #db4444 0%, #c83636 100%);
+  color: #ffffff;
   font-size: 0.7rem;
   font-weight: 900;
   letter-spacing: 0.06em;
@@ -1548,7 +1548,7 @@
 
 .site-banner-strip__eyebrow {
   margin: 0;
-  color: #f6c65b;
+  color: #db4444;
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.16em;
@@ -1571,7 +1571,7 @@
 }
 
 .site-banner-strip__meta {
-  color: #f0bf4a !important;
+  color: #db4444 !important;
   font-weight: 700;
 }
 
@@ -1605,7 +1605,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  color: #f6c65b;
+  color: #db4444;
   font-size: 0.7rem;
   font-weight: 900;
   letter-spacing: 0.14em;
@@ -1621,7 +1621,7 @@
 
 .site-banner-strip__reflection-verse {
   margin: 0.45rem 0 0;
-  color: #f6c65b;
+  color: #db4444;
   font-weight: 800;
 }
 
@@ -16193,6 +16193,10 @@
   color: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+.site-header__menu-button {
+  color: #db4444;
 }
 
 .site-header__menu-button svg,
