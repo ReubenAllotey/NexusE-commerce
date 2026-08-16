@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-// import logo from "../../images/nexuslogo.png";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getCategoryProductsPath } from "../../../pages/Home/catalogData";
 import { useCategoryTree } from "../../../shared/categoryStorage";
 import MobileDrawer from "../../../shared/mobileDrawer";
@@ -16,7 +15,7 @@ function ChevronDownIcon() {
 function HeartIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 20.35 10.55 19C5.4 14.36 2 11.28 2 7.5A5.4 5.4 0 0 1 7.5 2c1.74 0 3.41.81 4.5 2.08A6.06 6.06 0 0 1 16.5 2 5.4 5.4 0 0 1 22 7.5c0 3.78-3.4 6.86-8.55 11.5L12 20.35Z" />
+      <path d="M12 20.8s-7.8-5.4-9.5-10.4C1 6.8 3.1 3.2 6.9 2.7c2.5-.3 4.4.8 5.8 2.8 1.4-2 3.3-3.1 5.8-2.8 3.8.5 5.9 4.1 4.4 7.7-1.7 5-9.5 10.4-9.5 10.4Z" />
     </svg>
   );
 }
@@ -24,8 +23,10 @@ function HeartIcon() {
 function CartIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7 7h10l1 11H6L7 7Z" />
-      <path d="M9 7a3 3 0 0 1 6 0" />
+      <path d="M3 4h2.5l2 11h11.2l1.6-7H8" />
+      <path d="M8.4 15h9.9" />
+      <circle cx="10.4" cy="20" r="1.4" />
+      <circle cx="18.1" cy="20" r="1.4" />
     </svg>
   );
 }
@@ -49,6 +50,32 @@ function BellIcon() {
   );
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M19.5 14.5A8.5 8.5 0 0 1 9.5 4.5 8.5 8.5 0 1 0 19.5 14.5Z" />
+    </svg>
+  );
+}
+
 function MenuIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -67,8 +94,17 @@ function Header({
   onLogout = () => {},
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { tree: categoryTree, loading: categoriesLoading, error: categoriesError } = useCategoryTree();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === "undefined") {
+      return "light";
+    }
+    return window.localStorage.getItem("nexus-theme") || "light";
+  });
+
   const categoryLinks = categoryTree.map((category) => ({
     label: category.name,
     to: getCategoryProductsPath(category.slug),
@@ -79,7 +115,30 @@ function Header({
     setIsMenuOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.documentElement.dataset.theme = theme;
+    document.body.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem("nexus-theme", theme);
+  }, [theme]);
+
   const closeMenu = () => setIsMenuOpen(false);
+  const handleSearchSubmit = (event) => {
+    event.preventDefault();
+    const term = searchValue.trim();
+    navigate(term ? `/products?search=${encodeURIComponent(term)}` : "/products");
+  };
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
+  const isActivePath = (path) =>
+    path === "/"
+      ? location.pathname === path
+      : location.pathname === path || location.pathname.startsWith(`${path}/`);
+  const isCompanyActive = isActivePath("/about") || isActivePath("/contact");
 
   return (
     <header className="site-header">
@@ -95,15 +154,19 @@ function Header({
           <MenuIcon />
         </button>
 
-        {/* <img src={logo} alt="Nexus logo" className="site-brand__logo" /> */}
         <Link to="/" className="site-brand" aria-label="Exclusive home">
           Nexus Imports
         </Link>
 
         <nav className="site-nav" aria-label="Primary">
-          <Link to="/">Home</Link>
-          <Link to="/products" className="site-nav__link">
-            Products
+          <Link to="/" className={isActivePath("/") ? "is-active" : ""}>
+            Home
+          </Link>
+          <Link
+            to="/products"
+            className={`site-nav__link ${isActivePath("/products") ? "is-active" : ""}`.trim()}
+          >
+            Shop
           </Link>
           <details className="site-nav__group">
             <summary className="site-nav__trigger">
@@ -141,43 +204,36 @@ function Header({
               )}
             </div>
           </details>
-          <Link to="/about">About</Link>
-          <Link to="/contact">Contact</Link>
+          <details className="site-nav__group">
+            <summary className={`site-nav__trigger ${isCompanyActive ? "is-active" : ""}`.trim()}>
+              Company
+              <ChevronDownIcon />
+            </summary>
+            <div className="site-nav__menu" aria-label="Company menu">
+              <Link className="site-nav__menu-parent" to="/about">
+                About
+              </Link>
+              <Link className="site-nav__menu-parent" to="/contact">
+                Contact
+              </Link>
+            </div>
+          </details>
         </nav>
 
+        <form className="site-search" role="search" onSubmit={handleSearchSubmit}>
+          <span className="site-search__icon" aria-hidden="true">
+            <SearchIcon />
+          </span>
+          <input
+            type="search"
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.target.value)}
+            placeholder="Search products or categories..."
+            aria-label="Search products, brands, categories"
+          />
+        </form>
+
         <div className="site-actions">
-          <Link
-            to="/wishlist"
-            className="site-actions__icon-button"
-            aria-label={`Wishlist, ${wishlistCount} items`}
-          >
-            <HeartIcon />
-            {wishlistCount > 0 ? (
-              <span className="site-actions__badge">{wishlistCount}</span>
-            ) : null}
-          </Link>
-          <Link
-            to="/cart"
-            className="site-actions__icon-button"
-            aria-label={`Cart, ${cartCount} items`}
-          >
-            <CartIcon />
-            {cartCount > 0 ? (
-              <span className="site-actions__badge">{cartCount}</span>
-            ) : null}
-          </Link>
-          {authUser ? (
-            <Link
-              to="/profile/notifications"
-              className="site-actions__icon-button"
-              aria-label={`Notifications, ${notificationCount} unread`}
-            >
-              <BellIcon />
-              {notificationCount > 0 ? (
-                <span className="site-actions__badge">{notificationCount}</span>
-              ) : null}
-            </Link>
-          ) : null}
           {authUser ? (
             <>
               <Link
@@ -196,10 +252,47 @@ function Header({
               </button>
             </>
           ) : (
-            <Link className="site-actions__signin" to="/register/signup">
-              Sign Up
+            <Link className="site-actions__signin site-actions__signin--outline" to="/register/login">
+              <ProfileIcon />
+              <span>Sign In</span>
             </Link>
           )}
+          <Link
+            to="/wishlist"
+            className="site-actions__icon-button"
+            aria-label={`Wishlist, ${wishlistCount} items`}
+          >
+            <HeartIcon />
+            {wishlistCount > 0 ? (
+              <span className="site-actions__badge">{wishlistCount}</span>
+            ) : null}
+          </Link>
+          <button
+            type="button"
+            className="site-actions__icon-button site-actions__icon-button--theme"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+          </button>
+          <Link to="/cart" className="site-actions__icon-button" aria-label={`Cart, ${cartCount} items`}>
+            <CartIcon />
+            {cartCount > 0 ? (
+              <span className="site-actions__badge">{cartCount}</span>
+            ) : null}
+          </Link>
+          {authUser ? (
+            <Link
+              to="/profile/notifications"
+              className="site-actions__icon-button"
+              aria-label={`Notifications, ${notificationCount} unread`}
+            >
+              <BellIcon />
+              {notificationCount > 0 ? (
+                <span className="site-actions__badge">{notificationCount}</span>
+              ) : null}
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -216,13 +309,7 @@ function Header({
               Home
             </Link>
             <Link to="/products" onClick={closeMenu} className="site-mobile-menu__link">
-              Products
-            </Link>
-            <Link to="/about" onClick={closeMenu} className="site-mobile-menu__link">
-              About
-            </Link>
-            <Link to="/contact" onClick={closeMenu} className="site-mobile-menu__link">
-              Contact
+              Shop
             </Link>
           </div>
 

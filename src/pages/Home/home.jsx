@@ -1,21 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import camera from "../../assets/images/camera.jpg";
-import fan from "../../assets/images/fan.jpg";
-import fridge from "../../assets/images/frige2.jpeg";
-import kettle from "../../assets/images/kettle.jpg";
-import shirt from "../../assets/images/laurel wrath shirt.png";
-import macbook from "../../assets/images/macbook.jpg";
-import officeChair from "../../assets/images/office chair.jpg";
-import speaker from "../../assets/images/Speaker.png";
-import heroTv from "../../assets/images/TV.png";
-import washingmachine1 from "../../assets/images/washingmachine1.png";
-import washer from "../../assets/images/washingmachine.jpeg";
+import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/nexuslogo.png";
 import { getCategoryProductsPath } from "./catalogData";
 import { getProductPath, slugify } from "../Products/productData";
 import {
   getHomepageCategoryCards,
+  getCategoryProductCount,
   useCategoryRecords,
 } from "../../shared/categoryStorage";
 import {
@@ -48,6 +39,74 @@ function QuoteIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M10 11H6.6A3.6 3.6 0 0 1 10.2 7.4V6A5.8 5.8 0 0 0 4 11.8V18h6v-7ZM20 11h-3.4A3.6 3.6 0 0 1 20.2 7.4V6A5.8 5.8 0 0 0 14 11.8V18h6v-7Z" />
     </svg>
+  );
+}
+
+function HeroTrustIcon({ kind }) {
+  const icons = {
+    plane: <path d="M3 11.5 21 4l-3.5 16-5.1-6.1L8 18.5l.7-5.1L3 11.5Z" />,
+    ship: (
+      <>
+        <path d="M4 14h16l-2 4H6l-2-4Z" />
+        <path d="M8 14V8h8v6" />
+        <path d="M6 18c1.2 1 2.4 1.5 3.6 1.5S12 19 13.2 18.5c1.2-.5 2.4-.5 3.6 0" />
+      </>
+    ),
+    box: (
+      <>
+        <path d="M4 8 12 4l8 4-8 4-8-4Z" />
+        <path d="M4 8v8l8 4 8-4V8" />
+        <path d="M12 12v8" />
+      </>
+    ),
+  };
+
+  return (
+    <span className="hero-banner__trust-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24">{icons[kind]}</svg>
+    </span>
+  );
+}
+
+function SectionLabelIcon({ kind }) {
+  const icons = {
+    flash: <path d="M13 2 5 13h6l-1 9 8-11h-6l1-9Z" />,
+    category: (
+      <>
+        <path d="M4 5h6v6H4z" />
+        <path d="M14 5h6v6h-6z" />
+        <path d="M4 15h6v4H4z" />
+        <path d="M14 15h6v4h-6z" />
+      </>
+    ),
+    calendar: (
+      <>
+        <path d="M7 3v3M17 3v3" />
+        <path d="M4 7h16" />
+        <path d="M5 5h14a1 1 0 0 1 1 1v12H4V6a1 1 0 0 1 1-1Z" />
+        <path d="M8 11h3M13 11h3M8 15h3M13 15h3" />
+      </>
+    ),
+    box: (
+      <>
+        <path d="M4 8 12 4l8 4-8 4-8-4Z" />
+        <path d="M4 8v8l8 4 8-4V8" />
+        <path d="M12 12v8" />
+      </>
+    ),
+    feedback: (
+      <>
+        <path d="M5 6h14v8H9l-4 4V6Z" />
+        <path d="M8 9h8M8 12h5" />
+      </>
+    ),
+    default: <path d="M12 3v18M3 12h18" />,
+  };
+
+  return (
+    <span className="section-label__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24">{icons[kind] ?? icons.default}</svg>
+    </span>
   );
 }
 
@@ -264,6 +323,17 @@ function StarRating({ score }) {
   );
 }
 
+function CartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 4h2.5l2 11h11.2l1.6-7H8" />
+      <path d="M8.4 15h9.9" />
+      <circle cx="10.4" cy="20" r="1.4" />
+      <circle cx="18.1" cy="20" r="1.4" />
+    </svg>
+  );
+}
+
 function formatMoney(value) {
   return new Intl.NumberFormat("en-GH", {
     style: "currency",
@@ -275,6 +345,34 @@ function formatMoney(value) {
 
 function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
   const detailHref = getProductPath(item.slug ?? slugify(item.name));
+  const seriesOptions = useMemo(() => {
+    const fallbackOptions = [
+      {
+        key: `${slugify(item.series || item.name || "series")}-default`,
+        label: item.series || "Standard",
+        price: Number(item.price) || 0,
+        compareAt: item.compareAt ?? null,
+      },
+    ];
+
+    if (Array.isArray(item.seriesOptions) && item.seriesOptions.length > 0) {
+      return item.seriesOptions;
+    }
+
+    return fallbackOptions;
+  }, [item.compareAt, item.name, item.price, item.series, item.seriesOptions]);
+  const [selectedSeriesKey, setSelectedSeriesKey] = useState("");
+
+  useEffect(() => {
+    setSelectedSeriesKey(seriesOptions[0]?.key ?? "");
+  }, [detailHref, seriesOptions]);
+
+  const activeSeries =
+    seriesOptions.find((option) => option.key === selectedSeriesKey) ??
+    seriesOptions[0] ??
+    null;
+  const activePrice = activeSeries?.price ?? (Number(item.price) || 0);
+  const activeCompareAt = activeSeries?.compareAt ?? item.compareAt ?? null;
 
   return (
     <article className="product-card">
@@ -316,26 +414,52 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
         <Link to={detailHref} className="product-card__title-link">
           <h3>{item.name}</h3>
         </Link>
+        <div className="product-card__variants" role="list" aria-label={`${item.name} series options`}>
+          {seriesOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`product-card__variant${
+                option.key === activeSeries?.key ? " is-active" : ""
+              }`}
+              onClick={() => setSelectedSeriesKey(option.key)}
+              aria-pressed={option.key === activeSeries?.key}
+              aria-label={`${item.name} ${option.label}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
         <div className="product-card__price">
-          <strong>{formatMoney(item.price)}</strong>
+          <strong>{formatMoney(activePrice)}</strong>
+          {activeCompareAt != null && Number(activeCompareAt) > activePrice ? (
+            <span>{formatMoney(activeCompareAt)}</span>
+          ) : null}
         </div>
         <button
           type="button"
           className="product-card__button"
-          onClick={() => onAddToCart(item)}
+          onClick={() =>
+            onAddToCart({
+              ...item,
+              price: activePrice,
+              compareAt: activeCompareAt,
+              series: activeSeries?.label ?? item.series,
+            })
+          }
         >
+          <CartIcon />
           Add To Cart
         </button>
-        <Rating score={item.rating} reviews={item.reviews} />
       </div>
     </article>
   );
 }
 
-function SectionLabel({ children }) {
+function SectionLabel({ children, icon = "default" }) {
   return (
     <p className="section-label">
-      <span />
+      <SectionLabelIcon kind={icon} />
       {children}
     </p>
   );
@@ -381,7 +505,7 @@ function ServiceCard({ icon, title, copy }) {
 const serviceItems = [
   {
     icon: "truck",
-    title: " FAST DELIVERY",
+    title: "FAST DELIVERY",
     copy: "Delivery is done to your door step",
   },
   {
@@ -391,8 +515,13 @@ const serviceItems = [
   },
   {
     icon: "shield",
-    title: "SECURED PAYMENT ROUTE",
+    title: "SECURED PAYMENT",
     copy: "Different payment method accepted",
+  },
+  {
+    icon: "watch",
+    title: "EASY TRACKING",
+    copy: "Follow your order from checkout to delivery",
   },
 ];
 
@@ -439,38 +568,27 @@ const footerLinks = {
   ],
 };
 
-const heroSlides = [
-  {
-    eyebrow: "Smart TV Deals",
-    title: "Big screen. Bigger savings.",
-    copy: "Feature your best television picks on a clean dark canvas that keeps the product front and center.",
-    cta: "Shop Now",
-    href: "#flash-sales",
-    image: heroTv,
-    alt: "Featured TV product",
-    accent: "rgba(219, 68, 68, 0.28)",
+const heroContent = {
+  eyebrow: "WELCOME",
+  badge: "YOUR TRUSTED IMPORT PARTNER",
+  title: {
+    lineOne: "Shop Beyond Borders.",
+    lineTwo: "We Handle the Rest.",
   },
-  {
-    eyebrow: "Audio Picks",
-    title: "Sound that fills the room.",
-    copy: "Showcase your speaker image with no white box so the black hero panel frames it naturally.",
-    cta: "Explore Now",
-    href: "#best-selling",
-    image: speaker,
-    alt: "Featured speaker product",
-    accent: "rgba(255, 255, 255, 0.16)",
-  },
-  {
-    eyebrow: "Laundry Essentials",
-    title: "Power through wash day.",
-    copy: "Use the washing machine image on a black slide so the appliance feels like part of the banner, not a pasted card.",
-    cta: "View Products",
-    href: "#explore",
-    image: washingmachine1,
-    alt: "Featured washing machine product",
-    accent: "rgba(255, 173, 51, 0.18)",
-  },
-];
+  copy:
+    "Shop quality products and import with confidence. Nexus Import Hub makes it easy to order, ship, and receive your items from China to Ghana.",
+  primaryCta: "Shop Now",
+  secondaryCta: "Track Your Order",
+  primaryHref: "/products",
+  secondaryHref: "/profile/orders",
+  image: nexusPerson,
+  alt: "Nexus import hero product",
+  trustLine: [
+    { kind: "plane", label: "Air Shipping" },
+    { kind: "ship", label: "Sea Shipping" },
+    { kind: "box", label: "Secure Delivery" },
+  ],
+};
 
 function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   const navigate = useNavigate();
@@ -496,15 +614,39 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     error: productsError,
   } = useProducts();
   const [activeCategory, setActiveCategory] = useState("");
-  const [activeHeroSlide, setActiveHeroSlide] = useState(0);
+  const categoryCarouselRef = useRef(null);
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
-  const currentHeroSlide = heroSlides[activeHeroSlide];
   const categoryCards = useMemo(
     () => getHomepageCategoryCards(categoryRecords),
     [categoryRecords],
   );
+  const showcaseCategories = useMemo(
+    () =>
+      categoryCards.map((category) => ({
+        ...category,
+        productCount: getCategoryProductCount(category, liveCatalogProducts),
+      })),
+    [categoryCards, liveCatalogProducts],
+  );
+
+  const scrollCategories = (direction) => {
+    const container = categoryCarouselRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const firstCard = container.querySelector(".category-card");
+    const cardWidth = firstCard?.getBoundingClientRect().width ?? 220;
+    const gap = 18;
+
+    container.scrollBy({
+      left: direction * (cardWidth + gap),
+      behavior: "smooth",
+    });
+  };
 
   useEffect(() => {
     if (categoryCards.length === 0) {
@@ -521,94 +663,67 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     }
   }, [activeCategory, categoryCards]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setActiveHeroSlide((current) => (current + 1) % heroSlides.length);
-    }, 5500);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
   const goToProducts = (categorySlug = "") => {
     navigate(getCategoryProductsPath(categorySlug));
   };
 
   return (
     <main className="home-page">
-      <section className="site-shell hero-section" id="hero">
-        <div
-          className="hero-banner"
-          style={{ "--hero-accent": currentHeroSlide.accent }}
-        >
+      <section className="hero-section" id="hero">
+        <div className="hero-banner">
           <div className="hero-banner__copy">
-            <p className="hero-banner__eyebrow">{currentHeroSlide.eyebrow}</p>
-            <h1>{currentHeroSlide.title}</h1>
-            <p className="hero-banner__copy-text">{currentHeroSlide.copy}</p>
-            <a className="hero-banner__link" href={currentHeroSlide.href}>
-              {currentHeroSlide.cta} <span aria-hidden="true">&rarr;</span>
-            </a>
+            <p className="hero-banner__eyebrow">{heroContent.eyebrow}</p>
+            <span className="hero-banner__brand">{heroContent.badge}</span>
+            <h1>
+              <span className="hero-banner__title-line">
+                {heroContent.title.lineOne}
+              </span>
+              <span className="hero-banner__title-line">
+                {heroContent.title.lineTwo}
+              </span>
+            </h1>
+            <p className="hero-banner__copy-text">{heroContent.copy}</p>
+            <div className="hero-banner__actions">
+              <Link className="hero-banner__link" to={heroContent.primaryHref}>
+                {heroContent.primaryCta} <span aria-hidden="true">&rarr;</span>
+              </Link>
+              <Link
+                className="hero-banner__link hero-banner__link--ghost"
+                to={heroContent.secondaryHref}
+              >
+                {heroContent.secondaryCta}
+              </Link>
+            </div>
+            <p className="hero-banner__trustline" aria-label="Shipping highlights">
+              {heroContent.trustLine.map((item) => (
+                <span key={item.label}>
+                  <HeroTrustIcon kind={item.kind} />
+                  {item.label}
+                </span>
+              ))}
+            </p>
           </div>
 
           <div className="hero-banner__stage">
-            <div className="hero-banner__visual" key={currentHeroSlide.image}>
-              <img src={currentHeroSlide.image} alt={currentHeroSlide.alt} />
+            <div className="hero-banner__visual">
+              <img src={heroContent.image} alt={heroContent.alt} />
             </div>
-          </div>
-
-          <div className="hero-banner__dots" aria-label="Hero slides">
-            {heroSlides.map((slide, index) => (
-              <button
-                key={slide.title}
-                type="button"
-                className={index === activeHeroSlide ? "is-active" : ""}
-                aria-label={`Show slide ${index + 1}`}
-                aria-pressed={index === activeHeroSlide}
-                onClick={() => setActiveHeroSlide(index)}
-              />
-            ))}
           </div>
         </div>
       </section>
 
-      <section className="site-shell section-block" id="announcements">
-        <div className="section-header">
-          <div>
-            <SectionLabel>Latest</SectionLabel>
-            <h2>Announcements</h2>
-          </div>
+      <section className="service-strip" aria-label="Store benefits">
+        <div className="site-shell service-strip__inner">
+          {serviceItems.map((service) => (
+            <ServiceCard key={service.title} {...service} />
+          ))}
         </div>
-
-        {announcementsError ? (
-          <div className="shop-empty">
-            <h3>Unable to load announcements right now.</h3>
-            <p>{announcementsError}</p>
-          </div>
-        ) : announcementsLoading && liveAnnouncements.length === 0 ? (
-          <div className="shop-empty">
-            <h3>Loading announcements...</h3>
-            <p>We are syncing the latest public updates from Supabase.</p>
-          </div>
-        ) : liveAnnouncements.length > 0 ? (
-          <div className="testimonial-grid">
-            {liveAnnouncements.slice(0, 3).map((announcement) => (
-              <AnnouncementCard
-                key={announcement.id}
-                announcement={announcement}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="shop-empty">
-            <h3>No announcements available.</h3>
-            <p>Public updates will appear here once they are published.</p>
-          </div>
-        )}
       </section>
 
       <section className="site-shell section-block" id="flash-sales">
         <div className="section-header">
           <div>
-            <SectionLabel>Today's</SectionLabel>
+            <SectionLabel icon="flash">Today's</SectionLabel>
             <h2>Flash Sales</h2>
           </div>
 
@@ -668,18 +783,18 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       <section className="site-shell section-block" id="categories">
         <div className="section-header">
           <div>
-            <SectionLabel>Categories</SectionLabel>
+            <SectionLabel icon="category">Categories</SectionLabel>
             <h2>Browse By Category</h2>
           </div>
 
           <div className="section-controls">
-            <button type="button" aria-label="Previous categories">
+            <button type="button" aria-label="Previous categories" onClick={() => scrollCategories(-1)}>
               &larr;
             </button>
             <button
               type="button"
-              aria-label="Go to products page"
-              onClick={goToProducts}
+              aria-label="Next categories"
+              onClick={() => scrollCategories(1)}
             >
               &rarr;
             </button>
@@ -691,14 +806,14 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
         ) : null}
 
         {categoriesLoading && categoryCards.length === 0 ? (
-          <div className="category-grid">
+          <div className="category-grid category-grid--carousel">
             <div className="category-card">
               <span className="section-note">Loading categories...</span>
             </div>
           </div>
         ) : categoryCards.length > 0 ? (
-          <div className="category-grid">
-            {categoryCards.map((category) => (
+          <div className="category-grid category-grid--carousel" ref={categoryCarouselRef}>
+            {showcaseCategories.map((category) => (
               <article
                 key={category.name}
                 className={`category-card${activeCategory === category.slug ? " is-active" : ""}${
@@ -710,8 +825,11 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                   className="category-card__link"
                   onClick={() => setActiveCategory(category.slug)}
                 >
-                  <CategoryIcon kind={category.icon} />
-                  <span>{category.name}</span>
+                  <span className="category-card__media">
+                    <img src={category.image} alt={category.name} loading="lazy" />
+                  </span>
+                  <strong>{category.name}</strong>
+                  <span className="category-card__count">{category.productCount} Products</span>
                 </Link>
 
                 {Array.isArray(category.children) &&
@@ -749,7 +867,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       <section className="site-shell section-block" id="best-selling">
         <div className="section-header">
           <div>
-            <SectionLabel>This Month</SectionLabel>
+            <SectionLabel icon="calendar">This Month</SectionLabel>
             <h2>Best Selling Products</h2>
           </div>
 
@@ -786,7 +904,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       <section className="site-shell section-block" id="explore">
         <div className="section-header">
           <div>
-            <SectionLabel>Our Products</SectionLabel>
+            <SectionLabel icon="box">Our Products</SectionLabel>
             <h2>Explore Our Products</h2>
           </div>
 
@@ -834,7 +952,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       <section className="site-shell section-block" id="testimonials">
         <div className="section-header">
           <div>
-            <SectionLabel>Feedback</SectionLabel>
+            <SectionLabel icon="feedback">Feedback</SectionLabel>
             <h2>Customer Testimonials</h2>
           </div>
         </div>
@@ -866,12 +984,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </article>
           ))}
         </div>
-      </section>
-
-      <section className="site-shell service-strip">
-        {serviceItems.map((service) => (
-          <ServiceCard key={service.title} {...service} />
-        ))}
       </section>
 
       <footer className="site-footer" id="footer">

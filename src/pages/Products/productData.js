@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
-import booksPlaceholder from "../../assets/images/books-placeholder.svg";
-import beautyPlaceholder from "../../assets/images/beauty-placeholder.svg";
+import booksPlaceholder from "../../assets/images/electronic-set.png";
+import beautyPlaceholder from "../../assets/images/Woman.jpg";
 import camera from "../../assets/images/camera.jpg";
-import fan from "../../assets/images/fan.jpg";
-import fridge from "../../assets/images/frige2.jpeg";
-import headphonesPlaceholder from "../../assets/images/headphones-placeholder.svg";
-import heroLaptop from "../../assets/images/hero-laptop.png";
-import heroPhone from "../../assets/images/hero-phone.png";
-import heroTv from "../../assets/images/hero-tv.png";
+import fan from "../../assets/images/standing-fan.jpeg";
+import fridge from "../../assets/images/fridge.jpeg";
+import headphonesPlaceholder from "../../assets/images/music-set.jpeg";
+import heroLaptop from "../../assets/images/HP-laptop.jpeg";
+import heroPhone from "../../assets/images/IPhone 17 Pro Max.jpg";
+import heroTv from "../../assets/images/flatscreen-tv.jpeg";
 import kettle from "../../assets/images/kettle.jpg";
 import shirt from "../../assets/images/laurel wrath shirt.png";
-import macbook from "../../assets/images/macbook.jpg";
-import officeChair from "../../assets/images/office chair.jpg";
-import speaker from "../../assets/images/Speaker.png";
+import macbook from "../../assets/images/laptop.jpeg";
+import officeChair from "../../assets/images/ergonomic-chair.jpeg";
+import speaker from "../../assets/images/music-set.jpeg";
 import washerBasket from "../../assets/images/washingBasket.jpg";
-import washingMachine from "../../assets/images/washingmachine1.png";
+import washingMachine from "../../assets/images/washingmachine.jpeg";
 
 export const PRODUCT_COLOR_OPTIONS = [
   { key: "black", label: "Black", swatch: "#1f2937", previewTint: "#d9dee7" },
@@ -59,21 +59,33 @@ const PERK_SELECT = "id,product_id,perk_text,display_order";
 
 const PRODUCT_IMAGE_ASSET_MAP = {
   "books-placeholder.svg": booksPlaceholder,
+  "electronic-set.png": booksPlaceholder,
   "beauty-placeholder.svg": beautyPlaceholder,
+  "Woman.jpg": beautyPlaceholder,
   "camera.jpg": camera,
   "fan.jpg": fan,
+  "standing-fan.jpeg": fan,
   "frige2.jpeg": fridge,
+  "fridge.jpeg": fridge,
   "headphones-placeholder.svg": headphonesPlaceholder,
+  "music-set.jpeg": headphonesPlaceholder,
   "hero-laptop.png": heroLaptop,
+  "HP-laptop.jpeg": heroLaptop,
   "hero-phone.png": heroPhone,
+  "IPhone 17 Pro Max.jpg": heroPhone,
   "hero-tv.png": heroTv,
+  "flatscreen-tv.jpeg": heroTv,
   "kettle.jpg": kettle,
   "laurel wrath shirt.png": shirt,
   "macbook.jpg": macbook,
+  "laptop.jpeg": macbook,
   "office chair.jpg": officeChair,
+  "ergonomic-chair.jpeg": officeChair,
   "Speaker.png": speaker,
+  "music-set.jpeg": speaker,
   "washingBasket.jpg": washerBasket,
   "washingmachine1.png": washingMachine,
+  "washingmachine.jpeg": washingMachine,
 };
 
 const DEFAULT_STOCK_STATUS = "In Stock & Ready to Ship";
@@ -232,6 +244,89 @@ function parsePerkText(perkText) {
   };
 }
 
+function parseSeriesPriceValue(value) {
+  const normalized = cleanText(value)
+    .replace(/[₵$]/g, "")
+    .replace(/,/g, "")
+    .trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function splitSeriesEntries(seriesText) {
+  const text = cleanText(seriesText);
+
+  if (!text) {
+    return [];
+  }
+
+  if (/[|\n;]/.test(text)) {
+    return text
+      .split(/\s*(?:\||;|\n)\s*/u)
+      .map((entry) => cleanText(entry))
+      .filter(Boolean);
+  }
+
+  if (text.includes(",")) {
+    return text
+      .split(/\s*,\s*/u)
+      .map((entry) => cleanText(entry))
+      .filter(Boolean);
+  }
+
+  return [text];
+}
+
+function parseSeriesOption(entry, basePrice, compareAt, index) {
+  const text = cleanText(entry);
+  const fallbackPrice = normalizeNumber(basePrice) ?? 0;
+  const fallbackCompareAt = normalizeNumber(compareAt);
+  const pricePattern =
+    /^(.*?)(?:\s*(?:[:@\-–—=])\s*)(?:GHS|GH₵|₵|\$)?\s*([0-9,]+(?:\.[0-9]+)?)\s*\)?$/iu;
+  const match = text.match(pricePattern);
+  const label = cleanText(match?.[1] ?? text) || `Series ${index + 1}`;
+  const price = parseSeriesPriceValue(match?.[2]);
+
+  return {
+    key: `${slugify(label) || `series-${index + 1}`}-${index + 1}`,
+    label,
+    price: price ?? fallbackPrice,
+    compareAt: index === 0 ? fallbackCompareAt : null,
+  };
+}
+
+function buildSeriesOptions(seriesText, basePrice, compareAt) {
+  const entries = splitSeriesEntries(seriesText);
+  const options = entries.map((entry, index) =>
+    parseSeriesOption(entry, basePrice, compareAt, index),
+  );
+
+  if (options.length === 0) {
+    return [];
+  }
+
+  const seen = new Set();
+  const deduped = [];
+
+  for (const option of options) {
+    const key = option.label.toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(option);
+  }
+
+  return deduped;
+}
+
 function imageRowsToGallery(primaryImageUrl, imageRows = []) {
   const gallery = [];
   const seen = new Set();
@@ -351,6 +446,7 @@ export function mapProductRowToLegacyViewModel(row = {}, bundle = {}) {
     slug: cleanText(row?.slug),
     name: cleanText(row?.name),
     series: cleanText(row?.series),
+    seriesOptions: buildSeriesOptions(row?.series, row?.price, row?.compare_at),
     brand: cleanText(row?.brand),
     soldBy: cleanText(row?.sold_by),
     price: Number(row?.price) || 0,

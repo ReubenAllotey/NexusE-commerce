@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import electronicsImage from "../assets/images/electronic-set.png";
+import beautyImage from "../assets/images/Woman.jpg";
+import booksImage from "../assets/images/desktop.jfif";
+import cameraImage from "../assets/images/camera.jpg";
+import fanImage from "../assets/images/standing-fan.jpeg";
+import fridgeImage from "../assets/images/fridge.jpeg";
+import kitchenImage from "../assets/images/kitchen-oven.jpeg";
+import laptopImage from "../assets/images/laptop.jpeg";
+import shirtImage from "../assets/images/laurel wrath shirt.png";
+import musicImage from "../assets/images/music-set.jpeg";
+import tvImage from "../assets/images/flatscreen-tv.jpeg";
+import washingImage from "../assets/images/washingmachine.jpeg";
 
 const CATEGORY_SELECT =
   "id,name,slug,description,icon,status,parent_id,display_order,show_on_homepage,deleted_at,created_at,updated_at";
@@ -53,6 +65,69 @@ function normalizeStatus(status) {
   return String(status ?? "").toLowerCase() === "hidden" ? "hidden" : "active";
 }
 
+function getCategoryImageSource(row = {}) {
+  const rawText = [row.name, row.slug, row.icon, row.description]
+    .map((value) => normalizeText(value).toLowerCase())
+    .join(" ");
+
+  const imageRules = [
+    {
+      keywords: ["beauty", "skin", "care", "health", "serum", "lotion", "makeup"],
+      src: beautyImage,
+    },
+    {
+      keywords: ["book", "books", "education", "study", "learning"],
+      src: booksImage,
+    },
+    {
+      keywords: ["camera", "photo", "photography", "canon"],
+      src: cameraImage,
+    },
+    {
+      keywords: ["fan", "air", "cooling", "ventilation"],
+      src: fanImage,
+    },
+    {
+      keywords: ["fridge", "refrigerator", "freezer"],
+      src: fridgeImage,
+    },
+    {
+      keywords: ["kitchen", "oven", "toaster", "blender", "mixer", "cook"],
+      src: kitchenImage,
+    },
+    {
+      keywords: ["laptop", "computer", "pc", "desktop", "macbook"],
+      src: laptopImage,
+    },
+    {
+      keywords: ["shirt", "fashion", "tee", "wear", "dress", "cloth", "apparel"],
+      src: shirtImage,
+    },
+    {
+      keywords: ["speaker", "audio", "sound", "headphone", "music"],
+      src: musicImage,
+    },
+    {
+      keywords: ["tv", "television", "screen", "display"],
+      src: tvImage,
+    },
+    {
+      keywords: ["wash", "laundry", "machine", "washer"],
+      src: washingImage,
+    },
+    {
+      keywords: ["electronics", "electronic", "gadget", "phone", "mobile", "tablet"],
+      src: electronicsImage,
+    },
+  ];
+
+  const match = imageRules.find((rule) =>
+    rule.keywords.some((keyword) => rawText.includes(keyword)),
+  );
+
+  return match?.src ?? electronicsImage;
+}
+
 function sortCategoryRecords(records = []) {
   return [...records].sort((left, right) => {
     const leftOrder = Number(left.order ?? left.displayOrder ?? 0);
@@ -75,6 +150,7 @@ function rowToRecord(row, slugIndex = new Map()) {
     slug: row.slug ?? "",
     description: row.description ?? "",
     icon: row.icon ?? "",
+    image: getCategoryImageSource(row),
     status: row.status ?? "active",
     parentId,
     parentSlug: parentId ? slugIndex.get(parentId) ?? "" : "",

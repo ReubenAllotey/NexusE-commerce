@@ -6,9 +6,8 @@ export const defaultSiteBanner = {
   announcement: {
     label: "Announcement",
     batchNumber: "SEA-08",
-    headline: "Batch Number-08 is open for orders",
-    body:
-      "Orders placed within this batch window will move together on the next shipping cycle.",
+    headline: "Batch SEA-08 is open for orders",
+    body: "Orders placed within the active batch window will move together on the next shipping cycle.",
     batchWindowStart: "2026-08-10",
     batchWindowEnd: "2026-08-20",
     shippingMode: "sea",
@@ -19,9 +18,8 @@ export const defaultSiteBanner = {
   },
   reflection: {
     label: "Daily Reflection",
-    headline:
-      "Commit to the Lord whatever you do, and He will establish your plans.",
-    verse: "Proverbs 16:3",
+    headline: "In the beginning God created the heavens and the earth.",
+    verse: "Genesis 1:1",
     body: "",
   },
   status: "active",

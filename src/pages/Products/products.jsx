@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useCategoryRecords } from "../../shared/categoryStorage";
-import { getProductPath, useProducts } from "./productData";
+import { getProductPath, slugify, useProducts } from "./productData";
 import logo from "../../assets/images/nexuslogo.png";
 
 const ITEMS_PER_PAGE = 6;
@@ -79,11 +79,13 @@ function ChevronIcon({ direction = "right" }) {
   );
 }
 
-function ShopBagIcon() {
+function CartIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M6 9h12l-1 11H7L6 9Z" />
-      <path d="M9 9a3 3 0 0 1 6 0" />
+      <path d="M3 4h2.5l2 11h11.2l1.6-7H8" />
+      <path d="M8.4 15h9.9" />
+      <circle cx="10.4" cy="20" r="1.4" />
+      <circle cx="18.1" cy="20" r="1.4" />
     </svg>
   );
 }
@@ -127,19 +129,56 @@ function renderStars(score) {
 }
 
 function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
+  const seriesOptions = useMemo(() => {
+    const fallbackOptions = [
+      {
+        key: `${slugify(item.series || item.name || "series")}-default`,
+        label: item.series || "Standard",
+        price: Number(item.price) || 0,
+        compareAt: item.compareAt ?? null,
+      },
+    ];
+
+    if (Array.isArray(item.seriesOptions) && item.seriesOptions.length > 0) {
+      return item.seriesOptions;
+    }
+
+    return fallbackOptions;
+  }, [item.compareAt, item.name, item.price, item.series, item.seriesOptions]);
+  const [selectedSeriesKey, setSelectedSeriesKey] = useState("");
+
+  useEffect(() => {
+    setSelectedSeriesKey(seriesOptions[0]?.key ?? "");
+  }, [item.slug, seriesOptions]);
+
+  const activeSeries =
+    seriesOptions.find((option) => option.key === selectedSeriesKey) ??
+    seriesOptions[0] ??
+    null;
+  const activePrice = activeSeries?.price ?? (Number(item.price) || 0);
+  const activeCompareAt = activeSeries?.compareAt ?? item.compareAt ?? null;
+
   return (
     <article className="shop-card">
-      <button
-        type="button"
-        className={`shop-card__wishlist${isWishlisted ? " is-active" : ""}`}
-        onClick={() => onToggleWishlist(item.name)}
-        aria-label={`${isWishlisted ? "Remove" : "Add"} ${item.name} to wishlist`}
-      >
-        <HeartIcon />
-      </button>
-
       <div className="shop-card__image">
-        <span className="shop-card__badge">{item.badge}</span>
+        <div className="shop-card__actions">
+          <button
+            type="button"
+            className={`shop-card__wishlist${isWishlisted ? " is-active" : ""}`}
+            onClick={() => onToggleWishlist(item.name)}
+            aria-label={`${isWishlisted ? "Remove" : "Add"} ${item.name} to wishlist`}
+          >
+            <HeartIcon />
+          </button>
+
+          <Link
+            to={getProductPath(item.slug)}
+            className="shop-card__preview"
+            aria-label={`View ${item.name}`}
+          >
+            <EyeIcon />
+          </Link>
+        </div>
         <img
           src={item.image}
           alt={item.name}
@@ -153,39 +192,48 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
       </div>
 
       <div className="shop-card__body">
-        <p className="shop-card__meta">
-          {item.brand} <span>•</span> {item.category}
-        </p>
         <h3>{item.name}</h3>
-        <p className="shop-card__description">{item.description}</p>
 
-        <div className="shop-card__rating" aria-label={`${item.rating} out of 5 stars`}>
-          <div className="shop-card__stars">{renderStars(item.rating)}</div>
-          <span>
-            {item.rating.toFixed(1)} ({item.reviews})
-          </span>
+        <div className="shop-card__variants" role="list" aria-label={`${item.name} series options`}>
+          {seriesOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`shop-card__variant${
+                option.key === activeSeries?.key ? " is-active" : ""
+              }`}
+              onClick={() => setSelectedSeriesKey(option.key)}
+              aria-pressed={option.key === activeSeries?.key}
+              aria-label={`${item.name} ${option.label}`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
 
-          <div className="shop-card__footer">
-            <div className="shop-card__pricing">
-              <strong>{formatMoney(item.price)}</strong>
-              <span>{item.compareAt ? formatMoney(item.compareAt) : "—"}</span>
-            </div>
-
-            <div className="shop-card__cta-group">
-              <Link to={getProductPath(item.slug)} className="shop-card__view">
-                <EyeIcon />
-                View
-              </Link>
-            <button
-              type="button"
-              className="shop-card__add"
-              onClick={() => onAddToCart(item.slug)}
-            >
-              <ShopBagIcon />
-              Add
-            </button>
+        <div className="shop-card__footer">
+          <div className="shop-card__pricing">
+            <strong>{formatMoney(activePrice)}</strong>
+            {activeCompareAt != null && Number(activeCompareAt) > activePrice ? (
+              <span>{formatMoney(activeCompareAt)}</span>
+            ) : null}
           </div>
+
+          <button
+            type="button"
+            className="shop-card__add"
+            onClick={() =>
+              onAddToCart({
+                ...item,
+                price: activePrice,
+                compareAt: activeCompareAt,
+              series: activeSeries?.label ?? item.series,
+            })
+            }
+          >
+            <CartIcon />
+            Add To Cart
+          </button>
         </div>
       </div>
     </article>
@@ -209,7 +257,8 @@ function Products({
     error: categoriesError,
   } = useCategoryRecords();
   const categoryParam = searchParams.get("category") ?? "";
-  const [searchTerm, setSearchTerm] = useState("");
+  const searchParam = searchParams.get("search") ?? "";
+  const [searchTerm, setSearchTerm] = useState(searchParam);
   const [selectedBrands, setSelectedBrands] = useState([]);
   const [sortBy, setSortBy] = useState("featured");
   const [priceLimit, setPriceLimit] = useState(1500);
@@ -244,6 +293,11 @@ function Products({
   const selectedCategories = parseCategorySelection(categoryParam, categorySlugSet);
   const hasInvalidCategorySelection =
     selectedCategoryTokens.length > 0 && selectedCategories.length !== selectedCategoryTokens.length;
+
+  useEffect(() => {
+    setSearchTerm(searchParam);
+    setCurrentPage(1);
+  }, [searchParam]);
 
   const filteredProducts = useMemo(
     () =>
@@ -285,6 +339,16 @@ function Products({
 
   const handleSearchChange = (value) => {
     setSearchTerm(value);
+    const nextParams = new URLSearchParams(searchParams);
+    const nextValue = value.trim();
+
+    if (nextValue.length > 0) {
+      nextParams.set("search", nextValue);
+    } else {
+      nextParams.delete("search");
+    }
+
+    setSearchParams(nextParams, { replace: true });
     setCurrentPage(1);
   };
 
@@ -400,7 +464,7 @@ function Products({
                     type="search"
                     value={searchTerm}
                     onChange={(event) => handleSearchChange(event.target.value)}
-                    placeholder="Search in Nexus catalog..."
+                    placeholder="Search products or categories..."
                   />
                 </label>
 
@@ -569,3 +633,4 @@ function Products({
 }
 
 export default Products;
+

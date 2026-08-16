@@ -1,4 +1,7 @@
-import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
+import {
+  defaultSiteBanner,
+  normalizeSiteBanner,
+} from "../../shared/siteBannerStorage";
 
 function CalendarIcon() {
   return (
@@ -34,62 +37,77 @@ function formatDate(value) {
   }).format(date);
 }
 
-function getShippingLabel(mode, airDays, seaDays) {
-  if (mode === "both") {
-    return `Air freight about ${airDays} days | Sea freight about ${seaDays} days`;
+function formatDateRange(start, end) {
+  const values = [formatDate(start), formatDate(end)].filter(Boolean);
+
+  if (values.length === 0) {
+    return "Active date pending";
   }
 
-  return mode === "air"
-    ? `Air freight about ${airDays} days`
-    : `Sea freight about ${seaDays} days`;
+  return values.join(" - ");
+}
+
+function buildTickerMessage({ announcement, reflection }) {
+  const batchNumber = announcement.batchNumber || "current batch";
+  const activeDate = formatDateRange(
+    announcement.batchWindowStart,
+    announcement.batchWindowEnd,
+  );
+  const reflectionText = reflection.headline || "Daily reflection";
+  const verse = reflection.verse || "Genesis 1:1";
+
+  return (
+    `Orders  are open  for   (${activeDate}) for the Batch  ${batchNumber} | ` +
+    " " +
+    "Sea freight shipment takes 1-2 months after the active batch date is closed | " +
+    "Air freight shipment takes 10-16 days after the active batch date is closed | " +
+    `${reflectionText} (${verse})`
+  );
 }
 
 function SiteBannerStrip({ banner = defaultSiteBanner }) {
   const safeBanner = normalizeSiteBanner(banner);
   const { announcement, reflection, updatedAt } = safeBanner;
-  const orderWindow = [formatDate(announcement.batchWindowStart), formatDate(announcement.batchWindowEnd)]
-    .filter(Boolean)
-    .join(" - ");
+  const tickerMessage = buildTickerMessage({ announcement, reflection });
 
   return (
-    <section className="site-banner-strip" aria-label="Announcement and daily reflection">
+    <section
+      className="site-banner-strip"
+      aria-label="Batch announcement and daily reflection"
+    >
       <div className="site-banner-strip__inner">
-        <div className="site-banner-strip__announcement">
+        <article className="site-banner-strip__announcement-card">
           <div className="site-banner-strip__badge">
             <CalendarIcon />
-            <span>{announcement.label}</span>
+            <span>{announcement.label || "Announcement"}</span>
           </div>
 
-          <div className="site-banner-strip__content">
+          <div className="site-banner-strip__announcement-copy">
             <p className="site-banner-strip__eyebrow">
               Batch {announcement.batchNumber}
             </p>
-            <h2>{announcement.headline}</h2>
-            <p>{announcement.body}</p>
             <p className="site-banner-strip__meta">
-              Orders: {orderWindow || "Date range pending"} | {getShippingLabel(announcement.shippingMode, announcement.airTransitDays, announcement.seaTransitDays)}
+              Active date:{" "}
+              {formatDateRange(
+                announcement.batchWindowStart,
+                announcement.batchWindowEnd,
+              )}
             </p>
-            <a href={announcement.ctaHref} className="site-banner-strip__link">
-              {announcement.ctaLabel} <span aria-hidden="true">-&gt;</span>
-            </a>
           </div>
-        </div>
+        </article>
 
-        <div className="site-banner-strip__divider" aria-hidden="true" />
-
-        <div className="site-banner-strip__reflection">
-          <div className="site-banner-strip__reflection-head">
-            <BookIcon />
-            <span>{reflection.label}</span>
+        <div
+          className="site-banner-strip__ticker"
+          aria-label="Orders and reflection updates"
+        >
+          <div className="site-banner-strip__ticker-viewport">
+            <div className="site-banner-strip__ticker-track">
+              <p>{tickerMessage}</p>
+              <p aria-hidden="true">{tickerMessage}</p>
+            </div>
           </div>
-          <p className="site-banner-strip__reflection-copy">{reflection.headline}</p>
-          <p className="site-banner-strip__reflection-verse">- {reflection.verse}</p>
-          {reflection.body ? <span>{reflection.body}</span> : null}
-        </div>
 
-        <span className="site-banner-strip__updated">
-          Updated {formatDate(updatedAt) || "just now"}
-        </span>
+        </div>
       </div>
     </section>
   );
