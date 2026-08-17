@@ -596,8 +596,31 @@ export function getCategoryTree(records = []) {
   const activeRecords = (Array.isArray(records) ? records : []).filter(isVisibleCategory);
   const recordIndex = new Map(activeRecords.map((record) => [record.id, record]));
   const childRecords = activeRecords.filter((record) => record.parentId);
+  const existingKeys = new Set(activeRecords.map((record) => normalizeCategoryKey(record)));
+  const featuredRoots = FEATURED_CATEGORY_PRESETS.filter(
+    (preset) => !existingKeys.has(preset.slug),
+  ).map((preset) => ({
+    id: `featured-${preset.slug}`,
+    name: preset.name,
+    slug: preset.slug,
+    description: "",
+    icon: "",
+    image: getCategoryImageSource(preset),
+    status: "active",
+    parentId: null,
+    parentSlug: "",
+    order: preset.order,
+    displayOrder: preset.order,
+    showOnHomepage: true,
+    createdAt: null,
+    updatedAt: null,
+    deletedAt: null,
+    deleted: false,
+    children: [],
+    featured: true,
+  }));
 
-  return sortCategoryRecords(activeRecords)
+  return sortCategoryRecords([...activeRecords, ...featuredRoots])
     .filter((record) => !record.parentId)
     .map((record) => ({
       ...record,

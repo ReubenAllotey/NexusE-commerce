@@ -738,7 +738,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     const timer = window.setInterval(() => {
       scrollCategories(1);
-    }, 5000);
+    }, 3500);
 
     return () => window.clearInterval(timer);
   }, [categoryCards.length, isCategoryPaused, scrollCategories]);
