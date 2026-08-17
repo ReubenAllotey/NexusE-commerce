@@ -19144,3 +19144,303 @@ body:not([data-theme="dark"]) .site-actions__signin {
     height: 3.8rem;
   }
 }
+
+/* Final product-card button and navbar overrides */
+.nexus-product-card__cart-button,
+.product-card__button.nexus-product-card__cart-button,
+.shop-card__add.nexus-product-card__cart-button {
+  width: 100%;
+  min-height: 2.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: #1c3fb7;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 10px 18px rgba(28, 63, 183, 0.16);
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.nexus-product-card__cart-button:hover,
+.product-card__button.nexus-product-card__cart-button:hover,
+.shop-card__add.nexus-product-card__cart-button:hover {
+  background: #16359d;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 20px rgba(22, 53, 157, 0.18);
+}
+
+.nexus-product-card__cart-button:disabled,
+.product-card__button.nexus-product-card__cart-button:disabled,
+.shop-card__add.nexus-product-card__cart-button:disabled {
+  background: #8ea0d6;
+  color: rgba(255, 255, 255, 0.92);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.nexus-product-card__cart-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+}
+
+.nexus-product-card__cart-button svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+}
+
+.site-header {
+  position: relative;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  color: #1d274f;
+  z-index: 50;
+}
+
+.site-header__inner {
+  width: min(100%, 1500px);
+  margin-inline: auto;
+  min-height: 78px;
+  padding: 0.75rem 1.25rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content) minmax(15rem, 1fr) auto;
+  align-items: center;
+  gap: 1rem 1.5rem;
+}
+
+.site-brand {
+  color: #1d274f;
+  font-size: 1.95rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.site-nav {
+  gap: 1.65rem;
+  justify-content: flex-start;
+  color: #1d274f;
+}
+
+.site-nav a,
+.site-nav__trigger {
+  position: relative;
+  color: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.site-nav a:hover,
+.site-nav__trigger:hover,
+.site-nav a.is-active,
+.site-nav__trigger.is-active {
+  color: #1c3fb7;
+}
+
+.site-nav a.is-active::after,
+.site-nav__trigger.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.55rem;
+  height: 2px;
+  border-radius: 999px;
+  background: #1c3fb7;
+}
+
+.site-search {
+  width: min(100%, 32rem);
+  min-height: 3.2rem;
+  justify-self: stretch;
+  margin-inline: auto;
+  padding: 0 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f8fafc;
+  box-shadow: none;
+}
+
+.site-search__icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  color: #64748b;
+}
+
+.site-search input {
+  min-width: 0;
+  font-size: 0.96rem;
+  color: #1d274f;
+}
+
+.site-search input::placeholder {
+  color: #94a3b8;
+}
+
+.site-actions {
+  gap: 0.65rem;
+}
+
+.site-actions__icon-button {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  color: #1d274f;
+}
+
+.site-actions__icon-button svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.site-actions__icon-button--theme {
+  background: #f8fafc;
+}
+
+.site-actions__signin {
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 0.7rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  color: #1d274f;
+  font-weight: 600;
+}
+
+.site-actions__signin svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.site-actions__signin--ghost {
+  background: #1c3fb7;
+  border-color: #1c3fb7;
+  color: #ffffff;
+}
+
+.site-actions__signin--ghost:hover,
+.site-actions__signin--outline:hover,
+.site-actions__signin:hover,
+.site-actions__icon-button:hover,
+.site-actions__icon-button:focus-visible {
+  border-color: #1c3fb7;
+  color: #1c3fb7;
+}
+
+body[data-theme="dark"] .site-header {
+  background: #0f172a;
+  border-bottom-color: rgba(148, 163, 184, 0.16);
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .site-brand,
+body[data-theme="dark"] .site-nav a,
+body[data-theme="dark"] .site-nav__trigger,
+body[data-theme="dark"] .site-actions,
+body[data-theme="dark"] .site-actions__signin,
+body[data-theme="dark"] .site-actions__icon-button {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .site-search {
+  background: rgba(15, 23, 42, 0.75);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+body[data-theme="dark"] .site-search input,
+body[data-theme="dark"] .site-search input::placeholder,
+body[data-theme="dark"] .site-search__icon {
+  color: #cbd5e1;
+}
+
+body[data-theme="dark"] .site-actions__icon-button,
+body[data-theme="dark"] .site-actions__signin {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+body[data-theme="dark"] .site-actions__signin--ghost {
+  background: #1c3fb7;
+  border-color: #1c3fb7;
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .site-header__inner {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.55rem 0.7rem;
+    min-height: 70px;
+    padding: 0.65rem 0.9rem;
+  }
+
+  .site-brand {
+    font-size: 1.12rem;
+  }
+
+  .site-search {
+    order: 3;
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 2.9rem;
+  }
+
+  .site-nav {
+    order: 4;
+    grid-column: 1 / -1;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    flex-wrap: nowrap;
+    gap: 1rem;
+    padding-bottom: 0.15rem;
+  }
+
+  .site-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .site-nav a,
+  .site-nav__trigger {
+    flex: 0 0 auto;
+  }
+
+  .site-actions {
+    margin-left: auto;
+    gap: 0.45rem;
+  }
+
+  .site-actions__signin {
+    min-height: 2.45rem;
+    padding: 0 0.8rem;
+    border-radius: 0.62rem;
+  }
+
+  .site-actions__icon-button {
+    width: 2.45rem;
+    height: 2.45rem;
+  }
+
+  .site-actions__icon-button svg {
+    width: 1.1rem;
+    height: 1.1rem;
+  }
+}

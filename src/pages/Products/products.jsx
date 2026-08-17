@@ -86,9 +86,9 @@ function ChevronIcon({ direction = "right" }) {
   );
 }
 
-function CartIcon() {
+function CartIcon({ className = "" } = {}) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
       <path d="M3 4h2.5l2 11h11.2l1.6-7H8" />
       <path d="M8.4 15h9.9" />
       <circle cx="10.4" cy="20" r="1.4" />
@@ -117,21 +117,6 @@ function formatMoney(value) {
     maximumFractionDigits: 2,
   }).format(Number(value) || 0);
 }
-
-const addToCartButtonStyle = {
-  width: "100%",
-  minHeight: "3.1rem",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "0.55rem",
-  padding: "0 1rem",
-  border: "0",
-  borderRadius: "0.95rem",
-  background: "#1c3fb7",
-  color: "#ffffff",
-  boxShadow: "0 16px 28px rgba(28, 63, 183, 0.18)",
-};
 
 function toggleItem(list, item) {
   return list.includes(item)
@@ -294,8 +279,7 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
 
         <button
           type="button"
-          className="shop-card__add"
-          style={addToCartButtonStyle}
+          className="shop-card__add nexus-product-card__cart-button"
           onClick={() =>
             onAddToCart({
               ...item,
@@ -306,7 +290,7 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
             })
           }
         >
-          <CartIcon />
+          <CartIcon className="nexus-product-card__cart-icon" />
           Add To Cart
         </button>
       </div>
