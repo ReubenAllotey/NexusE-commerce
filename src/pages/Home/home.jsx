@@ -699,6 +699,32 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     () => getDiscoverCategoryCards(categoryRecords, liveCatalogProducts),
     [categoryRecords, liveCatalogProducts],
   );
+  const bestSellingCards = useMemo(() => {
+    const picked = [];
+    const seenKeys = new Set();
+    const addCard = (item) => {
+      const key = String(item?.id ?? item?.slug ?? item?.name ?? "");
+
+      if (!key || seenKeys.has(key)) {
+        return;
+      }
+
+      seenKeys.add(key);
+      picked.push(item);
+    };
+
+    liveBestSellingProducts.forEach(addCard);
+
+    if (picked.length < 8) {
+      liveCatalogProducts.forEach((item) => {
+        if (picked.length < 8) {
+          addCard(item);
+        }
+      });
+    }
+
+    return picked.slice(0, 8);
+  }, [liveBestSellingProducts, liveCatalogProducts]);
   const loopingCategoryCards = useMemo(
     () => [...categoryCards, ...categoryCards],
     [categoryCards],
@@ -1030,7 +1056,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
               <p>We are syncing merchandising assignments from Supabase.</p>
             </div>
           ) : (
-            liveBestSellingProducts.slice(0, 8).map((item) => (
+            bestSellingCards.map((item) => (
               <NexusProductCard
                 key={item.id ?? item.slug}
                 item={item}
