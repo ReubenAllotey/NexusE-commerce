@@ -1030,7 +1030,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
               <p>We are syncing merchandising assignments from Supabase.</p>
             </div>
           ) : (
-            liveBestSellingProducts.slice(0, 3).map((item) => (
+            liveBestSellingProducts.slice(0, 8).map((item) => (
               <NexusProductCard
                 key={item.id ?? item.slug}
                 item={item}
@@ -1088,8 +1088,14 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                   isWishlisted={wishlistItems.includes(item.name)}
                   classNamePrefix="product-card"
                 />
-              ))
+            ))
           )}
+        </div>
+
+        <div className="section-center">
+          <a href="/products" className="primary-button">
+            View All Products
+          </a>
         </div>
       </section>
 
