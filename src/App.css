@@ -2248,6 +2248,7 @@ body[data-theme="dark"] .site-actions__icon-button:focus-visible {
   background: transparent;
   color: #111111;
   scroll-snap-align: start;
+  scroll-snap-stop: always;
   transition:
     transform 180ms ease,
     opacity 180ms ease;

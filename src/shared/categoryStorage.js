@@ -8,8 +8,11 @@ import fanImage from "../assets/images/standing-fan.jpeg";
 import fridgeImage from "../assets/images/fridge.jpeg";
 import kitchenImage from "../assets/images/kitchen-oven.jpeg";
 import laptopImage from "../assets/images/laptop.jpeg";
+import officeChairImage from "../assets/images/office chair.jpg";
+import playStationImage from "../assets/images/placestation.png";
 import shirtImage from "../assets/images/laurel wrath shirt.png";
 import musicImage from "../assets/images/music-set.jpeg";
+import watchImage from "../assets/images/watcb.jpeg";
 import tvImage from "../assets/images/flatscreen-tv.jpeg";
 import washingImage from "../assets/images/washingmachine.jpeg";
 
@@ -65,7 +68,7 @@ function normalizeStatus(status) {
   return String(status ?? "").toLowerCase() === "hidden" ? "hidden" : "active";
 }
 
-function getCategoryImageSource(row = {}) {
+export function getCategoryImageSource(row = {}) {
   const rawText = [row.name, row.slug, row.icon, row.description]
     .map((value) => normalizeText(value).toLowerCase())
     .join(" ");
@@ -84,6 +87,10 @@ function getCategoryImageSource(row = {}) {
       src: cameraImage,
     },
     {
+      keywords: ["smartwatch", "watch", "wearable", "wearables", "fitness band", "smart band"],
+      src: watchImage,
+    },
+    {
       keywords: ["fan", "air", "cooling", "ventilation"],
       src: fanImage,
     },
@@ -96,11 +103,33 @@ function getCategoryImageSource(row = {}) {
       src: kitchenImage,
     },
     {
+      keywords: ["office", "stationery", "stationary", "paper", "pen", "notebook", "printer"],
+      src: officeChairImage,
+    },
+    {
       keywords: ["laptop", "computer", "pc", "desktop", "macbook"],
       src: laptopImage,
     },
     {
-      keywords: ["shirt", "fashion", "tee", "wear", "dress", "cloth", "apparel"],
+      keywords: [
+        "shirt",
+        "fashion",
+        "tee",
+        "wear",
+        "dress",
+        "cloth",
+        "apparel",
+        "shoe",
+        "shoes",
+        "footwear",
+        "sneaker",
+        "sneakers",
+        "bag",
+        "bags",
+        "luggage",
+        "backpack",
+        "suitcase",
+      ],
       src: shirtImage,
     },
     {
@@ -110,6 +139,10 @@ function getCategoryImageSource(row = {}) {
     {
       keywords: ["tv", "television", "screen", "display"],
       src: tvImage,
+    },
+    {
+      keywords: ["gaming", "game", "console", "playstation", "xbox", "nintendo"],
+      src: playStationImage,
     },
     {
       keywords: ["wash", "laundry", "machine", "washer"],
@@ -126,6 +159,22 @@ function getCategoryImageSource(row = {}) {
   );
 
   return match?.src ?? electronicsImage;
+}
+
+const FEATURED_CATEGORY_PRESETS = [
+  { name: "Smartwatches & Wearables", slug: slugify("Smartwatches & Wearables"), order: 9001 },
+  { name: "Cameras & Photography", slug: slugify("Cameras & Photography"), order: 9002 },
+  { name: "Kitchen Appliances", slug: slugify("Kitchen Appliances"), order: 9003 },
+  { name: "Shoes & Footwear", slug: slugify("Shoes & Footwear"), order: 9004 },
+  { name: "Bags & Luggage", slug: slugify("Bags & Luggage"), order: 9005 },
+  { name: "Office & Stationery", slug: slugify("Office & Stationery"), order: 9006 },
+  { name: "Automotive Accessories", slug: slugify("Automotive Accessories"), order: 9007 },
+  { name: "Kids & Toys", slug: slugify("Kids & Toys"), order: 9008 },
+  { name: "Gaming", slug: slugify("Gaming"), order: 9009 },
+];
+
+function normalizeCategoryKey(record = {}) {
+  return slugify(record.slug ?? record.name ?? "");
 }
 
 function sortCategoryRecords(records = []) {
@@ -508,6 +557,41 @@ export function getHomepageCategoryCards(records = []) {
   );
 }
 
+export function getDiscoverCategoryCards(records = [], products = []) {
+  const rootCategories = sortCategoryRecords(
+    (Array.isArray(records) ? records : []).filter(
+      (record) => isVisibleCategory(record) && !record.parentId,
+    ),
+  );
+  const existingKeys = new Set(rootCategories.map((record) => normalizeCategoryKey(record)));
+  const featuredCategories = FEATURED_CATEGORY_PRESETS.filter(
+    (preset) => !existingKeys.has(preset.slug),
+  ).map((preset) => ({
+    id: `featured-${preset.slug}`,
+    name: preset.name,
+    slug: preset.slug,
+    description: "",
+    icon: "",
+    image: getCategoryImageSource(preset),
+    status: "active",
+    parentId: null,
+    parentSlug: "",
+    order: preset.order,
+    displayOrder: preset.order,
+    showOnHomepage: true,
+    createdAt: null,
+    updatedAt: null,
+    deletedAt: null,
+    deleted: false,
+    featured: true,
+  }));
+
+  return sortCategoryRecords([...rootCategories, ...featuredCategories]).map((category) => ({
+    ...category,
+    productCount: getCategoryProductCount(category, products),
+  }));
+}
+
 export function getCategoryTree(records = []) {
   const activeRecords = (Array.isArray(records) ? records : []).filter(isVisibleCategory);
   const recordIndex = new Map(activeRecords.map((record) => [record.id, record]));
@@ -548,10 +632,25 @@ export function getCategoryProductCount(category, products = []) {
   }
 
   const categoryName = normalizeText(category.name);
+  const categoryKey = normalizeCategoryKey(category);
 
   return (Array.isArray(products) ? products : []).filter((product) => {
     const trail = Array.isArray(product?.categoryTrail) ? product.categoryTrail : [];
-    return normalizeText(product?.category) === categoryName || trail.includes(categoryName);
+    const productCategoryName = normalizeText(product?.category);
+    const productCategoryKey = normalizeCategoryKey({
+      slug: product?.categorySlug ?? product?.category,
+      name: product?.category,
+    });
+    const trailMatches = trail.some(
+      (entry) => normalizeCategoryKey({ slug: entry, name: entry }) === categoryKey,
+    );
+
+    return (
+      productCategoryName === categoryName ||
+      productCategoryKey === categoryKey ||
+      trailMatches ||
+      trail.includes(categoryName)
+    );
   }).length;
 }
 
@@ -561,6 +660,7 @@ export function getCategoryOrderCount(category, orders = [], products = []) {
   }
 
   const categoryName = normalizeText(category.name);
+  const categoryKey = normalizeCategoryKey(category);
   const productIndex = new Map(
     (Array.isArray(products) ? products : []).map((product) => [product.slug ?? product.name, product]),
   );
@@ -573,8 +673,21 @@ export function getCategoryOrderCount(category, orders = [], products = []) {
     for (const item of items) {
       const product = productIndex.get(item.slug ?? item.name);
       const trail = Array.isArray(product?.categoryTrail) ? product.categoryTrail : [];
+      const productCategoryName = normalizeText(product?.category);
+      const productCategoryKey = normalizeCategoryKey({
+        slug: product?.categorySlug ?? product?.category,
+        name: product?.category,
+      });
+      const trailMatches = trail.some(
+        (entry) => normalizeCategoryKey({ slug: entry, name: entry }) === categoryKey,
+      );
 
-      if (normalizeText(product?.category) === categoryName || trail.includes(categoryName)) {
+      if (
+        productCategoryName === categoryName ||
+        productCategoryKey === categoryKey ||
+        trailMatches ||
+        trail.includes(categoryName)
+      ) {
         total += Number(item.quantity) || 1;
       }
     }

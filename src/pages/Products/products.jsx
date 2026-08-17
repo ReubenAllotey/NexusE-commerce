@@ -10,10 +10,11 @@ import {
 } from "./productData";
 import NexusProductCard from "./ProductCard";
 import logo from "../../assets/images/nexuslogo.png";
+import { getDiscoverCategoryCards } from "../../shared/categoryStorage";
 
 const ITEMS_PER_PAGE = 6;
 
-function parseCategorySelection(value, categorySlugSet) {
+function parseCategorySelection(value) {
   if (!value) {
     return [];
   }
@@ -21,8 +22,24 @@ function parseCategorySelection(value, categorySlugSet) {
   return value
     .split(",")
     .map((slug) => slug.trim())
-    .filter((slug) => Boolean(slug) && categorySlugSet.has(slug))
     .filter(Boolean);
+}
+
+function matchesCategorySelection(item, categorySelection) {
+  const selectedSlug = slugify(categorySelection);
+  if (!selectedSlug) {
+    return false;
+  }
+
+  const productCategorySlug = slugify(item?.categorySlug ?? item?.category);
+  const productCategoryName = slugify(item?.category ?? "");
+  const trail = Array.isArray(item?.categoryTrail) ? item.categoryTrail : [];
+
+  if (productCategorySlug === selectedSlug || productCategoryName === selectedSlug) {
+    return true;
+  }
+
+  return trail.some((entry) => slugify(entry) === selectedSlug);
 }
 
 const brandOptions = ["Nexus", "Canon", "Samsung", "TechPro", "NBG", "Omni"];
@@ -330,7 +347,7 @@ function Products({
   );
   const categoryOptions = useMemo(
     () =>
-      visibleCategoryRecords
+      getDiscoverCategoryCards(visibleCategoryRecords, products)
         .map((record) => {
           return {
             slug: record.slug,
@@ -338,19 +355,9 @@ function Products({
             name: record.name,
           };
         }),
-    [visibleCategoryRecords],
+    [products, visibleCategoryRecords],
   );
-  const categorySlugSet = useMemo(
-    () => new Set(visibleCategoryRecords.map((category) => category.slug)),
-    [visibleCategoryRecords],
-  );
-  const selectedCategoryTokens = categoryParam
-    .split(",")
-    .map((slug) => slug.trim())
-    .filter(Boolean);
-  const selectedCategories = parseCategorySelection(categoryParam, categorySlugSet);
-  const hasInvalidCategorySelection =
-    selectedCategoryTokens.length > 0 && selectedCategories.length !== selectedCategoryTokens.length;
+  const selectedCategories = parseCategorySelection(categoryParam);
 
   useEffect(() => {
     setSearchTerm(searchParam);
@@ -364,9 +371,9 @@ function Products({
           const haystack =
             `${item.name} ${item.description} ${item.brand} ${item.category}`.toLowerCase();
           const matchesSearch = haystack.includes(searchTerm.toLowerCase());
-          const matchesCategory = hasInvalidCategorySelection
-            ? false
-            : selectedCategories.length === 0 || selectedCategories.includes(item.categorySlug);
+          const matchesCategory =
+            selectedCategories.length === 0 ||
+            selectedCategories.some((selection) => matchesCategorySelection(item, selection));
           const matchesBrand =
             selectedBrands.length === 0 || selectedBrands.includes(item.brand);
           const matchesPrice = item.price <= priceLimit;
@@ -387,7 +394,7 @@ function Products({
               return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
           }
         }),
-    [hasInvalidCategorySelection, priceLimit, products, searchTerm, selectedBrands, selectedCategories, sortBy],
+    [priceLimit, products, searchTerm, selectedBrands, selectedCategories, sortBy],
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));

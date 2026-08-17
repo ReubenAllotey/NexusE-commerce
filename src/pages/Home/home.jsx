@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/nexuslogo.png";
@@ -11,8 +11,7 @@ import {
 } from "../Products/productData";
 import NexusProductCard from "../Products/ProductCard";
 import {
-  getHomepageCategoryCards,
-  getCategoryProductCount,
+  getDiscoverCategoryCards,
   useCategoryRecords,
 } from "../../shared/categoryStorage";
 import {
@@ -673,24 +672,17 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     error: productsError,
   } = useProducts();
   const [activeCategory, setActiveCategory] = useState("");
+  const [isCategoryPaused, setIsCategoryPaused] = useState(false);
   const categoryCarouselRef = useRef(null);
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
   const categoryCards = useMemo(
-    () => getHomepageCategoryCards(categoryRecords),
-    [categoryRecords],
-  );
-  const showcaseCategories = useMemo(
-    () =>
-      categoryCards.map((category) => ({
-        ...category,
-        productCount: getCategoryProductCount(category, liveCatalogProducts),
-      })),
-    [categoryCards, liveCatalogProducts],
+    () => getDiscoverCategoryCards(categoryRecords, liveCatalogProducts),
+    [categoryRecords, liveCatalogProducts],
   );
 
-  const scrollCategories = (direction) => {
+  const scrollCategories = useCallback((direction) => {
     const container = categoryCarouselRef.current;
 
     if (!container) {
@@ -699,13 +691,30 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     const firstCard = container.querySelector(".category-card");
     const cardWidth = firstCard?.getBoundingClientRect().width ?? 220;
-    const gap = 18;
+    const gap = 20;
+    const step = cardWidth + gap;
+    const maxScrollLeft = Math.max(container.scrollWidth - container.clientWidth, 0);
+    const nextScrollLeft = container.scrollLeft + direction * step;
+
+    if (maxScrollLeft <= 0) {
+      return;
+    }
+
+    if (direction > 0 && nextScrollLeft >= maxScrollLeft - 4) {
+      container.scrollTo({ left: 0, behavior: "smooth" });
+      return;
+    }
+
+    if (direction < 0 && nextScrollLeft <= 0) {
+      container.scrollTo({ left: maxScrollLeft, behavior: "smooth" });
+      return;
+    }
 
     container.scrollBy({
-      left: direction * (cardWidth + gap),
+      left: direction * step,
       behavior: "smooth",
     });
-  };
+  }, []);
 
   useEffect(() => {
     if (categoryCards.length === 0) {
@@ -721,6 +730,18 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       setActiveCategory(categoryCards[0].slug);
     }
   }, [activeCategory, categoryCards]);
+
+  useEffect(() => {
+    if (isCategoryPaused || categoryCards.length < 2) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      scrollCategories(1);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [categoryCards.length, isCategoryPaused, scrollCategories]);
 
   const goToProducts = (categorySlug = "") => {
     navigate(getCategoryProductsPath(categorySlug));
@@ -872,8 +893,13 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </div>
           </div>
         ) : categoryCards.length > 0 ? (
-          <div className="category-grid category-grid--carousel" ref={categoryCarouselRef}>
-            {showcaseCategories.map((category) => (
+          <div
+            className="category-grid category-grid--carousel"
+            ref={categoryCarouselRef}
+            onMouseEnter={() => setIsCategoryPaused(true)}
+            onMouseLeave={() => setIsCategoryPaused(false)}
+          >
+            {categoryCards.map((category) => (
               <article
                 key={category.name}
                 className={`category-card${activeCategory === category.slug ? " is-active" : ""}${
