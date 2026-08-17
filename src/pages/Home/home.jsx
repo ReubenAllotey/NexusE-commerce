@@ -73,6 +73,18 @@ function HeroTrustIcon({ kind }) {
   );
 }
 
+function ImportBannerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 8h11v6H3z" />
+      <path d="M14 10h3l3 3v1h-6z" />
+      <path d="M6 8V6h6l2 2" />
+      <circle cx="8" cy="17.5" r="1.5" />
+      <circle cx="17" cy="17.5" r="1.5" />
+    </svg>
+  );
+}
+
 function SectionLabelIcon({ kind }) {
   const icons = {
     flash: <path d="M13 2 5 13h6l-1 9 8-11h-6l1-9Z" />,
@@ -583,6 +595,11 @@ const serviceItems = [
   },
 ];
 
+const importBannerHighlights = [
+  "Order with Ease.",
+  "Import with Confidence.",
+];
+
 const testimonialItems = [
   {
     name: "Amina K.",
@@ -1013,7 +1030,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
               <p>We are syncing merchandising assignments from Supabase.</p>
             </div>
           ) : (
-            liveBestSellingProducts.map((item) => (
+            liveBestSellingProducts.slice(0, 3).map((item) => (
               <NexusProductCard
                 key={item.id ?? item.slug}
                 item={item}
@@ -1073,6 +1090,22 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 />
               ))
           )}
+        </div>
+      </section>
+
+      <section className="home-import-banner" aria-label="Nexus import message">
+        <div className="site-shell home-import-banner__inner">
+          <span className="home-import-banner__icon" aria-hidden="true">
+            <ImportBannerIcon />
+          </span>
+          <div className="home-import-banner__copy">
+            <p className="home-import-banner__eyebrow">Nexus Import Hub</p>
+            <h2>
+              {importBannerHighlights.map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+            </h2>
+          </div>
         </div>
       </section>
 

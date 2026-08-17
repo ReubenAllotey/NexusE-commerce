@@ -2650,7 +2650,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: transparent;
+  background: rgba(43, 74, 203, 0.08);
   border: 1.5px solid rgba(43, 74, 203, 0.78);
   color: #2b4acb;
   box-shadow: 0 0 0 1px rgba(43, 74, 203, 0.16), 0 8px 20px rgba(11, 18, 32, 0.12);
@@ -2660,6 +2660,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   width: 1.7rem;
   height: 1.7rem;
   stroke: currentColor;
+  fill: none;
 }
 
 .service-card h3 {
@@ -2682,6 +2683,90 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   padding: 3.5rem 0 1.25rem;
   background: #000000;
   color: #ffffff;
+}
+
+.home-import-banner {
+  margin-top: 2.5rem;
+  padding: 0;
+  background: linear-gradient(90deg, #1d274f 0%, #192548 100%);
+}
+
+.home-import-banner__inner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 6.25rem;
+  padding: 1rem clamp(0.9rem, 2vw, 1.35rem);
+  color: #ffffff;
+}
+
+.home-import-banner__icon {
+  width: 3.4rem;
+  height: 3.4rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(43, 74, 203, 0.18);
+  border: 1px solid rgba(43, 74, 203, 0.3);
+  color: #2b4acb;
+  box-shadow: 0 10px 22px rgba(11, 18, 32, 0.18);
+}
+
+.home-import-banner__icon svg {
+  width: 1.6rem;
+  height: 1.6rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home-import-banner__copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.home-import-banner__eyebrow {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.home-import-banner__copy h2 {
+  display: grid;
+  gap: 0.14rem;
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(1.05rem, 1.85vw, 1.45rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.home-import-banner__copy h2 span:last-child {
+  color: #8fd3ff;
+}
+
+@media (max-width: 768px) {
+  .home-import-banner__inner {
+    min-height: 5.6rem;
+    align-items: flex-start;
+  }
+
+  .home-import-banner__icon {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .home-import-banner__copy h2 {
+    font-size: clamp(1rem, 3.8vw, 1.3rem);
+  }
 }
 
 .site-footer__inner {
