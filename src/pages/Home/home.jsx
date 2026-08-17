@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/nexuslogo.png";
@@ -11,8 +11,8 @@ import {
 } from "../Products/productData";
 import NexusProductCard from "../Products/ProductCard";
 import {
-  getHomepageCategoryCards,
   getCategoryProductCount,
+  getCategoryCards,
   useCategoryRecords,
 } from "../../shared/categoryStorage";
 import {
@@ -22,6 +22,7 @@ import {
   useAnnouncements,
 } from "../Admin/announcement/announcementStorage";
 import { useFlashySalesCatalog } from "../../shared/flashySalesStorage";
+import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
 import { useProducts } from "../Products/productData";
 
 function HeartIcon() {
@@ -243,6 +244,133 @@ function CategoryIcon({ kind }) {
     <span className="category-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24">{icons[kind]}</svg>
     </span>
+  );
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDateRange(start, end) {
+  const values = [formatDate(start), formatDate(end)].filter(Boolean);
+
+  if (values.length === 0) {
+    return "";
+  }
+
+  return values.join(" - ");
+}
+
+function buildPromoMessages(siteBanner = defaultSiteBanner) {
+  const safeBanner = normalizeSiteBanner(siteBanner ?? defaultSiteBanner);
+  const announcement = safeBanner?.announcement ?? {};
+  const reflection = safeBanner?.reflection ?? {};
+  const batchNumber = String(announcement.batchNumber ?? "").trim() || "Current batch";
+  const activeDates = formatDateRange(announcement.batchWindowStart, announcement.batchWindowEnd);
+  const freightMode =
+    announcement.shippingMode === "air"
+      ? "Air freight available"
+      : announcement.shippingMode === "sea"
+        ? "Sea freight available"
+        : "Air & sea freight available";
+  const reflectionHeadline = String(reflection.headline ?? "").trim() || "Daily reflection follows the admin schedule.";
+  const verse = String(reflection.verse ?? "").trim() || "Genesis 1:1";
+
+  return [
+    {
+      id: "batch-open",
+      title: (
+        <>
+          <span className="promo-banner__accent">{batchNumber}</span> is now open for orders
+        </>
+      ),
+      detail: activeDates ? `Active date: ${activeDates}` : "Fresh batch details are available now.",
+    },
+    {
+      id: "shipping",
+      title: (
+        <>
+          Shop from China. We handle shipping to <span className="promo-banner__accent">Ghana</span>.
+        </>
+      ),
+      detail: "Reliable imports. Clear updates. Easy delivery.",
+    },
+    {
+      id: "freight",
+      title: <span>{freightMode}</span>,
+      detail: "Orders move in scheduled Nexus batches.",
+    },
+    {
+      id: "tracking",
+      title: <span>Track your shipment every step of the way</span>,
+      detail: "Monitor your order as it moves through the Nexus process.",
+    },
+    {
+      id: "reflection",
+      title: (
+        <>
+          {reflectionHeadline} <span className="promo-banner__verse">({verse})</span>
+        </>
+      ),
+      detail: "Stay informed with the active homepage banner.",
+    },
+  ];
+}
+
+function PromoBanner({ siteBanner = defaultSiteBanner }) {
+  const messages = useMemo(() => buildPromoMessages(siteBanner), [siteBanner]);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [siteBanner]);
+
+  useEffect(() => {
+    if (messages.length <= 1) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % messages.length);
+    }, 5200);
+
+    return () => window.clearInterval(timer);
+  }, [messages.length]);
+
+  const activeMessage = messages[activeIndex] ?? messages[0] ?? null;
+
+  if (!activeMessage) {
+    return null;
+  }
+
+  return (
+    <section className="promo-banner" aria-label="Nexus shipping and batch updates">
+      <div className="promo-banner__icon" aria-hidden="true">
+        <CategoryIcon kind="truck" />
+      </div>
+
+      <div className="promo-banner__copy">
+        <p className="promo-banner__eyebrow">Nexus Shipping Updates</p>
+        <div key={activeMessage.id} className="promo-banner__message">
+          <h3>{activeMessage.title}</h3>
+          <p>{activeMessage.detail}</p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -649,7 +777,12 @@ const heroContent = {
   ],
 };
 
-function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
+function Home({
+  onAddToCart,
+  onToggleWishlist,
+  wishlistItems = [],
+  siteBanner = defaultSiteBanner,
+}) {
   const navigate = useNavigate();
   const {
     records: categoryRecords,
@@ -674,11 +807,16 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   } = useProducts();
   const [activeCategory, setActiveCategory] = useState("");
   const categoryCarouselRef = useRef(null);
+  const [isCategoryPaused, setIsCategoryPaused] = useState(false);
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
+  const safeSiteBanner = useMemo(
+    () => normalizeSiteBanner(siteBanner ?? defaultSiteBanner),
+    [siteBanner],
+  );
   const categoryCards = useMemo(
-    () => getHomepageCategoryCards(categoryRecords),
+    () => getCategoryCards(categoryRecords),
     [categoryRecords],
   );
   const showcaseCategories = useMemo(
@@ -690,7 +828,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     [categoryCards, liveCatalogProducts],
   );
 
-  const scrollCategories = (direction) => {
+  const scrollCategories = useCallback((direction) => {
     const container = categoryCarouselRef.current;
 
     if (!container) {
@@ -699,13 +837,26 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     const firstCard = container.querySelector(".category-card");
     const cardWidth = firstCard?.getBoundingClientRect().width ?? 220;
-    const gap = 18;
+    const computedStyles = window.getComputedStyle(container);
+    const gap = Number.parseFloat(computedStyles.columnGap || computedStyles.gap || "18") || 18;
+    const maxScroll = Math.max(container.scrollWidth - container.clientWidth, 0);
+    const nextScrollLeft = container.scrollLeft + direction * (cardWidth + gap);
+
+    if (direction > 0 && container.scrollLeft >= maxScroll - 8) {
+      container.scrollTo({ left: 0, behavior: "smooth" });
+      return;
+    }
+
+    if (direction < 0 && container.scrollLeft <= 8) {
+      container.scrollTo({ left: maxScroll, behavior: "smooth" });
+      return;
+    }
 
     container.scrollBy({
-      left: direction * (cardWidth + gap),
+      left: nextScrollLeft - container.scrollLeft,
       behavior: "smooth",
     });
-  };
+  }, []);
 
   useEffect(() => {
     if (categoryCards.length === 0) {
@@ -721,6 +872,18 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       setActiveCategory(categoryCards[0].slug);
     }
   }, [activeCategory, categoryCards]);
+
+  useEffect(() => {
+    if (isCategoryPaused || showcaseCategories.length <= 1) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      scrollCategories(1);
+    }, 5200);
+
+    return () => window.clearInterval(timer);
+  }, [isCategoryPaused, scrollCategories, showcaseCategories.length]);
 
   const goToProducts = (categorySlug = "") => {
     navigate(getCategoryProductsPath(categorySlug));
@@ -840,11 +1003,56 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
       <hr className="section-divider" />
 
+      <section className="site-shell section-block" id="best-selling">
+        <div className="section-header">
+          <div>
+            <SectionLabel icon="calendar">This Month</SectionLabel>
+            <h2>Best Selling Products</h2>
+          </div>
+
+          <a href="#featured" className="view-all-link">
+            View All
+          </a>
+        </div>
+
+        <div className="product-row">
+          {flashyError ? (
+            <div className="shop-empty">
+              <h3>Unable to load best-selling products right now.</h3>
+              <p>{flashyError}</p>
+            </div>
+          ) : flashyLoading && liveBestSellingProducts.length === 0 ? (
+            <div className="shop-empty">
+              <h3>Loading best-selling products...</h3>
+              <p>We are syncing merchandising assignments from Supabase.</p>
+            </div>
+          ) : (
+            liveBestSellingProducts.map((item) => (
+              <NexusProductCard
+                key={item.id ?? item.slug}
+                item={item}
+                onAddToCart={onAddToCart}
+                onToggleWishlist={onToggleWishlist}
+                isWishlisted={wishlistItems.includes(item.name)}
+                classNamePrefix="product-card"
+              />
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="promo-banner-section">
+        <PromoBanner siteBanner={safeSiteBanner} />
+      </section>
+
       <section className="site-shell section-block" id="categories">
         <div className="section-header">
           <div>
-            <SectionLabel icon="category">Categories</SectionLabel>
-            <h2>Browse By Category</h2>
+            <SectionLabel icon="category">Discover More</SectionLabel>
+            <h2>Shop Your Way</h2>
+            <p className="section-note section-note--lead">
+              Explore top categories and find exactly what you need.
+            </p>
           </div>
 
           <div className="section-controls">
@@ -872,7 +1080,14 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </div>
           </div>
         ) : categoryCards.length > 0 ? (
-          <div className="category-grid category-grid--carousel" ref={categoryCarouselRef}>
+          <div
+            className="category-grid category-grid--carousel"
+            ref={categoryCarouselRef}
+            onMouseEnter={() => setIsCategoryPaused(true)}
+            onMouseLeave={() => setIsCategoryPaused(false)}
+            onFocusCapture={() => setIsCategoryPaused(true)}
+            onBlurCapture={() => setIsCategoryPaused(false)}
+          >
             {showcaseCategories.map((category) => (
               <article
                 key={category.name}
@@ -922,44 +1137,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </div>
           </div>
         )}
-      </section>
-
-      <section className="site-shell section-block" id="best-selling">
-        <div className="section-header">
-          <div>
-            <SectionLabel icon="calendar">This Month</SectionLabel>
-            <h2>Best Selling Products</h2>
-          </div>
-
-          <a href="#featured" className="view-all-link">
-            View All
-          </a>
-        </div>
-
-        <div className="product-row">
-          {flashyError ? (
-            <div className="shop-empty">
-              <h3>Unable to load best-selling products right now.</h3>
-              <p>{flashyError}</p>
-            </div>
-          ) : flashyLoading && liveBestSellingProducts.length === 0 ? (
-            <div className="shop-empty">
-              <h3>Loading best-selling products...</h3>
-              <p>We are syncing merchandising assignments from Supabase.</p>
-            </div>
-          ) : (
-            liveBestSellingProducts.map((item) => (
-              <NexusProductCard
-                key={item.id ?? item.slug}
-                item={item}
-                onAddToCart={onAddToCart}
-                onToggleWishlist={onToggleWishlist}
-                isWishlisted={wishlistItems.includes(item.name)}
-                classNamePrefix="product-card"
-              />
-            ))
-          )}
-        </div>
       </section>
 
       <section className="site-shell section-block" id="explore">

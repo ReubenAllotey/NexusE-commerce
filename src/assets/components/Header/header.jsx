@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getCategoryProductsPath } from "../../../pages/Home/catalogData";
-import { useCategoryTree } from "../../../shared/categoryStorage";
+import { getCategoryProductCount, useCategoryTree } from "../../../shared/categoryStorage";
 import MobileDrawer from "../../../shared/mobileDrawer";
+import { useProducts } from "../../../pages/Products/productData";
 
 function ChevronDownIcon() {
   return (
@@ -86,6 +87,25 @@ function MenuIcon() {
   );
 }
 
+function flattenCategoryTree(records = []) {
+  const flattened = [];
+
+  const visit = (category, parentName = "") => {
+    flattened.push({
+      ...category,
+      parentName,
+    });
+
+    const children = Array.isArray(category?.children) ? category.children : [];
+
+    children.forEach((child) => visit(child, category?.name ?? ""));
+  };
+
+  records.forEach((category) => visit(category));
+
+  return flattened;
+}
+
 function Header({
   cartCount = 0,
   wishlistCount = 0,
@@ -96,8 +116,11 @@ function Header({
   const location = useLocation();
   const navigate = useNavigate();
   const { tree: categoryTree, loading: categoriesLoading, error: categoriesError } = useCategoryTree();
+  const { products: catalogProducts, loading: productsLoading } = useProducts();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const categoriesMenuRef = useRef(null);
   const [theme, setTheme] = useState(() => {
     if (typeof window === "undefined") {
       return "light";
@@ -105,14 +128,24 @@ function Header({
     return window.localStorage.getItem("nexus-theme") || "light";
   });
 
-  const categoryLinks = categoryTree.map((category) => ({
-    label: category.name,
-    to: getCategoryProductsPath(category.slug),
-    children: Array.isArray(category.children) ? category.children : [],
-  }));
+  const categoryMenuItems = useMemo(() => {
+    const visibleTree = Array.isArray(categoryTree) ? categoryTree : [];
+    const flattened = flattenCategoryTree(visibleTree);
+
+    return flattened
+      .filter((category) => category && category.status === "active" && category.deletedAt == null)
+      .map((category) => ({
+        ...category,
+        productCount: getCategoryProductCount(category, catalogProducts),
+      }));
+  }, [catalogProducts, categoryTree]);
 
   useEffect(() => {
     setIsMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    setIsCategoriesOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -125,7 +158,34 @@ function Header({
     window.localStorage.setItem("nexus-theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (categoriesMenuRef.current && !categoriesMenuRef.current.contains(event.target)) {
+        setIsCategoriesOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsCategoriesOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   const closeMenu = () => setIsMenuOpen(false);
+  const closeCategoriesMenu = () => setIsCategoriesOpen(false);
   const handleSearchSubmit = (event) => {
     event.preventDefault();
     const term = searchValue.trim();
@@ -168,42 +228,57 @@ function Header({
           >
             Shop
           </Link>
-          <details className="site-nav__group">
-            <summary className="site-nav__trigger">
+          <div
+            className="site-nav__mega"
+            ref={categoriesMenuRef}
+            onMouseEnter={() => setIsCategoriesOpen(true)}
+            onMouseLeave={() => setIsCategoriesOpen(false)}
+          >
+            <button
+              type="button"
+              className={`site-nav__trigger site-nav__trigger--button${isCategoriesOpen ? " is-active" : ""}`.trim()}
+              aria-expanded={isCategoriesOpen}
+              aria-haspopup="menu"
+              onClick={() => setIsCategoriesOpen((current) => !current)}
+            >
               Categories
               <ChevronDownIcon />
-            </summary>
-            <div className="site-nav__menu" aria-label="Categories menu">
+            </button>
+            <div
+              className={`site-nav__menu site-nav__menu--mega${isCategoriesOpen ? " is-open" : ""}`.trim()}
+              aria-label="Categories menu"
+            >
               {categoriesError ? (
                 <div className="site-nav__menu-empty">Unable to load categories.</div>
-              ) : categoriesLoading && categoryLinks.length === 0 ? (
+              ) : categoriesLoading || productsLoading ? (
                 <div className="site-nav__menu-empty">Loading categories...</div>
-              ) : categoryLinks.length > 0 ? (
-                categoryLinks.map((item) => (
-                  <div className="site-nav__menu-group" key={item.label}>
-                    <Link className="site-nav__menu-parent" to={item.to}>
-                      {item.label}
+              ) : categoryMenuItems.length > 0 ? (
+                <div className="site-nav__menu-grid">
+                  {categoryMenuItems.map((item) => (
+                    <Link
+                      key={item.id}
+                      to={getCategoryProductsPath(item.slug)}
+                      className="site-nav__menu-card"
+                      onClick={closeCategoriesMenu}
+                    >
+                      <span className="site-nav__menu-media" aria-hidden="true">
+                        <img src={item.image} alt="" />
+                      </span>
+                      <span className="site-nav__menu-copy">
+                        <strong>{item.name}</strong>
+                        <small>
+                          {item.parentName ? `${item.parentName} · ` : ""}
+                          {item.productCount} products
+                        </small>
+                      </span>
                     </Link>
-                    {item.children.length > 0 ? (
-                      <div className="site-nav__menu-children">
-                        {item.children.map((child) => (
-                          <Link
-                            key={child.slug}
-                            to={getCategoryProductsPath(child.slug)}
-                            className="site-nav__menu-child"
-                          >
-                            {child.name}
-                          </Link>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))
+                  ))}
+                </div>
               ) : (
                 <div className="site-nav__menu-empty">No categories available.</div>
               )}
             </div>
-          </details>
+          </div>
           <details className="site-nav__group">
             <summary className={`site-nav__trigger ${isCompanyActive ? "is-active" : ""}`.trim()}>
               Company
@@ -317,15 +392,15 @@ function Header({
             <p className="site-mobile-menu__label">Categories</p>
             {categoriesError ? (
               <p className="site-mobile-menu__empty">Unable to load categories.</p>
-            ) : categoriesLoading && categoryLinks.length === 0 ? (
+            ) : categoriesLoading && categoryTree.length === 0 ? (
               <p className="site-mobile-menu__empty">Loading categories...</p>
-            ) : categoryLinks.length > 0 ? (
-              categoryLinks.map((item) => (
-                <div className="site-mobile-menu__category" key={item.label}>
-                  <Link to={item.to} onClick={closeMenu} className="site-mobile-menu__category-link">
-                    {item.label}
+            ) : categoryTree.length > 0 ? (
+              categoryTree.map((item) => (
+                <div className="site-mobile-menu__category" key={item.slug}>
+                  <Link to={getCategoryProductsPath(item.slug)} onClick={closeMenu} className="site-mobile-menu__category-link">
+                    {item.name}
                   </Link>
-                  {item.children.length > 0 ? (
+                  {Array.isArray(item.children) && item.children.length > 0 ? (
                     <div className="site-mobile-menu__children">
                       {item.children.map((child) => (
                         <Link
