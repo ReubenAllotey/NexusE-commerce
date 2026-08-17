@@ -389,6 +389,7 @@ function normalizeVariationOptionRow(row = {}, basePrice = 0, baseCompareAt = nu
 
 function normalizeVariationGroupRow(row = {}, options = [], basePrice = 0, baseCompareAt = null) {
   const normalizedOptions = [...(Array.isArray(options) ? options : [])]
+    .filter(Boolean)
     .map((option) => normalizeVariationOptionRow(option, basePrice, baseCompareAt))
     .sort(
       (left, right) =>
@@ -505,6 +506,7 @@ function buildFallbackVariationGroups(row = {}, bundle = {}) {
 
 function normalizeVariationGroups(groups = [], basePrice = 0, baseCompareAt = null) {
   return [...(Array.isArray(groups) ? groups : [])]
+    .filter(Boolean)
     .map((group) => normalizeVariationGroupRow(group, group.options ?? [], basePrice, baseCompareAt))
     .filter((group) => group.groupName)
     .sort(
@@ -517,6 +519,7 @@ function normalizeVariationGroups(groups = [], basePrice = 0, baseCompareAt = nu
 
 function buildDefaultSelectedOptions(variationGroups = []) {
   return [...(Array.isArray(variationGroups) ? variationGroups : [])]
+    .filter(Boolean)
     .map((group) => {
       const option = group.options?.find((entry) => entry.isDefault) ?? group.options?.[0] ?? null;
 

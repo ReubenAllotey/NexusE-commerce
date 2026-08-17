@@ -358,7 +358,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
     () => buildDefaultSelectedOptions(variationGroups),
     [variationGroups],
   );
-  const primaryGroup = variationGroups[0] ?? null;
+  const primaryGroup = variationGroups.find(Boolean) ?? null;
   const primaryGroupOptions = Array.isArray(primaryGroup?.options) ? primaryGroup.options : [];
   const defaultOption = primaryGroup?.options?.find((option) => option.isDefault) ?? primaryGroup?.options?.[0] ?? null;
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
