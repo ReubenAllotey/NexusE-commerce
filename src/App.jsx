@@ -250,7 +250,15 @@ function CartDrawer({
 
         <div className="cart-drawer__items">
           {drawerItems.length > 0 ? (
-            drawerItems.map(({ key, product, quantity, lineTotal, variant }) => (
+            drawerItems.map(({ key, product, quantity, lineTotal, variant, selectedOptions }) => {
+              const variantLabel =
+                getVariantLabel({
+                  variant,
+                  selectedOptions,
+                  variantLabel: variant?.label ?? "",
+                }) || "";
+
+              return (
               <article className="cart-drawer__item" key={key}>
                 <div className="cart-drawer__image">
                   <img src={product.image} alt={product.name} className={product.imageClassName ?? ""} />
@@ -271,7 +279,8 @@ function CartDrawer({
                   </div>
                 </div>
               </article>
-            ))
+              );
+            })
           ) : (
             <div className="cart-drawer__empty">
               <p>Your cart is empty.</p>

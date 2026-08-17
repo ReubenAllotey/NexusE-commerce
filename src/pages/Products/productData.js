@@ -192,6 +192,10 @@ function normalizeImageSrc(src) {
   }
 
   const fileName = value.split(/[\\/]/).pop() ?? value;
+  if (/laurel\s+wrath\s+shirt/i.test(fileName) || /laurel\s+wrath\s+shirt/i.test(value)) {
+    return shirt;
+  }
+
   return PRODUCT_IMAGE_ASSET_MAP[fileName] ?? PRODUCT_IMAGE_ASSET_MAP[value] ?? value;
 }
 
