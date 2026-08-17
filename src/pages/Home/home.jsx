@@ -351,7 +351,7 @@ function formatMoney(value) {
 function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
   const detailHref = getProductPath(item.slug ?? slugify(item.name));
   const variationGroups = useMemo(
-    () => (Array.isArray(item.variationGroups) ? item.variationGroups : []),
+    () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
   );
   const defaultSelectedOptions = useMemo(

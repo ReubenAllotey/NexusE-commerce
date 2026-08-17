@@ -136,7 +136,7 @@ function renderStars(score) {
 
 function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
   const variationGroups = useMemo(
-    () => (Array.isArray(item.variationGroups) ? item.variationGroups : []),
+    () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
   );
   const defaultSelectedOptions = useMemo(
