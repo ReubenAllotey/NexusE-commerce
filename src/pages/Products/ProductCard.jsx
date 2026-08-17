@@ -276,6 +276,7 @@ function ProductCard({
         <button
           type="button"
           className={`${prefix}__button`}
+          style={{ width: "100%" }}
           onClick={() =>
             onAddToCart({
               ...item,

@@ -280,6 +280,7 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
         <button
           type="button"
           className="shop-card__add"
+          style={{ width: "100%" }}
           onClick={() =>
             onAddToCart({
               ...item,

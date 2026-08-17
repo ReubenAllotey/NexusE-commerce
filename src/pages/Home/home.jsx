@@ -497,6 +497,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
         <button
           type="button"
           className="product-card__button"
+          style={{ width: "100%" }}
           onClick={() =>
             onAddToCart({
               ...item,
