@@ -1290,8 +1290,6 @@ export function buildProductBundlePayloadFromLegacyProduct(product = {}, overrid
 export function buildProductBundlePayloadFromEditorValues(values = {}, existingProduct = null) {
   const nextName = cleanText(values.name);
   const existing = existingProduct ? normalizeExistingProductFields(existingProduct) : null;
-  const selectedColorKeys = Array.isArray(values.selectedColorKeys) ? values.selectedColorKeys : [];
-  const selectedSizes = Array.isArray(values.selectedSizes) ? values.selectedSizes : [];
   const variationGroups = buildVariationGroupsFromEditorValues(values, existingProduct);
   const galleryImages = normalizeGalleryInput(values.galleryImages);
   const mainImage = normalizeImageSrc(values.mainImage || galleryImages[0]?.src || existing?.primary_image_url || "");
@@ -1314,6 +1312,15 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
   }
 
   const categoryId = cleanText(values.categoryId ?? values.category ?? existing?.category_id ?? existing?.categoryId);
+  const legacyFields = existing
+    ? {
+        brand: existing.brand || null,
+        sold_by: existing.sold_by || null,
+        series: existing.series || null,
+        rating: existing.rating,
+        review_count: existing.review_count,
+      }
+    : {};
 
   return {
     product: {
@@ -1321,13 +1328,8 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
       category_id: categoryId || undefined,
       slug: slugValue,
       name: nextName,
-      series: cleanText(values.series) || null,
-      brand: cleanText(values.brand) || null,
-      sold_by: cleanText(values.soldBy) || cleanText(values.brand) || existing?.sold_by || null,
       price: normalizeNumber(values.price) ?? 0,
       compare_at: normalizeNumber(values.compareAt),
-      rating: normalizeNumber(values.rating),
-      review_count: normalizeNonNegativeInteger(values.reviews) ?? 0,
       badge: cleanText(values.badge) || null,
       stock_status: cleanText(values.stockStatus) || DEFAULT_STOCK_STATUS,
       description: cleanText(values.description) || null,
@@ -1346,22 +1348,9 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
         values.subcategoryLabel === "" || values.subcategoryLabel == null
           ? null
           : cleanText(values.subcategoryLabel),
+      ...legacyFields,
     },
     images: imageRows,
-    colors: selectedColorKeys
-      .map(normalizeColorSelection)
-      .filter(Boolean)
-      .map((colorName, index) => ({
-        color_name: PRODUCT_COLOR_OPTIONS.find((option) => option.key === colorName)?.label ?? colorName,
-        display_order: index + 1,
-      })),
-    sizes: selectedSizes
-      .map((sizeName) => cleanText(sizeName))
-      .filter(Boolean)
-      .map((sizeName, index) => ({
-        size_name: sizeName,
-        display_order: index + 1,
-      })),
     features: normalizeTextList(values.featuresText).map((featureText, index) => ({
       feature_text: featureText,
       display_order: index + 1,
