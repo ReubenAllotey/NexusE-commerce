@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getCategoryProductsPath } from "../../../pages/Home/catalogData";
-import { useCategoryTree } from "../../../shared/categoryStorage";
+import { getCategoryProductCount, useCategoryTree } from "../../../shared/categoryStorage";
+import { useProducts } from "../../../pages/Products/productData";
 import MobileDrawer from "../../../shared/mobileDrawer";
 
 function ChevronDownIcon() {
@@ -86,6 +87,19 @@ function MenuIcon() {
   );
 }
 
+function flattenCategories(categories = [], parentName = "") {
+  return (Array.isArray(categories) ? categories : []).flatMap((category) => {
+    const current = {
+      ...category,
+      parentName,
+    };
+
+    const children = flattenCategories(Array.isArray(category.children) ? category.children : [], category.name);
+
+    return [current, ...children];
+  });
+}
+
 function Header({
   cartCount = 0,
   wishlistCount = 0,
@@ -96,6 +110,7 @@ function Header({
   const location = useLocation();
   const navigate = useNavigate();
   const { tree: categoryTree, loading: categoriesLoading, error: categoriesError } = useCategoryTree();
+  const { products: catalogProducts } = useProducts();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [theme, setTheme] = useState(() => {
@@ -110,6 +125,17 @@ function Header({
     to: getCategoryProductsPath(category.slug),
     children: Array.isArray(category.children) ? category.children : [],
   }));
+  const categoryMenuItems = useMemo(
+    () =>
+      flattenCategories(categoryTree)
+        .filter((category) => Boolean(category?.slug))
+        .map((category) => ({
+          ...category,
+          to: getCategoryProductsPath(category.slug),
+          count: getCategoryProductCount(category, catalogProducts),
+        })),
+    [catalogProducts, categoryTree],
+  );
 
   useEffect(() => {
     setIsMenuOpen(false);
@@ -173,32 +199,25 @@ function Header({
               Categories
               <ChevronDownIcon />
             </summary>
-            <div className="site-nav__menu" aria-label="Categories menu">
+            <div className="site-nav__menu site-nav__menu--mega" aria-label="Categories menu">
               {categoriesError ? (
                 <div className="site-nav__menu-empty">Unable to load categories.</div>
               ) : categoriesLoading && categoryLinks.length === 0 ? (
                 <div className="site-nav__menu-empty">Loading categories...</div>
-              ) : categoryLinks.length > 0 ? (
-                categoryLinks.map((item) => (
-                  <div className="site-nav__menu-group" key={item.label}>
-                    <Link className="site-nav__menu-parent" to={item.to}>
-                      {item.label}
+              ) : categoryMenuItems.length > 0 ? (
+                <div className="site-nav__menu-grid">
+                  {categoryMenuItems.map((item) => (
+                    <Link className="site-nav__menu-card" to={item.to} key={item.id}>
+                      <span className="site-nav__menu-thumb" aria-hidden="true">
+                        <img src={item.image} alt="" loading="lazy" />
+                      </span>
+                      <span className="site-nav__menu-copy">
+                        <strong>{item.name}</strong>
+                        <span>{item.count} products</span>
+                      </span>
                     </Link>
-                    {item.children.length > 0 ? (
-                      <div className="site-nav__menu-children">
-                        {item.children.map((child) => (
-                          <Link
-                            key={child.slug}
-                            to={getCategoryProductsPath(child.slug)}
-                            className="site-nav__menu-child"
-                          >
-                            {child.name}
-                          </Link>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))
+                  ))}
+                </div>
               ) : (
                 <div className="site-nav__menu-empty">No categories available.</div>
               )}
