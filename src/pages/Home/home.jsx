@@ -674,6 +674,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   const [activeCategory, setActiveCategory] = useState("");
   const [isCategoryPaused, setIsCategoryPaused] = useState(false);
   const categoryCarouselRef = useRef(null);
+  const categoryLoopWidthRef = useRef(0);
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
@@ -681,12 +682,50 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     () => getDiscoverCategoryCards(categoryRecords, liveCatalogProducts),
     [categoryRecords, liveCatalogProducts],
   );
+  const loopingCategoryCards = useMemo(
+    () => [...categoryCards, ...categoryCards],
+    [categoryCards],
+  );
+
+  useEffect(() => {
+    const measureLoopWidth = () => {
+      const container = categoryCarouselRef.current;
+
+      if (!container) {
+        categoryLoopWidthRef.current = 0;
+        return;
+      }
+
+      const cards = container.querySelectorAll(".category-card");
+      const firstCardOfSecondLoop = cards[categoryCards.length];
+
+      categoryLoopWidthRef.current = firstCardOfSecondLoop?.offsetLeft ?? 0;
+    };
+
+    const frame = window.requestAnimationFrame(measureLoopWidth);
+    window.addEventListener("resize", measureLoopWidth);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", measureLoopWidth);
+    };
+  }, [categoryCards.length]);
 
   const scrollCategories = useCallback((direction) => {
     const container = categoryCarouselRef.current;
 
     if (!container) {
       return;
+    }
+
+    const loopWidth = categoryLoopWidthRef.current;
+
+    if (loopWidth > 0) {
+      if (container.scrollLeft >= loopWidth) {
+        container.scrollLeft -= loopWidth;
+      } else if (container.scrollLeft < 0) {
+        container.scrollLeft += loopWidth;
+      }
     }
 
     const firstCard = container.querySelector(".category-card");
@@ -893,15 +932,15 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </div>
           </div>
         ) : categoryCards.length > 0 ? (
-          <div
+        <div
             className="category-grid category-grid--carousel"
             ref={categoryCarouselRef}
             onMouseEnter={() => setIsCategoryPaused(true)}
             onMouseLeave={() => setIsCategoryPaused(false)}
           >
-            {categoryCards.map((category) => (
+            {loopingCategoryCards.map((category, index) => (
               <article
-                key={category.name}
+                key={`${category.slug}-${index}`}
                 className={`category-card${activeCategory === category.slug ? " is-active" : ""}${
                   category.children?.length ? " has-children" : ""
                 }`}
