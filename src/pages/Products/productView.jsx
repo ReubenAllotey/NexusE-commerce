@@ -109,7 +109,7 @@ function ProductView({
   }, [product]);
 
   const variationGroups = useMemo(
-    () => (Array.isArray(product?.variationGroups) ? product.variationGroups : []),
+    () => (Array.isArray(product?.variationGroups) ? product.variationGroups.filter(Boolean) : []),
     [product?.variationGroups],
   );
   const categoryTrail = Array.isArray(product?.categoryTrail) ? product.categoryTrail : [];
