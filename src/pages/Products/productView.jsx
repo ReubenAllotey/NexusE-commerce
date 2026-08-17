@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
+import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
+import NexusProductCard from "./ProductCard";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
+  getShippingFee,
+  useProductBySlug,
+  useProducts,
 } from "./productData";
-import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
-import { getShippingFee, useProductBySlug } from "./productData";
+
+const FALLBACK_IMAGE =
+  "data:image/svg+xml;charset=UTF-8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><rect width="800" height="800" fill="#f7fbff"/><rect x="160" y="180" width="480" height="440" rx="40" fill="#e2eaf5"/><rect x="220" y="240" width="360" height="300" rx="28" fill="#cdd8ea"/><path d="M280 420h240" stroke="#9eb0ca" stroke-width="24" stroke-linecap="round"/><path d="M400 300v240" stroke="#9eb0ca" stroke-width="24" stroke-linecap="round"/><circle cx="400" cy="420" r="54" fill="#b6c7df"/></svg>',
+  );
 
 function StarIcon({ filled = false }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className={filled ? "is-filled" : ""}
-    >
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={filled ? "is-filled" : ""}>
       <path d="m12 3 2.9 5.9 6.5.9-4.7 4.5 1.1 6.4L12 17.6 6.2 20.7l1.1-6.4L2.6 9.8l6.5-.9L12 3Z" />
     </svg>
   );
@@ -35,6 +40,17 @@ function ShieldIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 2 5 5v6c0 5 3.6 9.7 7 11 3.4-1.3 7-6 7-11V5l-7-3Z" />
       <path d="M9.5 12.5 11.2 14l3.3-3.7" />
+    </svg>
+  );
+}
+
+function CartIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 4h2.5l2 11h11.2l1.6-7H8" />
+      <path d="M8.4 15h9.9" />
+      <circle cx="10.4" cy="20" r="1.4" />
+      <circle cx="18.1" cy="20" r="1.4" />
     </svg>
   );
 }
@@ -93,21 +109,19 @@ function ProductView({
 }) {
   const { productSlug } = useParams();
   const { product, loading } = useProductBySlug(productSlug);
+  const { products: catalogProducts = [] } = useProducts();
   const safeSiteBanner = useMemo(
     () => normalizeSiteBanner(siteBanner ?? defaultSiteBanner),
     [siteBanner],
   );
   const [activeImage, setActiveImage] = useState(null);
   const [selectedOptions, setSelectedOptions] = useState([]);
+  const [quantity, setQuantity] = useState(1);
 
-  const gallery = useMemo(() => {
-    if (!product) {
-      return [];
-    }
-
-    return Array.isArray(product.gallery) ? product.gallery : [];
-  }, [product]);
-
+  const gallery = useMemo(
+    () => (product && Array.isArray(product.gallery) ? product.gallery.filter(Boolean) : []),
+    [product],
+  );
   const variationGroups = useMemo(
     () => (Array.isArray(product?.variationGroups) ? product.variationGroups.filter(Boolean) : []),
     [product?.variationGroups],
@@ -123,30 +137,11 @@ function ProductView({
   useEffect(() => {
     setActiveImage(null);
     setSelectedOptions(defaultSelectedOptions);
+    setQuantity(1);
   }, [defaultSelectedOptions, productSlug]);
 
-  if (loading) {
-    return (
-      <main className="product-view">
-        <div className="product-view__shell">
-          <section className="product-view__layout">
-            <div className="shop-empty">
-              <h2>Loading product...</h2>
-              <p>We are fetching the latest product data from Supabase.</p>
-            </div>
-          </section>
-        </div>
-      </main>
-    );
-  }
-
-  if (!product) {
-    return <Navigate to="/products" replace />;
-  }
-
-  const stars = renderStars(product.rating);
-  const reviewCount = Number(product.reviews) || 0;
-  const fallbackImageSrc = product?.image ?? gallery[0]?.src ?? "";
+  const stars = renderStars(product?.rating ?? 0);
+  const reviewCount = Number(product?.reviews) || 0;
   const selectionLookup = new Map(selectedOptions.map((option) => [option.groupId, option]));
   const activeSelection = variationGroups
     .map((group) => {
@@ -175,28 +170,26 @@ function ProductView({
       };
     })
     .filter(Boolean);
+
   const selectedImageOption = activeSelection.find((option) => option.imageUrl);
   const selectedImage = activeImage == null ? null : gallery[activeImage] ?? null;
-  const selectedImageSrc = selectedImage?.src ?? selectedImageOption?.imageUrl ?? fallbackImageSrc;
-  const isWishlisted = wishlistItems.includes(product.name);
-  const categoryHref = product.categorySlug
-    ? `/products?category=${product.categorySlug}`
-    : "/products";
+  const selectedImageSrc =
+    selectedImage?.src || selectedImageOption?.imageUrl || product?.image || gallery[0]?.src || FALLBACK_IMAGE;
+  const isWishlisted = wishlistItems.includes(product?.name);
+  const categoryHref = product?.categorySlug ? `/products?category=${product.categorySlug}` : "/products";
   const shippingFee = getShippingFee(product);
   const shippingFeeLabel = shippingFee == null ? "Pending" : formatMoney(shippingFee);
-  const shippingMethodLabel = formatShippingMethod(product.shippingMethod);
+  const shippingMethodLabel = formatShippingMethod(product?.shippingMethod);
   const activePrice =
-    (Number(product.price) || 0) +
+    (Number(product?.price) || 0) +
     activeSelection.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
   const activeCompareAt =
-    product.compareAt != null
+    product?.compareAt != null
       ? (Number(product.compareAt) || 0) +
         activeSelection.reduce((sum, option) => sum + (Number(option.compareAtDelta) || 0), 0)
       : null;
   const previewTint =
-    activeSelection.find((option) => option.swatchColor)?.swatchColor ??
-    selectedImage?.tint ??
-    "#dfe7f3";
+    activeSelection.find((option) => option.swatchColor)?.swatchColor || selectedImage?.tint || "#dfe7f3";
   const bannerBatchNumber = safeSiteBanner?.announcement?.batchNumber?.trim() || "Pending";
   const batchWindowStart = formatDate(safeSiteBanner?.announcement?.batchWindowStart);
   const batchWindowEnd = formatDate(safeSiteBanner?.announcement?.batchWindowEnd);
@@ -206,9 +199,42 @@ function ProductView({
       : "Batch window pending";
   const activeSelectionLabel =
     activeSelection.map((option) => option.label).filter(Boolean).join(" / ") || "Default";
+  const safeQuantity = Math.max(Number(quantity) || 0, 1);
+  const relatedProducts = useMemo(() => {
+    if (!Array.isArray(catalogProducts) || catalogProducts.length === 0) {
+      return [];
+    }
+
+    return catalogProducts
+      .filter(
+        (entry) =>
+          entry?.id !== product?.id &&
+          (entry?.categoryId === product?.categoryId || entry?.categorySlug === product?.categorySlug),
+      )
+      .slice(0, 4);
+  }, [catalogProducts, product?.categoryId, product?.categorySlug, product?.id]);
+
+  if (loading) {
+    return (
+      <main className="product-view">
+        <div className="product-view__shell">
+          <section className="product-view__layout">
+            <div className="shop-empty">
+              <h2>Loading product...</h2>
+              <p>We are fetching the latest product data from Supabase.</p>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
+  if (!product) {
+    return <Navigate to="/products" replace />;
+  }
 
   const handleAddToCart = () => {
-    onAddToCart(product.slug, 1, {
+    onAddToCart(product, safeQuantity, {
       selectedOptions: activeSelection,
       variantKey: buildVariantKeyFromSelectedOptions(activeSelection),
     });
@@ -241,7 +267,8 @@ function ProductView({
               className="product-view__main-image"
               style={{
                 "--preview-tint": previewTint,
-                "--preview-accent": activeSelection.find((option) => option.swatchColor)?.swatchColor ?? "#cfd9e6",
+                "--preview-accent":
+                  activeSelection.find((option) => option.swatchColor)?.swatchColor || "#cfd9e6",
               }}
             >
               <span className="product-view__main-image-wash" aria-hidden="true" />
@@ -273,7 +300,7 @@ function ProductView({
           </div>
 
           <div className="product-view__content">
-            <p className="product-view__series">{product.series}</p>
+            {product.badge ? <p className="product-view__series">{product.badge}</p> : null}
             <h1>{product.name}</h1>
 
             <div className="product-view__rating" aria-label={`${product.rating} out of 5 stars`}>
@@ -287,7 +314,7 @@ function ProductView({
 
             <div className="product-view__pricing">
               <strong>{formatMoney(activePrice)}</strong>
-              <span>{activeCompareAt ? formatMoney(activeCompareAt) : "—"}</span>
+              <span>{activeCompareAt ? formatMoney(activeCompareAt) : "-"}</span>
             </div>
 
             <p className="product-view__stock">{product.stockStatus}</p>
@@ -303,10 +330,11 @@ function ProductView({
             {variationGroups.length > 0 ? (
               <div className="product-view__variations">
                 {variationGroups.map((group) => {
+                  const groupOptions = Array.isArray(group.options) ? group.options : [];
                   const activeGroupOption =
                     activeSelection.find((option) => option.groupId === group.id) ??
-                    group.options?.find((option) => option.isDefault) ??
-                    group.options?.[0] ??
+                    groupOptions.find((option) => option.isDefault) ??
+                    groupOptions[0] ??
                     null;
 
                   return (
@@ -323,7 +351,7 @@ function ProductView({
                         }
                         aria-label={`${group.groupName} options`}
                       >
-                        {(Array.isArray(group.options) ? group.options : []).map((option) => {
+                        {groupOptions.map((option) => {
                           const isActive = activeGroupOption?.id === option.id;
                           const buttonClass =
                             group.kind === "color"
@@ -380,12 +408,30 @@ function ProductView({
               </div>
             ) : null}
 
-            <div className="product-view__divider" />
+            <div className="product-view__buybar">
+              <div className="product-view__quantity" aria-label="Quantity selector">
+                <button
+                  type="button"
+                  onClick={() => setQuantity((current) => Math.max(1, current - 1))}
+                  aria-label="Decrease quantity"
+                >
+                  −
+                </button>
+                <span>{safeQuantity}</span>
+                <button
+                  type="button"
+                  onClick={() => setQuantity((current) => current + 1)}
+                  aria-label="Increase quantity"
+                >
+                  +
+                </button>
+              </div>
 
-            <div className="product-view__actions">
               <button type="button" className="product-view__add" onClick={handleAddToCart}>
-                Add to Cart
+                <CartIcon />
+                Add to Cart • {formatMoney(activePrice * safeQuantity)}
               </button>
+
               <button
                 type="button"
                 className={`product-view__wishlist${isWishlisted ? " is-active" : ""}`}
@@ -424,18 +470,67 @@ function ProductView({
               Disclaimer: Shipping fees are estimated prices only. The final shipping cost will be
               confirmed when the product arrives in Ghana.
             </p>
-
-            <div className="product-view__details">
-              <p>{product.description}</p>
-              <p>{product.overview}</p>
-              <ul>
-                {features.map((feature) => (
-                  <li key={feature}>{feature}</li>
-                ))}
-              </ul>
-            </div>
           </div>
         </section>
+
+        <section className="product-view__details-panel">
+          <div className="product-view__details">
+            <div className="product-view__details-card">
+              <h2>Description</h2>
+              <p>{product.description}</p>
+            </div>
+
+            <div className="product-view__details-card">
+              <h2>Overview</h2>
+              <p>{product.overview}</p>
+            </div>
+
+            {features.length > 0 ? (
+              <div className="product-view__details-card">
+                <h2>Features</h2>
+                <ul>
+                  {features.map((feature) => (
+                    <li key={feature}>{feature}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        {relatedProducts.length > 0 ? (
+          <section className="product-view__recommendations">
+            <div className="section-heading">
+              <div className="section-heading__copy">
+                <span className="section-label__icon section-label__icon--blue" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 5h6v6H4z" />
+                    <path d="M14 5h6v6h-6z" />
+                    <path d="M4 15h6v4H4z" />
+                    <path d="M14 15h6v4h-6z" />
+                  </svg>
+                </span>
+                <div>
+                  <p className="section-heading__eyebrow">Recommended</p>
+                  <h2>More products you may like</h2>
+                </div>
+              </div>
+            </div>
+
+            <div className="shop-grid shop-grid--recommendations">
+              {relatedProducts.map((item) => (
+                <NexusProductCard
+                  key={item.id}
+                  item={item}
+                  classNamePrefix="shop-card"
+                  onAddToCart={onAddToCart}
+                  onToggleWishlist={onToggleWishlist}
+                  isWishlisted={wishlistItems.includes(item.name)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   );

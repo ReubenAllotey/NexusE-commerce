@@ -8,6 +8,7 @@ import {
   slugify,
   useProducts,
 } from "./productData";
+import NexusProductCard from "./ProductCard";
 import logo from "../../assets/images/nexuslogo.png";
 
 const ITEMS_PER_PAGE = 6;
@@ -563,12 +564,13 @@ function Products({
               <div className="shop-grid">
                 {visibleProducts.length > 0 ? (
                   visibleProducts.map((item) => (
-                    <ProductCard
+                    <NexusProductCard
                       key={item.name}
                       item={item}
                       isWishlisted={wishlistItems.includes(item.name)}
                       onAddToCart={onAddToCart}
                       onToggleWishlist={onToggleWishlist}
+                      classNamePrefix="shop-card"
                     />
                   ))
                 ) : (

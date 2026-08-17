@@ -371,7 +371,7 @@ function normalizeVariationOptionRow(row = {}, basePrice = 0, baseCompareAt = nu
   const displayOrder = Math.max(Math.round(Number(row?.displayOrder ?? row?.display_order) || 0), 0);
 
   return {
-    id: cleanText(row?.id),
+    id: cleanText(row?.id) || value || slugify(label) || `variation-option-${displayOrder + 1}`,
     groupId: cleanText(row?.groupId ?? row?.group_id),
     label,
     value,
@@ -403,7 +403,10 @@ function normalizeVariationGroupRow(row = {}, options = [], basePrice = 0, baseC
     );
 
   return {
-    id: cleanText(row?.id),
+    id:
+      cleanText(row?.id) ||
+      slugify(normalizeVariationGroupName(row?.groupName ?? row?.group_name)) ||
+      `variation-group-${displayOrder + 1}`,
     productId: cleanText(row?.productId ?? row?.product_id),
     groupName: normalizeVariationGroupName(row?.groupName ?? row?.group_name),
     displayOrder: Math.max(Math.round(Number(row?.displayOrder ?? row?.display_order) || 0), 0),

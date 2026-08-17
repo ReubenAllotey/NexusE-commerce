@@ -9,6 +9,7 @@ import {
   getProductPath,
   slugify,
 } from "../Products/productData";
+import NexusProductCard from "../Products/ProductCard";
 import {
   getHomepageCategoryCards,
   getCategoryProductCount,
@@ -818,12 +819,13 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </div>
           ) : (
             liveFlashyProducts.map((item) => (
-              <ProductCard
+              <NexusProductCard
                 key={item.id ?? item.slug}
                 item={item}
                 onAddToCart={onAddToCart}
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
+                classNamePrefix="product-card"
               />
             ))
           )}
@@ -947,12 +949,13 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </div>
           ) : (
             liveBestSellingProducts.map((item) => (
-              <ProductCard
+              <NexusProductCard
                 key={item.id ?? item.slug}
                 item={item}
                 onAddToCart={onAddToCart}
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
+                classNamePrefix="product-card"
               />
             ))
           )}
@@ -995,12 +998,13 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             liveCatalogProducts
               .slice(0, 4)
               .map((item) => (
-                <ProductCard
+                <NexusProductCard
                   key={item.slug}
                   item={item}
                   onAddToCart={onAddToCart}
                   onToggleWishlist={onToggleWishlist}
                   isWishlisted={wishlistItems.includes(item.name)}
+                  classNamePrefix="product-card"
                 />
               ))
           )}
