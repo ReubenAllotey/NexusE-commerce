@@ -359,6 +359,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
     [variationGroups],
   );
   const primaryGroup = variationGroups[0] ?? null;
+  const primaryGroupOptions = Array.isArray(primaryGroup?.options) ? primaryGroup.options : [];
   const defaultOption = primaryGroup?.options?.find((option) => option.isDefault) ?? primaryGroup?.options?.[0] ?? null;
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
 
@@ -461,7 +462,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
               <strong>{activeOption?.label ?? "Default"}</strong>
             </div>
             <div className="product-card__variants" role="list" aria-label={`${item.name} ${primaryGroup.groupName} options`}>
-              {primaryGroup.options.map((option) => (
+              {primaryGroupOptions.map((option) => (
                 <button
                   key={option.id ?? option.value ?? option.label}
                   type="button"

@@ -112,6 +112,8 @@ function ProductView({
     () => (Array.isArray(product?.variationGroups) ? product.variationGroups : []),
     [product?.variationGroups],
   );
+  const categoryTrail = Array.isArray(product?.categoryTrail) ? product.categoryTrail : [];
+  const features = Array.isArray(product?.features) ? product.features : [];
 
   const defaultSelectedOptions = useMemo(
     () => buildDefaultSelectedOptions(variationGroups),
@@ -143,6 +145,7 @@ function ProductView({
   }
 
   const stars = renderStars(product.rating);
+  const reviewCount = Number(product.reviews) || 0;
   const fallbackImageSrc = product?.image ?? gallery[0]?.src ?? "";
   const selectionLookup = new Map(selectedOptions.map((option) => [option.groupId, option]));
   const activeSelection = variationGroups
@@ -220,12 +223,12 @@ function ProductView({
             <span aria-hidden="true">&rsaquo;</span>
           </span>
           <span>
-            <Link to={categoryHref}>{product.categoryTrail[0]}</Link>
+            <Link to={categoryHref}>{categoryTrail[0] ?? product.category ?? "Shop"}</Link>
             <span aria-hidden="true">&rsaquo;</span>
           </span>
-          {product.categoryTrail[1] ? (
+          {categoryTrail[1] ? (
             <span>
-              <span>{product.categoryTrail[1]}</span>
+              <span>{categoryTrail[1]}</span>
               <span aria-hidden="true">&rsaquo;</span>
             </span>
           ) : null}
@@ -279,7 +282,7 @@ function ProductView({
                   <StarIcon key={`${index}-${filled}`} filled={filled} />
                 ))}
               </div>
-              <span>({product.reviews.toLocaleString()} reviews)</span>
+              <span>({reviewCount.toLocaleString()} reviews)</span>
             </div>
 
             <div className="product-view__pricing">
@@ -320,7 +323,7 @@ function ProductView({
                         }
                         aria-label={`${group.groupName} options`}
                       >
-                        {group.options.map((option) => {
+                        {(Array.isArray(group.options) ? group.options : []).map((option) => {
                           const isActive = activeGroupOption?.id === option.id;
                           const buttonClass =
                             group.kind === "color"
@@ -426,7 +429,7 @@ function ProductView({
               <p>{product.description}</p>
               <p>{product.overview}</p>
               <ul>
-                {product.features.map((feature) => (
+                {features.map((feature) => (
                   <li key={feature}>{feature}</li>
                 ))}
               </ul>
