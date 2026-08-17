@@ -50,6 +50,21 @@ function formatMoney(value) {
   }).format(Number(value) || 0);
 }
 
+const addToCartButtonStyle = {
+  width: "100%",
+  minHeight: "3.1rem",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "0.55rem",
+  padding: "0 1rem",
+  border: "0",
+  borderRadius: "0.95rem",
+  background: "#1c3fb7",
+  color: "#ffffff",
+  boxShadow: "0 16px 28px rgba(28, 63, 183, 0.18)",
+};
+
 function buildSelectionEntry(group, option) {
   return {
     groupId: group.id ?? group.groupName ?? "",
@@ -276,7 +291,7 @@ function ProductCard({
         <button
           type="button"
           className={`${prefix}__button`}
-          style={{ width: "100%" }}
+          style={addToCartButtonStyle}
           onClick={() =>
             onAddToCart({
               ...item,
