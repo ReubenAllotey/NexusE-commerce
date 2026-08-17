@@ -4879,6 +4879,29 @@ body[data-theme="dark"] .site-actions__icon-button:focus-visible {
   stroke-linejoin: round;
 }
 
+.product-view__recommendations .shop-card__body,
+.product-view__recommendations .product-card__body {
+  gap: 0.85rem;
+}
+
+.product-view__recommendations .shop-card__add,
+.product-view__recommendations .product-card__button {
+  width: 100%;
+  align-self: stretch;
+  min-height: 3.25rem;
+  border-radius: 0.95rem;
+  background: #1c3fb7;
+  color: #ffffff;
+  font-weight: 800;
+  justify-content: center;
+  box-shadow: 0 16px 28px rgba(28, 63, 183, 0.18);
+}
+
+.product-view__recommendations .shop-card__add:hover,
+.product-view__recommendations .product-card__button:hover {
+  background: #132e8a;
+}
+
 @media (max-width: 1100px) {
   .product-view__layout {
     grid-template-columns: 1fr;
