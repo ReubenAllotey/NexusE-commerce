@@ -48,9 +48,58 @@ function normalizeShippingAddressSnapshot(snapshot = {}) {
   };
 }
 
+function normalizeSelectedOptions(value = []) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((option) => {
+      if (!option || typeof option !== "object") {
+        return null;
+      }
+
+      const groupName = clean(readField(option, "groupName", "group_name"));
+      const label = clean(readField(option, "label", "label") || readField(option, "value", "value"));
+
+      if (!groupName || !label) {
+        return null;
+      }
+
+      return {
+        groupId: clean(readField(option, "groupId", "group_id")) || null,
+        groupName,
+        kind: clean(readField(option, "kind", "kind")) || "text",
+        optionId: clean(readField(option, "optionId", "option_id")) || null,
+        label,
+        value: clean(readField(option, "value", "value")) || label,
+        priceDelta: normalizeNumber(readField(option, "priceDelta", "price_delta"), 0),
+        compareAtDelta:
+          readField(option, "compareAtDelta", "compare_at_delta", null) == null
+            ? null
+            : normalizeNumber(readField(option, "compareAtDelta", "compare_at_delta"), 0),
+        swatchColor: clean(readField(option, "swatchColor", "swatch_color")),
+        imageUrl: clean(readField(option, "imageUrl", "image_url")),
+        isDefault: Boolean(readField(option, "isDefault", "is_default", false)),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildVariantLabel(selectedOptions = [], selectedColor = "", selectedSize = "") {
+  if (Array.isArray(selectedOptions) && selectedOptions.length > 0) {
+    return selectedOptions.map((option) => clean(option.label)).filter(Boolean).join(" / ");
+  }
+
+  return [clean(selectedColor), clean(selectedSize)].filter(Boolean).join(" / ");
+}
+
 function normalizeOrderItemRecord(item = {}) {
   const quantity = Math.max(Math.round(normalizeNumber(readField(item, "quantity", "quantity"), 1)), 1);
   const shippingFee = normalizeNumber(readField(item, "shippingFee", "shipping_fee"), 0);
+  const selectedColor = clean(readField(item, "selectedColor", "selected_color"));
+  const selectedSize = clean(readField(item, "selectedSize", "selected_size"));
+  const selectedOptions = normalizeSelectedOptions(readField(item, "selectedOptions", "selected_options", []));
 
   return {
     key: clean(readField(item, "key", "id")) || `${clean(readField(item, "productSlug", "product_slug"))}-${clean(readField(item, "productId", "product_id"))}`,
@@ -62,9 +111,13 @@ function normalizeOrderItemRecord(item = {}) {
     price: normalizeNumber(readField(item, "unitPrice", "unit_price"), 0),
     quantity,
     variant: {
-      color: clean(readField(item, "selectedColor", "selected_color")),
-      size: clean(readField(item, "selectedSize", "selected_size")),
+      color: selectedColor,
+      size: selectedSize,
+      label: buildVariantLabel(selectedOptions, selectedColor, selectedSize),
+      options: selectedOptions,
     },
+    variantKey: clean(readField(item, "variantKey", "variant_key")),
+    selectedOptions,
     shippingFee,
     lineSubtotal: normalizeNumber(readField(item, "lineSubtotal", "line_subtotal"), 0),
     lineShipping: normalizeNumber(readField(item, "lineShipping", "line_shipping"), 0),
@@ -201,6 +254,8 @@ function getOrderItemSelect() {
     "quantity",
     "selected_color",
     "selected_size",
+    "variant_key",
+    "selected_options",
     "shipping_fee",
     "line_subtotal",
     "line_shipping",

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import {
-  defaultSiteBanner,
-  normalizeSiteBanner,
-} from "../../shared/siteBannerStorage";
-import { getShippingFee, slugify, useProductBySlug } from "./productData";
+  buildDefaultSelectedOptions,
+  buildVariantKeyFromSelectedOptions,
+} from "./productData";
+import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
+import { getShippingFee, useProductBySlug } from "./productData";
 
 function StarIcon({ filled = false }) {
   return (
@@ -91,14 +92,13 @@ function ProductView({
   siteBanner = defaultSiteBanner,
 }) {
   const { productSlug } = useParams();
-  const { product, loading, message } = useProductBySlug(productSlug);
+  const { product, loading } = useProductBySlug(productSlug);
   const safeSiteBanner = useMemo(
     () => normalizeSiteBanner(siteBanner ?? defaultSiteBanner),
     [siteBanner],
   );
   const [activeImage, setActiveImage] = useState(null);
-  const [selectedColor, setSelectedColor] = useState("");
-  const [selectedSize, setSelectedSize] = useState("");
+  const [selectedOptions, setSelectedOptions] = useState([]);
 
   const gallery = useMemo(() => {
     if (!product) {
@@ -108,38 +108,20 @@ function ProductView({
     return Array.isArray(product.gallery) ? product.gallery : [];
   }, [product]);
 
-  const mainImageSrc = product?.image ?? gallery[0]?.src ?? "";
+  const variationGroups = useMemo(
+    () => (Array.isArray(product?.variationGroups) ? product.variationGroups : []),
+    [product?.variationGroups],
+  );
 
-  const colorOptions = useMemo(() => {
-    if (product?.availableColors?.length) {
-      return product.availableColors;
-    }
-
-    return gallery[0]
-      ? [
-          {
-            label: "Default",
-            value: "default",
-            swatch: "#cfd9e6",
-            previewTint: gallery[0].tint ?? "#dfe7f3",
-          },
-        ]
-      : [];
-  }, [gallery, product]);
-
-  const sizeOptions = useMemo(() => {
-    if (product?.availableSizes?.length) {
-      return product.availableSizes;
-    }
-
-    return ["One size"];
-  }, [product]);
+  const defaultSelectedOptions = useMemo(
+    () => buildDefaultSelectedOptions(variationGroups),
+    [variationGroups],
+  );
 
   useEffect(() => {
     setActiveImage(null);
-    setSelectedColor(colorOptions[0]?.value ?? "");
-    setSelectedSize(sizeOptions[0] ?? "");
-  }, [productSlug, colorOptions, sizeOptions]);
+    setSelectedOptions(defaultSelectedOptions);
+  }, [defaultSelectedOptions, productSlug]);
 
   if (loading) {
     return (
@@ -161,10 +143,38 @@ function ProductView({
   }
 
   const stars = renderStars(product.rating);
+  const fallbackImageSrc = product?.image ?? gallery[0]?.src ?? "";
+  const selectionLookup = new Map(selectedOptions.map((option) => [option.groupId, option]));
+  const activeSelection = variationGroups
+    .map((group) => {
+      const selectedOption =
+        selectionLookup.get(group.id) ??
+        group.options?.find((option) => option.isDefault) ??
+        group.options?.[0] ??
+        null;
+
+      if (!selectedOption) {
+        return null;
+      }
+
+      return {
+        groupId: group.id ?? "",
+        groupName: group.groupName ?? "Variation",
+        kind: group.kind ?? "text",
+        optionId: selectedOption.id ?? "",
+        label: selectedOption.label ?? "",
+        value: selectedOption.value ?? selectedOption.label ?? "",
+        priceDelta: Number(selectedOption.priceDelta) || 0,
+        compareAtDelta: selectedOption.compareAtDelta ?? null,
+        swatchColor: selectedOption.swatchColor ?? "",
+        imageUrl: selectedOption.imageUrl ?? "",
+        isDefault: Boolean(selectedOption.isDefault),
+      };
+    })
+    .filter(Boolean);
+  const selectedImageOption = activeSelection.find((option) => option.imageUrl);
   const selectedImage = activeImage == null ? null : gallery[activeImage] ?? null;
-  const selectedImageSrc = selectedImage?.src ?? mainImageSrc;
-  const activeColor =
-    colorOptions.find((color) => color.value === selectedColor) ?? colorOptions[0];
+  const selectedImageSrc = selectedImage?.src ?? selectedImageOption?.imageUrl ?? fallbackImageSrc;
   const isWishlisted = wishlistItems.includes(product.name);
   const categoryHref = product.categorySlug
     ? `/products?category=${product.categorySlug}`
@@ -172,7 +182,18 @@ function ProductView({
   const shippingFee = getShippingFee(product);
   const shippingFeeLabel = shippingFee == null ? "Pending" : formatMoney(shippingFee);
   const shippingMethodLabel = formatShippingMethod(product.shippingMethod);
-  const previewTint = activeColor?.previewTint ?? activeColor?.swatch ?? "#dfe7f3";
+  const activePrice =
+    (Number(product.price) || 0) +
+    activeSelection.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
+  const activeCompareAt =
+    product.compareAt != null
+      ? (Number(product.compareAt) || 0) +
+        activeSelection.reduce((sum, option) => sum + (Number(option.compareAtDelta) || 0), 0)
+      : null;
+  const previewTint =
+    activeSelection.find((option) => option.swatchColor)?.swatchColor ??
+    selectedImage?.tint ??
+    "#dfe7f3";
   const bannerBatchNumber = safeSiteBanner?.announcement?.batchNumber?.trim() || "Pending";
   const batchWindowStart = formatDate(safeSiteBanner?.announcement?.batchWindowStart);
   const batchWindowEnd = formatDate(safeSiteBanner?.announcement?.batchWindowEnd);
@@ -180,11 +201,13 @@ function ProductView({
     batchWindowStart || batchWindowEnd
       ? [batchWindowStart, batchWindowEnd].filter(Boolean).join(" - ")
       : "Batch window pending";
+  const activeSelectionLabel =
+    activeSelection.map((option) => option.label).filter(Boolean).join(" / ") || "Default";
 
   const handleAddToCart = () => {
     onAddToCart(product.slug, 1, {
-      color: activeColor?.label ?? "",
-      size: selectedSize,
+      selectedOptions: activeSelection,
+      variantKey: buildVariantKeyFromSelectedOptions(activeSelection),
     });
   };
 
@@ -215,13 +238,11 @@ function ProductView({
               className="product-view__main-image"
               style={{
                 "--preview-tint": previewTint,
-                "--preview-accent": activeColor?.swatch ?? "#cfd9e6",
+                "--preview-accent": activeSelection.find((option) => option.swatchColor)?.swatchColor ?? "#cfd9e6",
               }}
             >
               <span className="product-view__main-image-wash" aria-hidden="true" />
-              <span className="product-view__color-badge">
-                {activeColor?.label ?? "Default"}
-              </span>
+              <span className="product-view__color-badge">{activeSelectionLabel}</span>
               <img
                 src={selectedImageSrc}
                 alt={product.name}
@@ -235,9 +256,7 @@ function ProductView({
                   <button
                     type="button"
                     key={`${image.label}-${index}`}
-                    className={`product-view__thumb${
-                      index === activeImage ? " is-active" : ""
-                    }`}
+                    className={`product-view__thumb${index === activeImage ? " is-active" : ""}`}
                     onClick={() => setActiveImage(index)}
                     aria-label={`Show ${image.label}`}
                     aria-pressed={index === activeImage}
@@ -254,10 +273,7 @@ function ProductView({
             <p className="product-view__series">{product.series}</p>
             <h1>{product.name}</h1>
 
-            <div
-              className="product-view__rating"
-              aria-label={`${product.rating} out of 5 stars`}
-            >
+            <div className="product-view__rating" aria-label={`${product.rating} out of 5 stars`}>
               <div className="product-view__stars">
                 {stars.map((filled, index) => (
                   <StarIcon key={`${index}-${filled}`} filled={filled} />
@@ -267,14 +283,12 @@ function ProductView({
             </div>
 
             <div className="product-view__pricing">
-              <strong>{formatMoney(product.price)}</strong>
-              <span>{product.compareAt ? formatMoney(product.compareAt) : "—"}</span>
+              <strong>{formatMoney(activePrice)}</strong>
+              <span>{activeCompareAt ? formatMoney(activeCompareAt) : "—"}</span>
             </div>
 
             <p className="product-view__stock">{product.stockStatus}</p>
-            <p className="product-view__shipping">
-              Shipping fee {shippingFeeLabel}
-            </p>
+            <p className="product-view__shipping">Shipping fee {shippingFeeLabel}</p>
 
             <div className="product-view__divider" />
 
@@ -283,70 +297,95 @@ function ProductView({
               <strong>{shippingMethodLabel}</strong>
             </div>
 
-            <div className="product-view__sizes" aria-label="Size options">
-              <div className="product-view__swatch-label">
-                <span>Size</span>
-                <strong>{selectedSize}</strong>
-              </div>
-              <div className="product-view__size-options">
-                {sizeOptions.map((size) => (
-                  <button
-                    type="button"
-                    key={size}
-                    className={`product-view__size${
-                      size === selectedSize ? " is-active" : ""
-                    }`}
-                    onClick={() => setSelectedSize(size)}
-                    aria-label={`Choose size ${size}`}
-                    aria-pressed={size === selectedSize}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {variationGroups.length > 0 ? (
+              <div className="product-view__variations">
+                {variationGroups.map((group) => {
+                  const activeGroupOption =
+                    activeSelection.find((option) => option.groupId === group.id) ??
+                    group.options?.find((option) => option.isDefault) ??
+                    group.options?.[0] ??
+                    null;
 
-            {colorOptions.length > 0 ? (
-              <div className="product-view__colors" aria-label="Color options">
-                <div className="product-view__swatch-label">
-                  <span>Color</span>
-                  <strong>{activeColor?.label ?? "Default"}</strong>
-                </div>
-                <div className="product-view__swatches">
-                  {colorOptions.map((color) => (
-                    <button
-                      type="button"
-                      key={color.value}
-                      className={`product-view__swatch${
-                        color.value === selectedColor ? " is-active" : ""
-                      }`}
-                      onClick={() => setSelectedColor(color.value)}
-                      aria-label={`Choose ${color.label}`}
-                      aria-pressed={color.value === selectedColor}
-                      style={{ "--swatch-color": color.swatch }}
-                    >
-                      <span aria-hidden="true" />
-                    </button>
-                  ))}
-                </div>
+                  return (
+                    <div key={group.id ?? group.groupName} className="product-view__sizes">
+                      <div className="product-view__swatch-label">
+                        <span>{group.groupName}</span>
+                        <strong>{activeGroupOption?.label ?? "Default"}</strong>
+                      </div>
+                      <div
+                        className={
+                          group.kind === "color"
+                            ? "product-view__swatches"
+                            : "product-view__size-options"
+                        }
+                        aria-label={`${group.groupName} options`}
+                      >
+                        {group.options.map((option) => {
+                          const isActive = activeGroupOption?.id === option.id;
+                          const buttonClass =
+                            group.kind === "color"
+                              ? `product-view__swatch${isActive ? " is-active" : ""}`
+                              : `product-view__size${isActive ? " is-active" : ""}`;
+
+                          return (
+                            <button
+                              type="button"
+                              key={option.id ?? option.value ?? option.label}
+                              className={buttonClass}
+                              onClick={() => {
+                                setSelectedOptions((current) => {
+                                  const next = current.filter((entry) => entry.groupId !== group.id);
+                                  return [
+                                    ...next,
+                                    {
+                                      groupId: group.id ?? "",
+                                      groupName: group.groupName ?? "Variation",
+                                      kind: group.kind ?? "text",
+                                      optionId: option.id ?? "",
+                                      label: option.label ?? "",
+                                      value: option.value ?? option.label ?? "",
+                                      priceDelta: Number(option.priceDelta) || 0,
+                                      compareAtDelta: option.compareAtDelta ?? null,
+                                      swatchColor: option.swatchColor ?? "",
+                                      imageUrl: option.imageUrl ?? "",
+                                      isDefault: Boolean(option.isDefault),
+                                    },
+                                  ].sort((left, right) =>
+                                    String(left.groupId).localeCompare(String(right.groupId)),
+                                  );
+                                });
+                              }}
+                              aria-label={`Choose ${option.label} for ${group.groupName}`}
+                              aria-pressed={isActive}
+                              style={
+                                group.kind === "color" && option.swatchColor
+                                  ? { "--swatch-color": option.swatchColor }
+                                  : undefined
+                              }
+                            >
+                              {group.kind === "color" && option.swatchColor ? (
+                                <span aria-hidden="true" />
+                              ) : null}
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
 
             <div className="product-view__divider" />
 
             <div className="product-view__actions">
-              <button
-                type="button"
-                className="product-view__add"
-                onClick={handleAddToCart}
-              >
+              <button type="button" className="product-view__add" onClick={handleAddToCart}>
                 Add to Cart
               </button>
               <button
                 type="button"
-                className={`product-view__wishlist${
-                  isWishlisted ? " is-active" : ""
-                }`}
+                className={`product-view__wishlist${isWishlisted ? " is-active" : ""}`}
                 aria-pressed={isWishlisted}
                 aria-label={`${isWishlisted ? "Remove" : "Save"} ${product.name}`}
                 onClick={() => onToggleWishlist(product.name)}
@@ -379,7 +418,8 @@ function ProductView({
             </div>
 
             <p className="product-view__disclaimer">
-              Disclaimer: Shipping fees are estimated prices only. The final shipping cost will be confirmed when the product arrives in Ghana.
+              Disclaimer: Shipping fees are estimated prices only. The final shipping cost will be
+              confirmed when the product arrives in Ghana.
             </p>
 
             <div className="product-view__details">

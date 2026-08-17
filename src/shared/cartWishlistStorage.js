@@ -82,8 +82,97 @@ function normalizeOptionalText(value) {
   return text || null;
 }
 
-function buildCartLineKey(slug = "", selectedColor = "", selectedSize = "") {
+function normalizeSelectedOptions(value = []) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((option) => {
+      if (!option || typeof option !== "object") {
+        return null;
+      }
+
+      const groupName = clean(option.groupName ?? option.group_name);
+      const label = clean(option.label ?? option.value ?? option.optionLabel ?? option.option_label);
+      const valueText = clean(option.value ?? option.optionValue ?? option.option_value) || label;
+
+      if (!groupName || !label) {
+        return null;
+      }
+
+      return {
+        groupId: clean(option.groupId ?? option.group_id) || null,
+        groupName,
+        kind: clean(option.kind) || "text",
+        optionId: clean(option.optionId ?? option.option_id) || null,
+        label,
+        value: valueText,
+        priceDelta: normalizeNumber(option.priceDelta ?? option.price_delta, 0),
+        compareAtDelta:
+          option.compareAtDelta == null
+            ? option.compare_at_delta == null
+              ? null
+              : normalizeNumber(option.compare_at_delta, 0)
+            : normalizeNumber(option.compareAtDelta, 0),
+        swatchColor: normalizeOptionalText(option.swatchColor ?? option.swatch_color),
+        imageUrl: normalizeOptionalText(option.imageUrl ?? option.image_url),
+        isDefault: Boolean(option.isDefault ?? option.is_default),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildVariantKeyFromSelection({
+  slug = "",
+  selectedColor = "",
+  selectedSize = "",
+  selectedOptions = [],
+  variantKey = "",
+} = {}) {
+  const customVariantKey = clean(variantKey);
+
+  if (customVariantKey) {
+    return customVariantKey;
+  }
+
+  const normalizedOptions = normalizeSelectedOptions(selectedOptions);
+
+  if (normalizedOptions.length > 0) {
+    return normalizedOptions
+      .map((option) => `${clean(option.groupName || option.groupId || "option").toLowerCase()}=${clean(option.label || option.value || option.optionId).toLowerCase()}`)
+      .join("::");
+  }
+
   return [clean(slug), clean(selectedColor), clean(selectedSize)].filter(Boolean).join("::") || clean(slug);
+}
+
+function buildVariantLabelFromSelection({
+  selectedOptions = [],
+  selectedColor = "",
+  selectedSize = "",
+} = {}) {
+  const normalizedOptions = normalizeSelectedOptions(selectedOptions);
+
+  if (normalizedOptions.length > 0) {
+    return normalizedOptions.map((option) => option.label).filter(Boolean).join(" / ");
+  }
+
+  return [clean(selectedColor), clean(selectedSize)].filter(Boolean).join(" / ");
+}
+
+function buildCartLineKey(slug = "", selectedColor = "", selectedSize = "", selectedOptions = [], variantKey = "") {
+  if (slug && typeof slug === "object" && !Array.isArray(slug)) {
+    return buildVariantKeyFromSelection(slug);
+  }
+
+  return buildVariantKeyFromSelection({
+    slug,
+    selectedColor,
+    selectedSize,
+    selectedOptions,
+    variantKey,
+  });
 }
 
 function normalizeGuestCartItem(item = {}) {
@@ -92,6 +181,14 @@ function normalizeGuestCartItem(item = {}) {
   const quantity = normalizeQuantity(item.quantity);
   const selectedColor = normalizeOptionalText(item.selectedColor ?? item.selected_color);
   const selectedSize = normalizeOptionalText(item.selectedSize ?? item.selected_size);
+  const selectedOptions = normalizeSelectedOptions(item.selectedOptions ?? item.selected_options);
+  const variantKey = buildVariantKeyFromSelection({
+    slug: slug || productId,
+    selectedColor,
+    selectedSize,
+    selectedOptions,
+    variantKey: item.variantKey ?? item.variant_key,
+  });
 
   if (!productId && !slug) {
     return null;
@@ -103,7 +200,9 @@ function normalizeGuestCartItem(item = {}) {
     quantity,
     selectedColor,
     selectedSize,
-    cartKey: buildCartLineKey(slug || productId, selectedColor ?? "", selectedSize ?? ""),
+    selectedOptions,
+    variantKey,
+    cartKey: buildCartLineKey(slug || productId, selectedColor ?? "", selectedSize ?? "", selectedOptions, variantKey),
   };
 }
 
@@ -250,7 +349,7 @@ async function loadRemoteCartRows(userId) {
 
   const { data, error } = await supabase
     .from("cart_items")
-    .select("id, cart_id, product_id, quantity, selected_color, selected_size, created_at, updated_at")
+    .select("id, cart_id, product_id, quantity, selected_color, selected_size, variant_key, selected_options, created_at, updated_at")
     .eq("cart_id", cart.id)
     .order("created_at", { ascending: true })
     .order("id", { ascending: true });
@@ -302,9 +401,28 @@ function mapCartRowsToItems(rows = [], products = []) {
 
       const selectedColor = normalizeOptionalText(row.selectedColor ?? row.selected_color);
       const selectedSize = normalizeOptionalText(row.selectedSize ?? row.selected_size);
+      const selectedOptions = normalizeSelectedOptions(row.selectedOptions ?? row.selected_options);
+      const variantKey = buildVariantKeyFromSelection({
+        slug: product.slug ?? product.id,
+        selectedColor,
+        selectedSize,
+        selectedOptions,
+        variantKey: row.variantKey ?? row.variant_key,
+      });
       const quantity = normalizeQuantity(row.quantity);
       const productId = clean(row.productId ?? row.product_id ?? product.id);
-      const cartKey = buildCartLineKey(product.slug ?? product.id, selectedColor ?? "", selectedSize ?? "");
+      const cartKey = buildCartLineKey(
+        product.slug ?? product.id,
+        selectedColor ?? "",
+        selectedSize ?? "",
+        selectedOptions,
+        variantKey,
+      );
+      const variantLabel = buildVariantLabelFromSelection({
+        selectedOptions,
+        selectedColor,
+        selectedSize,
+      });
 
       return {
         id: row.id,
@@ -320,11 +438,14 @@ function mapCartRowsToItems(rows = [], products = []) {
         quantity,
         selectedColor,
         selectedSize,
+        selectedOptions,
+        variantKey,
         cartKey,
-        variantKey: [selectedColor, selectedSize].filter(Boolean).join(" / "),
         variant: {
           color: selectedColor ?? "",
           size: selectedSize ?? "",
+          label: variantLabel,
+          options: selectedOptions,
         },
       };
     })
@@ -376,6 +497,14 @@ async function syncGuestCartToRemote(products = []) {
 
       const selectedColor = normalizeOptionalText(item.selectedColor);
       const selectedSize = normalizeOptionalText(item.selectedSize);
+      const selectedOptions = normalizeSelectedOptions(item.selectedOptions);
+      const variantKey = buildVariantKeyFromSelection({
+        slug: clean(product.slug),
+        selectedColor,
+        selectedSize,
+        selectedOptions,
+        variantKey: item.variantKey,
+      });
       const quantity = normalizeQuantity(item.quantity);
       validGuestItems.push({
         productId,
@@ -383,6 +512,8 @@ async function syncGuestCartToRemote(products = []) {
         quantity,
         selectedColor,
         selectedSize,
+        selectedOptions,
+        variantKey,
       });
 
       const lineQuery = supabase
@@ -390,18 +521,7 @@ async function syncGuestCartToRemote(products = []) {
         .select("id, quantity")
         .eq("cart_id", remoteCart.id)
         .eq("product_id", productId);
-
-      if (selectedColor == null) {
-        lineQuery.is("selected_color", null);
-      } else {
-        lineQuery.eq("selected_color", selectedColor);
-      }
-
-      if (selectedSize == null) {
-        lineQuery.is("selected_size", null);
-      } else {
-        lineQuery.eq("selected_size", selectedSize);
-      }
+      lineQuery.eq("variant_key", variantKey);
 
       const { data: existing, error: existingError } = await lineQuery.maybeSingle();
 
@@ -411,10 +531,10 @@ async function syncGuestCartToRemote(products = []) {
 
       if (existing) {
         const { error: updateError } = await supabase
-          .from("cart_items")
-          .update({ quantity: normalizeQuantity(existing.quantity) + quantity })
-          .eq("id", existing.id)
-          .eq("cart_id", remoteCart.id);
+        .from("cart_items")
+        .update({ quantity: normalizeQuantity(existing.quantity) + quantity })
+        .eq("id", existing.id)
+        .eq("cart_id", remoteCart.id);
 
         if (updateError) {
           throw updateError;
@@ -429,6 +549,8 @@ async function syncGuestCartToRemote(products = []) {
         quantity,
         selected_color: selectedColor,
         selected_size: selectedSize,
+        variant_key: variantKey,
+        selected_options: selectedOptions,
       });
 
       if (insertError) {
@@ -586,9 +708,22 @@ export async function loadWishlistState(products = []) {
   }
 }
 
-export async function addCartLine({ product, quantity = 1, selectedColor = "", selectedSize = "", products = [] } = {}) {
+export async function addCartLine({
+  product,
+  quantity = 1,
+  selectedColor = "",
+  selectedSize = "",
+  selectedOptions = [],
+  variantKey: incomingVariantKey = "",
+  products = [],
+} = {}) {
   const normalizedProduct = product && typeof product === "object" ? product : null;
   const normalizedProductId = clean(normalizedProduct?.id ?? normalizedProduct?.productId);
+  const normalizedSelectedOptions = normalizeSelectedOptions(
+    selectedOptions.length > 0
+      ? selectedOptions
+      : normalizedProduct?.selectedOptions ?? normalizedProduct?.selected_options ?? [],
+  );
 
   if (!normalizedProductId) {
     return { ok: false, message: "A valid product is required.", items: [] };
@@ -597,6 +732,13 @@ export async function addCartLine({ product, quantity = 1, selectedColor = "", s
   const safeQuantity = normalizeQuantity(quantity);
   const safeColor = normalizeOptionalText(selectedColor);
   const safeSize = normalizeOptionalText(selectedSize);
+  const resolvedVariantKey = buildVariantKeyFromSelection({
+    slug: normalizedProduct.slug ?? normalizedProductId,
+    selectedColor: safeColor,
+    selectedSize: safeSize,
+    selectedOptions: normalizedSelectedOptions,
+    variantKey: incomingVariantKey || normalizedProduct?.variantKey || normalizedProduct?.variant_key,
+  });
   const userResult = await getSignedInUser();
 
   if (!userResult.ok) {
@@ -608,6 +750,8 @@ export async function addCartLine({ product, quantity = 1, selectedColor = "", s
         quantity: safeQuantity,
         selectedColor: safeColor,
         selectedSize: safeSize,
+        selectedOptions: normalizedSelectedOptions,
+        variantKey: resolvedVariantKey,
       },
     ]);
 
@@ -625,19 +769,8 @@ export async function addCartLine({ product, quantity = 1, selectedColor = "", s
       .from("cart_items")
       .select("id, quantity")
       .eq("cart_id", remoteCart.id)
-      .eq("product_id", normalizedProductId);
-
-    if (safeColor == null) {
-      lineQuery.is("selected_color", null);
-    } else {
-      lineQuery.eq("selected_color", safeColor);
-    }
-
-    if (safeSize == null) {
-      lineQuery.is("selected_size", null);
-    } else {
-      lineQuery.eq("selected_size", safeSize);
-    }
+      .eq("product_id", normalizedProductId)
+      .eq("variant_key", resolvedVariantKey);
 
     const { data: existing, error: existingError } = await lineQuery.maybeSingle();
 
@@ -662,6 +795,8 @@ export async function addCartLine({ product, quantity = 1, selectedColor = "", s
         quantity: safeQuantity,
         selected_color: safeColor,
         selected_size: safeSize,
+        variant_key: resolvedVariantKey,
+        selected_options: normalizedSelectedOptions,
       });
 
       if (insertError) {
@@ -685,9 +820,22 @@ export async function addCartLine({ product, quantity = 1, selectedColor = "", s
   }
 }
 
-export async function setCartLineQuantity({ product, quantity = 1, selectedColor = "", selectedSize = "", products = [] } = {}) {
+export async function setCartLineQuantity({
+  product,
+  quantity = 1,
+  selectedColor = "",
+  selectedSize = "",
+  selectedOptions = [],
+  variantKey: incomingVariantKey = "",
+  products = [],
+} = {}) {
   const normalizedProduct = product && typeof product === "object" ? product : null;
   const normalizedProductId = clean(normalizedProduct?.id ?? normalizedProduct?.productId);
+  const productSelectedOptions = normalizeSelectedOptions(
+    normalizedProduct?.selectedOptions ??
+      normalizedProduct?.selected_options ??
+      [],
+  );
 
   if (!normalizedProductId) {
     return { ok: false, message: "A valid product is required.", items: [] };
@@ -696,15 +844,32 @@ export async function setCartLineQuantity({ product, quantity = 1, selectedColor
   const safeQuantity = normalizeQuantity(quantity);
   const safeColor = normalizeOptionalText(selectedColor);
   const safeSize = normalizeOptionalText(selectedSize);
+  const normalizedSelectedOptions = normalizeSelectedOptions(
+    selectedOptions.length > 0
+      ? selectedOptions
+      : normalizedProduct?.selectedOptions ?? normalizedProduct?.selected_options ?? [],
+  );
+  const resolvedVariantKey = buildVariantKeyFromSelection({
+    slug: normalizedProduct.slug ?? normalizedProductId,
+    selectedColor: safeColor,
+    selectedSize: safeSize,
+    selectedOptions: normalizedSelectedOptions,
+    variantKey: incomingVariantKey || normalizedProduct?.variantKey || normalizedProduct?.variant_key,
+  });
   const userResult = await getSignedInUser();
 
   if (!userResult.ok) {
     const nextItems = dedupeGuestCartItems(
       loadGuestCartDraft().map((item) =>
         item.productId === normalizedProductId &&
-        clean(item.selectedColor) === clean(safeColor) &&
-        clean(item.selectedSize) === clean(safeSize)
-          ? { ...item, quantity: safeQuantity }
+        buildVariantKeyFromSelection({
+          slug: item.slug ?? normalizedProduct.slug ?? normalizedProductId,
+          selectedColor: item.selectedColor,
+          selectedSize: item.selectedSize,
+          selectedOptions: item.selectedOptions,
+          variantKey: item.variantKey,
+        }) === resolvedVariantKey
+          ? { ...item, quantity: safeQuantity, variantKey: resolvedVariantKey, selectedOptions: normalizedSelectedOptions }
           : item,
       ),
     );
@@ -723,19 +888,8 @@ export async function setCartLineQuantity({ product, quantity = 1, selectedColor
       .from("cart_items")
       .select("id")
       .eq("cart_id", remoteCart.id)
-      .eq("product_id", normalizedProductId);
-
-    if (safeColor == null) {
-      lineQuery.is("selected_color", null);
-    } else {
-      lineQuery.eq("selected_color", safeColor);
-    }
-
-    if (safeSize == null) {
-      lineQuery.is("selected_size", null);
-    } else {
-      lineQuery.eq("selected_size", safeSize);
-    }
+      .eq("product_id", normalizedProductId)
+      .eq("variant_key", resolvedVariantKey);
 
     const { data: existing, error: existingError } = await lineQuery.maybeSingle();
 
@@ -750,6 +904,8 @@ export async function setCartLineQuantity({ product, quantity = 1, selectedColor
         quantity: safeQuantity,
         selected_color: safeColor,
         selected_size: safeSize,
+        variant_key: resolvedVariantKey,
+        selected_options: normalizedSelectedOptions,
       });
 
       if (insertError) {
@@ -783,9 +939,21 @@ export async function setCartLineQuantity({ product, quantity = 1, selectedColor
   }
 }
 
-export async function removeCartLine({ product, selectedColor = "", selectedSize = "", products = [] } = {}) {
+export async function removeCartLine({
+  product,
+  selectedColor = "",
+  selectedSize = "",
+  selectedOptions = [],
+  variantKey: incomingVariantKey = "",
+  products = [],
+} = {}) {
   const normalizedProduct = product && typeof product === "object" ? product : null;
   const normalizedProductId = clean(normalizedProduct?.id ?? normalizedProduct?.productId);
+  const normalizedSelectedOptions = normalizeSelectedOptions(
+    selectedOptions.length > 0
+      ? selectedOptions
+      : normalizedProduct?.selectedOptions ?? normalizedProduct?.selected_options ?? [],
+  );
 
   if (!normalizedProductId) {
     return { ok: false, message: "A valid product is required.", items: [] };
@@ -793,6 +961,13 @@ export async function removeCartLine({ product, selectedColor = "", selectedSize
 
   const safeColor = normalizeOptionalText(selectedColor);
   const safeSize = normalizeOptionalText(selectedSize);
+  const resolvedVariantKey = buildVariantKeyFromSelection({
+    slug: normalizedProduct.slug ?? normalizedProductId,
+    selectedColor: safeColor,
+    selectedSize: safeSize,
+    selectedOptions: normalizedSelectedOptions,
+    variantKey: incomingVariantKey || normalizedProduct?.variantKey || normalizedProduct?.variant_key,
+  });
   const userResult = await getSignedInUser();
 
   if (!userResult.ok) {
@@ -800,8 +975,13 @@ export async function removeCartLine({ product, selectedColor = "", selectedSize
       (item) =>
         !(
           item.productId === normalizedProductId &&
-          clean(item.selectedColor) === clean(safeColor) &&
-          clean(item.selectedSize) === clean(safeSize)
+          buildVariantKeyFromSelection({
+            slug: item.slug ?? normalizedProduct.slug ?? normalizedProductId,
+            selectedColor: item.selectedColor,
+            selectedSize: item.selectedSize,
+            selectedOptions: item.selectedOptions,
+            variantKey: item.variantKey,
+          }) === resolvedVariantKey
         ),
     );
 
@@ -819,19 +999,8 @@ export async function removeCartLine({ product, selectedColor = "", selectedSize
       .from("cart_items")
       .delete()
       .eq("cart_id", remoteCart.id)
-      .eq("product_id", normalizedProductId);
-
-    if (safeColor == null) {
-      query = query.is("selected_color", null);
-    } else {
-      query = query.eq("selected_color", safeColor);
-    }
-
-    if (safeSize == null) {
-      query = query.is("selected_size", null);
-    } else {
-      query = query.eq("selected_size", safeSize);
-    }
+      .eq("product_id", normalizedProductId)
+      .eq("variant_key", resolvedVariantKey);
 
     const { error } = await query;
 

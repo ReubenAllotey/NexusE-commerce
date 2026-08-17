@@ -247,11 +247,12 @@ function OrderHistory({ orders = [], authUser = null }) {
                       <div className="orders-item__details">
                         <strong>{item.name}</strong>
                         <span>{item.brand}</span>
-                        {item.variant?.color || item.variant?.size ? (
+                        {item.variant?.label || item.variant?.color || item.variant?.size ? (
                           <span>
-                            {[item.variant.color, item.variant.size]
-                              .filter(Boolean)
-                              .join(" / ")}
+                            {item.variant.label ||
+                              [item.variant.color, item.variant.size]
+                                .filter(Boolean)
+                                .join(" / ")}
                           </span>
                         ) : null}
                         <span>Qty {item.quantity}</span>
@@ -434,11 +435,12 @@ function OrderHistory({ orders = [], authUser = null }) {
                             <div className="orders-item__details">
                               <strong>{item.name}</strong>
                               <span>{item.brand}</span>
-                              {item.variant?.color || item.variant?.size ? (
+                              {item.variant?.label || item.variant?.color || item.variant?.size ? (
                                 <span>
-                                  {[item.variant.color, item.variant.size]
-                                    .filter(Boolean)
-                                    .join(" / ")}
+                                  {item.variant.label ||
+                                    [item.variant.color, item.variant.size]
+                                      .filter(Boolean)
+                                      .join(" / ")}
                                 </span>
                               ) : null}
                               <span>Qty {item.quantity}</span>

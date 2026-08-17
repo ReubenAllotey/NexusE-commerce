@@ -179,7 +179,23 @@ function resolveDrawerItem(item, productLookup = new Map()) {
 }
 
 function getCartItemKey(item, fallbackSlug = "") {
-  return item?.cartKey ?? item?.slug ?? fallbackSlug;
+  return item?.cartKey ?? item?.variantKey ?? item?.slug ?? fallbackSlug;
+}
+
+function getVariantLabel(item = {}) {
+  const selectedOptionLabels = Array.isArray(item?.selectedOptions)
+    ? item.selectedOptions
+        .map((option) => option?.label ?? option?.value ?? "")
+        .filter(Boolean)
+        .join(" / ")
+    : "";
+  const label = item?.variant?.label ?? item?.variantLabel ?? selectedOptionLabels ?? "";
+
+  if (label) {
+    return label;
+  }
+
+  return [item?.variant?.color, item?.variant?.size].filter(Boolean).join(" / ");
 }
 
 function CartDrawer({
@@ -204,6 +220,8 @@ function CartDrawer({
         quantity,
         lineTotal: product.price * quantity,
         variant: item.variant ?? null,
+        selectedOptions: item.selectedOptions ?? [],
+        variantLabel: getVariantLabel(item),
       };
     })
     .filter(Boolean);
@@ -242,8 +260,8 @@ function CartDrawer({
                   <div>
                     <strong>{product.name}</strong>
                     <span>{product.brand}</span>
-                    {variant?.color || variant?.size ? (
-                      <span>{[variant.color, variant.size].filter(Boolean).join(" / ")}</span>
+                    {variantLabel || variant?.color || variant?.size ? (
+                      <span>{variantLabel || [variant.color, variant.size].filter(Boolean).join(" / ")}</span>
                     ) : null}
                   </div>
 
@@ -1444,13 +1462,15 @@ function App() {
     }
 
     const syncCart = async () => {
-      const result = await addCartLine({
-        product,
-        quantity: safeQuantity,
-        selectedColor: safeVariant.color ?? "",
-        selectedSize: safeVariant.size ?? "",
-        products: liveProducts,
-      });
+        const result = await addCartLine({
+          product,
+          quantity: safeQuantity,
+          selectedColor: safeVariant.color ?? "",
+          selectedSize: safeVariant.size ?? "",
+          selectedOptions: Array.isArray(safeVariant.selectedOptions) ? safeVariant.selectedOptions : [],
+          variantKey: safeVariant.variantKey ?? "",
+          products: liveProducts,
+        });
 
       if (result.ok) {
         setCartItems(result.items ?? []);
@@ -1484,6 +1504,8 @@ function App() {
         quantity,
         selectedColor: target.selectedColor ?? target.variant?.color ?? "",
         selectedSize: target.selectedSize ?? target.variant?.size ?? "",
+        selectedOptions: target.selectedOptions ?? target.variant?.options ?? [],
+        variantKey: target.variantKey ?? "",
         products: liveProducts,
       });
 
@@ -1517,6 +1539,8 @@ function App() {
         product: targetProduct,
         selectedColor: target.selectedColor ?? target.variant?.color ?? "",
         selectedSize: target.selectedSize ?? target.variant?.size ?? "",
+        selectedOptions: target.selectedOptions ?? target.variant?.options ?? [],
+        variantKey: target.variantKey ?? "",
         products: liveProducts,
       });
 

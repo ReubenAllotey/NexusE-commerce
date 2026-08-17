@@ -3,7 +3,12 @@ import { Link, useNavigate } from "react-router-dom";
 import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/nexuslogo.png";
 import { getCategoryProductsPath } from "./catalogData";
-import { getProductPath, slugify } from "../Products/productData";
+import {
+  buildDefaultSelectedOptions,
+  buildVariantKeyFromSelectedOptions,
+  getProductPath,
+  slugify,
+} from "../Products/productData";
 import {
   getHomepageCategoryCards,
   getCategoryProductCount,
@@ -345,34 +350,69 @@ function formatMoney(value) {
 
 function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
   const detailHref = getProductPath(item.slug ?? slugify(item.name));
-  const seriesOptions = useMemo(() => {
-    const fallbackOptions = [
-      {
-        key: `${slugify(item.series || item.name || "series")}-default`,
-        label: item.series || "Standard",
-        price: Number(item.price) || 0,
-        compareAt: item.compareAt ?? null,
-      },
-    ];
-
-    if (Array.isArray(item.seriesOptions) && item.seriesOptions.length > 0) {
-      return item.seriesOptions;
-    }
-
-    return fallbackOptions;
-  }, [item.compareAt, item.name, item.price, item.series, item.seriesOptions]);
-  const [selectedSeriesKey, setSelectedSeriesKey] = useState("");
+  const variationGroups = useMemo(
+    () => (Array.isArray(item.variationGroups) ? item.variationGroups : []),
+    [item.variationGroups],
+  );
+  const defaultSelectedOptions = useMemo(
+    () => buildDefaultSelectedOptions(variationGroups),
+    [variationGroups],
+  );
+  const primaryGroup = variationGroups[0] ?? null;
+  const defaultOption = primaryGroup?.options?.find((option) => option.isDefault) ?? primaryGroup?.options?.[0] ?? null;
+  const [selectedOptionKey, setSelectedOptionKey] = useState("");
 
   useEffect(() => {
-    setSelectedSeriesKey(seriesOptions[0]?.key ?? "");
-  }, [detailHref, seriesOptions]);
+    setSelectedOptionKey(defaultOption?.id ?? defaultOption?.value ?? "");
+  }, [detailHref, defaultOption?.id, defaultOption?.value]);
 
-  const activeSeries =
-    seriesOptions.find((option) => option.key === selectedSeriesKey) ??
-    seriesOptions[0] ??
-    null;
-  const activePrice = activeSeries?.price ?? (Number(item.price) || 0);
-  const activeCompareAt = activeSeries?.compareAt ?? item.compareAt ?? null;
+  const activeOption =
+    primaryGroup?.options?.find((option) => (option.id ?? option.value) === selectedOptionKey) ??
+    defaultOption;
+  const activeSelection = useMemo(
+    () =>
+      variationGroups
+        .map((group) => {
+          const groupOption =
+            group.id === primaryGroup?.id
+              ? activeOption
+              : defaultSelectedOptions.find((entry) => entry.groupId === group.id) ??
+                group.options?.find((option) => option.isDefault) ??
+                group.options?.[0] ??
+                null;
+
+          if (!groupOption) {
+            return null;
+          }
+
+          return {
+            groupId: group.id ?? "",
+            groupName: group.groupName ?? "Variation",
+            kind: group.kind ?? "text",
+            optionId: groupOption.id ?? "",
+            label: groupOption.label ?? "",
+            value: groupOption.value ?? groupOption.label ?? "",
+            priceDelta: Number(groupOption.priceDelta) || 0,
+            compareAtDelta: groupOption.compareAtDelta ?? null,
+            swatchColor: groupOption.swatchColor ?? "",
+            imageUrl: groupOption.imageUrl ?? "",
+            isDefault: Boolean(groupOption.isDefault),
+          };
+        })
+        .filter(Boolean),
+    [activeOption, defaultSelectedOptions, primaryGroup?.id, variationGroups],
+  );
+  const activePrice =
+    (Number(item.price) || 0) +
+    activeSelection.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
+  const activeCompareAt =
+    item.compareAt != null
+      ? Number(item.compareAt) +
+        activeSelection.reduce((sum, option) => sum + (Number(option.compareAtDelta) || 0), 0)
+      : null;
+  const activeImage =
+    activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
+  const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
 
   return (
     <article className="product-card">
@@ -403,7 +443,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
           aria-label={`Open ${item.name}`}
         >
           <img
-            src={item.image}
+            src={activeImage}
             alt={item.name}
             className={item.imageClassName ?? ""}
           />
@@ -414,22 +454,38 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
         <Link to={detailHref} className="product-card__title-link">
           <h3>{item.name}</h3>
         </Link>
-        <div className="product-card__variants" role="list" aria-label={`${item.name} series options`}>
-          {seriesOptions.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`product-card__variant${
-                option.key === activeSeries?.key ? " is-active" : ""
-              }`}
-              onClick={() => setSelectedSeriesKey(option.key)}
-              aria-pressed={option.key === activeSeries?.key}
-              aria-label={`${item.name} ${option.label}`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {primaryGroup ? (
+          <div className="product-card__variant-group">
+            <div className="product-card__variant-label">
+              <span>{primaryGroup.groupName}</span>
+              <strong>{activeOption?.label ?? "Default"}</strong>
+            </div>
+            <div className="product-card__variants" role="list" aria-label={`${item.name} ${primaryGroup.groupName} options`}>
+              {primaryGroup.options.map((option) => (
+                <button
+                  key={option.id ?? option.value ?? option.label}
+                  type="button"
+                  className={`product-card__variant${
+                    (option.id ?? option.value) === selectedOptionKey ? " is-active" : ""
+                  }`}
+                  onClick={() => setSelectedOptionKey(option.id ?? option.value ?? "")}
+                  aria-pressed={(option.id ?? option.value) === selectedOptionKey}
+                  aria-label={`${item.name} ${option.label}`}
+                  style={
+                    option.swatchColor
+                      ? { "--variant-swatch": option.swatchColor }
+                      : undefined
+                  }
+                >
+                  {primaryGroup.kind === "color" && option.swatchColor ? (
+                    <span className="product-card__variant-swatch" aria-hidden="true" />
+                  ) : null}
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="product-card__price">
           <strong>{formatMoney(activePrice)}</strong>
           {activeCompareAt != null && Number(activeCompareAt) > activePrice ? (
@@ -444,7 +500,8 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
               ...item,
               price: activePrice,
               compareAt: activeCompareAt,
-              series: activeSeries?.label ?? item.series,
+              selectedOptions: activeSelection,
+              variantKey: activeVariantKey,
             })
           }
         >

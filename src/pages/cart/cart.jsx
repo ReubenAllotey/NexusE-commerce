@@ -218,8 +218,10 @@ function Cart({
                           <div>
                             <strong>{product.name}</strong>
                             <span>{product.brand}</span>
-                            {variant?.color || variant?.size ? (
-                              <span>{[variant.color, variant.size].filter(Boolean).join(" / ")}</span>
+                            {variant?.label || variant?.color || variant?.size ? (
+                              <span>
+                                {variant.label || [variant.color, variant.size].filter(Boolean).join(" / ")}
+                              </span>
                             ) : null}
                           </div>
                         </td>

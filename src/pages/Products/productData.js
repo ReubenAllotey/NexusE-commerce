@@ -56,6 +56,8 @@ const COLOR_SELECT = "id,product_id,color_name,display_order";
 const SIZE_SELECT = "id,product_id,size_name,display_order";
 const FEATURE_SELECT = "id,product_id,feature_text,display_order";
 const PERK_SELECT = "id,product_id,perk_text,display_order";
+const VARIATION_GROUP_SELECT = "id,product_id,group_name,display_order,is_required,created_at,updated_at";
+const VARIATION_OPTION_SELECT = "id,group_id,option_label,option_value,price_delta,compare_at_delta,swatch_color,image_url,display_order,is_default,created_at,updated_at";
 
 const PRODUCT_IMAGE_ASSET_MAP = {
   "books-placeholder.svg": booksPlaceholder,
@@ -327,6 +329,239 @@ function buildSeriesOptions(seriesText, basePrice, compareAt) {
   return deduped;
 }
 
+function normalizeVariationGroupName(value) {
+  return cleanText(value);
+}
+
+function inferVariationKind(groupName = "", options = []) {
+  const normalizedName = slugify(groupName);
+  const hasSwatches = Array.isArray(options) && options.some((option) => option.swatchColor);
+  const hasImages = Array.isArray(options) && options.some((option) => option.imageUrl);
+
+  if (normalizedName.includes("color") || normalizedName.includes("colour") || hasSwatches) {
+    return "color";
+  }
+
+  if (normalizedName.includes("size")) {
+    return "size";
+  }
+
+  if (normalizedName.includes("series") || normalizedName.includes("model") || normalizedName.includes("variant")) {
+    return "series";
+  }
+
+  if (hasImages) {
+    return "image";
+  }
+
+  return "text";
+}
+
+function normalizeVariationOptionRow(row = {}, basePrice = 0, baseCompareAt = null) {
+  const label = cleanText(row?.label ?? row?.option_label ?? row?.name ?? row?.value);
+  const value = cleanText(row?.value ?? row?.option_value) || slugify(label);
+  const priceDelta = normalizeNumber(row?.priceDelta ?? row?.price_delta) ?? 0;
+  const compareAtDelta = normalizeNumber(row?.compareAtDelta ?? row?.compare_at_delta);
+  const swatchColor = cleanText(row?.swatchColor ?? row?.swatch_color);
+  const imageUrl = normalizeImageSrc(row?.imageUrl ?? row?.image_url);
+  const displayOrder = Math.max(Math.round(Number(row?.displayOrder ?? row?.display_order) || 0), 0);
+
+  return {
+    id: cleanText(row?.id),
+    groupId: cleanText(row?.groupId ?? row?.group_id),
+    label,
+    value,
+    priceDelta,
+    compareAtDelta: compareAtDelta == null ? null : compareAtDelta,
+    swatchColor,
+    imageUrl,
+    displayOrder,
+    isDefault: Boolean(row?.isDefault ?? row?.is_default),
+    createdAt: row?.createdAt ?? row?.created_at ?? "",
+    updatedAt: row?.updatedAt ?? row?.updated_at ?? "",
+    price: normalizeNumber(basePrice) + priceDelta,
+    compareAt:
+      compareAtDelta == null
+        ? null
+        : (normalizeNumber(baseCompareAt) ?? 0) + compareAtDelta,
+  };
+}
+
+function normalizeVariationGroupRow(row = {}, options = [], basePrice = 0, baseCompareAt = null) {
+  const normalizedOptions = [...(Array.isArray(options) ? options : [])]
+    .map((option) => normalizeVariationOptionRow(option, basePrice, baseCompareAt))
+    .sort(
+      (left, right) =>
+        left.displayOrder - right.displayOrder ||
+        String(left.createdAt ?? "").localeCompare(String(right.createdAt ?? "")) ||
+        String(left.id ?? "").localeCompare(String(right.id ?? "")),
+    );
+
+  return {
+    id: cleanText(row?.id),
+    productId: cleanText(row?.productId ?? row?.product_id),
+    groupName: normalizeVariationGroupName(row?.groupName ?? row?.group_name),
+    displayOrder: Math.max(Math.round(Number(row?.displayOrder ?? row?.display_order) || 0), 0),
+    isRequired: Boolean(row?.isRequired ?? row?.is_required),
+    createdAt: row?.createdAt ?? row?.created_at ?? "",
+    updatedAt: row?.updatedAt ?? row?.updated_at ?? "",
+    kind: inferVariationKind(row?.groupName ?? row?.group_name, normalizedOptions),
+    options: normalizedOptions,
+  };
+}
+
+function buildFallbackVariationGroups(row = {}, bundle = {}) {
+  const groups = [];
+  const colorOptions = mapChildColorRows(bundle.colors ?? []).map((option, index) => ({
+    id: `${slugify(option.label) || "color"}-${index + 1}`,
+    groupId: "",
+    label: option.label,
+    value: option.value,
+    priceDelta: 0,
+    compareAtDelta: null,
+    swatchColor: option.swatch,
+    imageUrl: "",
+    displayOrder: index + 1,
+    isDefault: index === 0,
+    createdAt: "",
+    updatedAt: "",
+  }));
+  const sizeOptions = buildBundleLists(bundle.sizes ?? [], "size_name", "size_name").map((sizeName, index) => ({
+    id: `${slugify(sizeName) || "size"}-${index + 1}`,
+    groupId: "",
+    label: sizeName,
+    value: slugify(sizeName) || sizeName.toLowerCase(),
+    priceDelta: 0,
+    compareAtDelta: null,
+    swatchColor: "",
+    imageUrl: "",
+    displayOrder: index + 1,
+    isDefault: index === 0,
+    createdAt: "",
+    updatedAt: "",
+  }));
+  const seriesOptions = buildSeriesOptions(row.series, row.price, row.compare_at).map((option, index) => ({
+    id: option.key,
+    groupId: "",
+    label: option.label,
+    value: option.key,
+    priceDelta: (normalizeNumber(option.price) ?? 0) - (normalizeNumber(row.price) ?? 0),
+    compareAtDelta:
+      option.compareAt == null
+        ? null
+        : option.compareAt - (normalizeNumber(row.compare_at) ?? 0),
+    swatchColor: "",
+    imageUrl: "",
+    displayOrder: index + 1,
+    isDefault: index === 0,
+    createdAt: "",
+    updatedAt: "",
+  }));
+
+  if (seriesOptions.length > 0) {
+    groups.push({
+      id: "",
+      productId: cleanText(row.id),
+      groupName: "Series",
+      displayOrder: 1,
+      isRequired: false,
+      createdAt: "",
+      updatedAt: "",
+      kind: inferVariationKind("Series", seriesOptions),
+      options: seriesOptions,
+    });
+  }
+
+  if (colorOptions.length > 0) {
+    groups.push({
+      id: "",
+      productId: cleanText(row.id),
+      groupName: "Color",
+      displayOrder: groups.length + 1,
+      isRequired: false,
+      createdAt: "",
+      updatedAt: "",
+      kind: inferVariationKind("Color", colorOptions),
+      options: colorOptions,
+    });
+  }
+
+  if (sizeOptions.length > 0) {
+    groups.push({
+      id: "",
+      productId: cleanText(row.id),
+      groupName: "Size",
+      displayOrder: groups.length + 1,
+      isRequired: false,
+      createdAt: "",
+      updatedAt: "",
+      kind: inferVariationKind("Size", sizeOptions),
+      options: sizeOptions,
+    });
+  }
+
+  return groups;
+}
+
+function normalizeVariationGroups(groups = [], basePrice = 0, baseCompareAt = null) {
+  return [...(Array.isArray(groups) ? groups : [])]
+    .map((group) => normalizeVariationGroupRow(group, group.options ?? [], basePrice, baseCompareAt))
+    .filter((group) => group.groupName)
+    .sort(
+      (left, right) =>
+        left.displayOrder - right.displayOrder ||
+        String(left.createdAt ?? "").localeCompare(String(right.createdAt ?? "")) ||
+        String(left.id ?? "").localeCompare(String(right.id ?? "")),
+    );
+}
+
+function buildDefaultSelectedOptions(variationGroups = []) {
+  return [...(Array.isArray(variationGroups) ? variationGroups : [])]
+    .map((group) => {
+      const option = group.options?.find((entry) => entry.isDefault) ?? group.options?.[0] ?? null;
+
+      if (!option) {
+        return null;
+      }
+
+      return {
+        groupId: group.id,
+        groupName: group.groupName,
+        kind: group.kind,
+        optionId: option.id,
+        label: option.label,
+        value: option.value ?? slugify(option.label),
+        priceDelta: normalizeNumber(option.priceDelta) ?? 0,
+        compareAtDelta: option.compareAtDelta ?? null,
+        swatchColor: option.swatchColor ?? "",
+        imageUrl: option.imageUrl ?? "",
+        isDefault: Boolean(option.isDefault),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildVariantKeyFromSelectedOptions(selectedOptions = [], legacyColor = "", legacySize = "") {
+  if (Array.isArray(selectedOptions) && selectedOptions.length > 0) {
+    return selectedOptions
+      .map((option) => `${slugify(option.groupName || option.groupId || "option")}=${slugify(option.label || option.value || option.optionId)}`)
+      .join("::");
+  }
+
+  return [cleanText(legacyColor), cleanText(legacySize)].filter(Boolean).join("::") || "default";
+}
+
+function buildVariantLabelFromSelectedOptions(selectedOptions = [], legacyColor = "", legacySize = "") {
+  if (Array.isArray(selectedOptions) && selectedOptions.length > 0) {
+    return selectedOptions
+      .map((option) => cleanText(option.label || option.value))
+      .filter(Boolean)
+      .join(" / ");
+  }
+
+  return [cleanText(legacyColor), cleanText(legacySize)].filter(Boolean).join(" / ");
+}
+
 function imageRowsToGallery(primaryImageUrl, imageRows = []) {
   const gallery = [];
   const seen = new Set();
@@ -393,6 +628,7 @@ function ensureProductBundleRows(bundle = {}) {
     sizes: Array.isArray(bundle.sizes) ? bundle.sizes : [],
     features: Array.isArray(bundle.features) ? bundle.features : [],
     perks: Array.isArray(bundle.perks) ? bundle.perks : [],
+    variationGroups: Array.isArray(bundle.variationGroups) ? bundle.variationGroups : [],
     product,
   };
 }
@@ -431,10 +667,38 @@ export function mapProductRowToLegacyViewModel(row = {}, bundle = {}) {
   const categoryName = cleanText(categoryRow?.name);
   const categorySlug = cleanText(categoryRow?.slug);
   const gallery = imageRowsToGallery(primaryImageUrl, normalizedBundle.images);
-  const colors = mapChildColorRows(normalizedBundle.colors);
-  const sizes = buildBundleLists(normalizedBundle.sizes, "size_name", "size_name");
+  const normalizedVariationGroups = normalizedBundle.variationGroups.length > 0
+    ? normalizeVariationGroups(
+        normalizedBundle.variationGroups,
+        row?.price ?? 0,
+        row?.compare_at ?? null,
+      )
+    : normalizeVariationGroups(
+        buildFallbackVariationGroups(row, normalizedBundle),
+        row?.price ?? 0,
+        row?.compare_at ?? null,
+      );
+  const colors =
+    normalizedVariationGroups.find((group) => group.kind === "color")?.options?.map((option) => ({
+      label: option.label,
+      value: option.value,
+      swatch: option.swatchColor || resolveColorMeta(option.label).swatch,
+      previewTint: option.swatchColor || resolveColorMeta(option.label).previewTint,
+    })) ?? mapChildColorRows(normalizedBundle.colors);
+  const sizes =
+    normalizedVariationGroups.find((group) => group.kind === "size")?.options?.map((option) => option.label) ??
+    buildBundleLists(normalizedBundle.sizes, "size_name", "size_name");
   const features = buildBundleLists(normalizedBundle.features, "feature_text", "feature_text");
   const perks = buildBundleLists(normalizedBundle.perks, "perk_text", "perk_text").map(parsePerkText);
+  const seriesGroup = normalizedVariationGroups.find((group) => group.kind === "series") ?? null;
+  const seriesOptions = seriesGroup
+    ? seriesGroup.options.map((option) => ({
+        key: option.id || option.value || slugify(option.label),
+        label: option.label,
+        price: option.price ?? normalizeNumber(row?.price) ?? 0,
+        compareAt: option.compareAt,
+      }))
+    : buildSeriesOptions(row.series, row.price, row.compare_at);
 
   return {
     id: row?.id ?? "",
@@ -446,7 +710,7 @@ export function mapProductRowToLegacyViewModel(row = {}, bundle = {}) {
     slug: cleanText(row?.slug),
     name: cleanText(row?.name),
     series: cleanText(row?.series),
-    seriesOptions: buildSeriesOptions(row?.series, row?.price, row?.compare_at),
+    seriesOptions,
     brand: cleanText(row?.brand),
     soldBy: cleanText(row?.sold_by),
     price: Number(row?.price) || 0,
@@ -462,6 +726,7 @@ export function mapProductRowToLegacyViewModel(row = {}, bundle = {}) {
     gallery,
     features,
     perks,
+    variationGroups: normalizedVariationGroups,
     availableColors: colors,
     availableSizes: sizes,
     shippingFee: normalizeNumber(row?.shipping_fee),
@@ -546,7 +811,7 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
   const productIds = productRows.map((row) => row.id).filter(Boolean);
   const categoryIds = productRows.map((row) => row.category_id).filter(Boolean);
 
-  const [categories, images, colors, sizes, features, perks] = await Promise.all([
+  const [categories, images, colors, sizes, features, perks, variationGroups] = await Promise.all([
     queryCategoriesByIds(categoryIds),
     productIds.length === 0
       ? Promise.resolve([])
@@ -619,7 +884,43 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
 
             return Array.isArray(childData) ? childData : [];
           }),
+    productIds.length === 0
+      ? Promise.resolve([])
+      : supabase
+          .from("product_variation_groups")
+          .select(VARIATION_GROUP_SELECT)
+          .in("product_id", productIds)
+          .order("display_order", { ascending: true })
+          .order("created_at", { ascending: true })
+          .then(({ data: childData, error: childError }) => {
+            if (childError) {
+              throw childError;
+            }
+
+            return Array.isArray(childData) ? childData : [];
+          }),
   ]);
+
+  const variationGroupIds = Array.isArray(variationGroups)
+    ? variationGroups.map((group) => group.id).filter(Boolean)
+    : [];
+
+  const variationOptions =
+    productIds.length === 0 || variationGroupIds.length === 0
+      ? []
+      : await supabase
+          .from("product_variation_options")
+          .select(VARIATION_OPTION_SELECT)
+          .in("group_id", variationGroupIds)
+          .order("display_order", { ascending: true })
+          .order("created_at", { ascending: true })
+          .then(({ data: childData, error: childError }) => {
+            if (childError) {
+              throw childError;
+            }
+
+            return Array.isArray(childData) ? childData : [];
+          });
 
   const categoryById = buildBundleLookup(categories, "id");
   const imagesByProductId = new Map();
@@ -627,6 +928,8 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
   const sizesByProductId = new Map();
   const featuresByProductId = new Map();
   const perksByProductId = new Map();
+  const variationGroupsByProductId = new Map();
+  const variationOptionsByGroupId = new Map();
 
   for (const row of images) {
     const list = imagesByProductId.get(row.product_id) ?? [];
@@ -658,6 +961,18 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
     perksByProductId.set(row.product_id, list);
   }
 
+  for (const row of variationGroups) {
+    const list = variationGroupsByProductId.get(row.product_id) ?? [];
+    list.push(row);
+    variationGroupsByProductId.set(row.product_id, list);
+  }
+
+  for (const row of variationOptions) {
+    const list = variationOptionsByGroupId.get(row.group_id) ?? [];
+    list.push(row);
+    variationOptionsByGroupId.set(row.group_id, list);
+  }
+
   const products = productRows.map((row) =>
     mapProductRowToLegacyViewModel(row, {
       category: categoryById.get(row.category_id) ?? null,
@@ -666,6 +981,10 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
       sizes: sizesByProductId.get(row.id) ?? [],
       features: featuresByProductId.get(row.id) ?? [],
       perks: perksByProductId.get(row.id) ?? [],
+      variationGroups: (variationGroupsByProductId.get(row.id) ?? []).map((groupRow) => ({
+        ...groupRow,
+        options: variationOptionsByGroupId.get(groupRow.id) ?? [],
+      })),
     }),
   );
 
@@ -743,6 +1062,115 @@ function normalizeGalleryInput(value = []) {
     });
 }
 
+function normalizeVariationOptionInput(option = {}, index = 0) {
+  const label = cleanText(option?.label ?? option?.option_label ?? option?.name ?? option?.value);
+  const value = cleanText(option?.value ?? option?.option_value) || slugify(label);
+
+  return {
+    id: cleanText(option?.id) || undefined,
+    groupId: cleanText(option?.groupId ?? option?.group_id) || undefined,
+    label,
+    value,
+    priceDelta: normalizeNumber(option?.priceDelta ?? option?.price_delta) ?? 0,
+    compareAtDelta: normalizeNumber(option?.compareAtDelta ?? option?.compare_at_delta),
+    swatchColor: cleanText(option?.swatchColor ?? option?.swatch_color) || null,
+    imageUrl: normalizeImageSrc(option?.imageUrl ?? option?.image_url) || null,
+    displayOrder: Math.max(
+      Math.round(Number(option?.displayOrder ?? option?.display_order ?? index + 1) || 0),
+      0,
+    ),
+    isDefault: Boolean(option?.isDefault ?? option?.is_default),
+  };
+}
+
+function normalizeVariationGroupInput(group = {}, index = 0) {
+  const options = Array.isArray(group?.options)
+    ? group.options.map((option, optionIndex) => normalizeVariationOptionInput(option, optionIndex))
+    : [];
+
+  return {
+    id: cleanText(group?.id) || undefined,
+    productId: cleanText(group?.productId ?? group?.product_id) || undefined,
+    groupName: cleanText(group?.groupName ?? group?.group_name),
+    displayOrder: Math.max(
+      Math.round(Number(group?.displayOrder ?? group?.display_order ?? index + 1) || 0),
+      0,
+    ),
+    isRequired: Boolean(group?.isRequired ?? group?.is_required),
+    options,
+  };
+}
+
+function buildVariationGroupsFromEditorValues(values = {}, existingProduct = null) {
+  const explicitGroups = Array.isArray(values?.variationGroups)
+    ? values.variationGroups.filter((group) => cleanText(group?.groupName ?? group?.group_name))
+    : [];
+
+  if (explicitGroups.length > 0) {
+    return explicitGroups.map((group, index) => normalizeVariationGroupInput(group, index));
+  }
+
+  const basePrice = normalizeNumber(values?.price ?? existingProduct?.price) ?? 0;
+  const baseCompareAt = normalizeNumber(values?.compareAt ?? existingProduct?.compareAt ?? existingProduct?.compare_at);
+  const derivedGroups = [];
+
+  const seriesOptions = buildSeriesOptions(values?.series ?? existingProduct?.series ?? "", basePrice, baseCompareAt);
+  if (seriesOptions.length > 0) {
+    derivedGroups.push({
+      groupName: "Series",
+      displayOrder: 1,
+      isRequired: false,
+      options: seriesOptions.map((option, index) => ({
+        label: option.label,
+        value: option.key,
+        priceDelta: (normalizeNumber(option.price) ?? 0) - basePrice,
+        compareAtDelta:
+          option.compareAt == null
+            ? null
+            : option.compareAt - (baseCompareAt ?? 0),
+        displayOrder: index + 1,
+        isDefault: index === 0,
+      })),
+    });
+  }
+
+  const colors = Array.isArray(values?.selectedColorKeys) ? values.selectedColorKeys : [];
+  if (colors.length > 0) {
+    derivedGroups.push({
+      groupName: "Color",
+      displayOrder: derivedGroups.length + 1,
+      isRequired: false,
+      options: colors.map((colorKey, index) => {
+        const colorMeta = PRODUCT_COLOR_OPTIONS.find((option) => option.key === normalizeColorSelection(colorKey));
+        return {
+          label: colorMeta?.label ?? cleanText(colorKey),
+          value: colorMeta?.key ?? slugify(colorKey),
+          swatchColor: colorMeta?.swatch ?? null,
+          displayOrder: index + 1,
+          isDefault: index === 0,
+        };
+      }),
+    });
+  }
+
+  const sizes = Array.isArray(values?.selectedSizes) ? values.selectedSizes : [];
+  if (sizes.length > 0) {
+    derivedGroups.push({
+      groupName: "Size",
+      displayOrder: derivedGroups.length + 1,
+      isRequired: false,
+      options: sizes.map((size, index) => ({
+        label: cleanText(size),
+        value: slugify(size) || cleanText(size).toLowerCase(),
+        displayOrder: index + 1,
+        isDefault: index === 0,
+      })),
+    });
+  }
+
+  return derivedGroups;
+}
+
 function normalizeExistingProductFields(existingProduct = {}) {
   return {
     id: cleanText(existingProduct.id),
@@ -775,6 +1203,9 @@ function normalizeExistingProductFields(existingProduct = {}) {
     availableSizes: Array.isArray(existingProduct.availableSizes) ? existingProduct.availableSizes : [],
     features: Array.isArray(existingProduct.features) ? existingProduct.features : [],
     perks: Array.isArray(existingProduct.perks) ? existingProduct.perks : [],
+    variationGroups: Array.isArray(existingProduct.variationGroups)
+      ? existingProduct.variationGroups.map((group, index) => normalizeVariationGroupInput(group, index))
+      : [],
   };
 }
 
@@ -793,6 +1224,22 @@ export function buildProductBundlePayloadFromLegacyProduct(product = {}, overrid
       display_order: index + 1,
     }))
     .filter((entry) => entry.image_url && entry.image_url !== primaryImage);
+  const selectedColorKeys = Array.isArray(next.availableColors)
+    ? next.availableColors.map((entry) => entry?.value ?? entry?.key ?? entry?.label).filter(Boolean)
+    : [];
+  const selectedSizes = Array.isArray(next.availableSizes) ? next.availableSizes : [];
+  const variationGroups = next.variationGroups.length > 0
+    ? next.variationGroups
+    : buildVariationGroupsFromEditorValues(
+        {
+          series: next.series,
+          price: next.price,
+          compareAt: next.compare_at,
+          selectedColorKeys,
+          selectedSizes,
+        },
+        next,
+      );
 
   return {
     product: {
@@ -836,6 +1283,7 @@ export function buildProductBundlePayloadFromLegacyProduct(product = {}, overrid
       perk_text: perkText,
       display_order: index + 1,
     })),
+    variationGroups,
   };
 }
 
@@ -844,6 +1292,7 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
   const existing = existingProduct ? normalizeExistingProductFields(existingProduct) : null;
   const selectedColorKeys = Array.isArray(values.selectedColorKeys) ? values.selectedColorKeys : [];
   const selectedSizes = Array.isArray(values.selectedSizes) ? values.selectedSizes : [];
+  const variationGroups = buildVariationGroupsFromEditorValues(values, existingProduct);
   const galleryImages = normalizeGalleryInput(values.galleryImages);
   const mainImage = normalizeImageSrc(values.mainImage || galleryImages[0]?.src || existing?.primary_image_url || "");
   const imageRows = galleryImages
@@ -921,8 +1370,17 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
       perk_text: perkText,
       display_order: index + 1,
     })),
+    variationGroups,
   };
 }
+
+export {
+  buildDefaultSelectedOptions,
+  buildVariantKeyFromSelectedOptions,
+  buildVariantLabelFromSelectedOptions,
+  buildVariationGroupsFromEditorValues,
+  normalizeVariationGroups,
+};
 
 export function getProductPath(slug) {
   return `/products/${slug}`;

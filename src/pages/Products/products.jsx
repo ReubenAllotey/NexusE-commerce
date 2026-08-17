@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useCategoryRecords } from "../../shared/categoryStorage";
-import { getProductPath, slugify, useProducts } from "./productData";
+import {
+  buildDefaultSelectedOptions,
+  buildVariantKeyFromSelectedOptions,
+  getProductPath,
+  slugify,
+  useProducts,
+} from "./productData";
 import logo from "../../assets/images/nexuslogo.png";
 
 const ITEMS_PER_PAGE = 6;
@@ -129,34 +135,69 @@ function renderStars(score) {
 }
 
 function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
-  const seriesOptions = useMemo(() => {
-    const fallbackOptions = [
-      {
-        key: `${slugify(item.series || item.name || "series")}-default`,
-        label: item.series || "Standard",
-        price: Number(item.price) || 0,
-        compareAt: item.compareAt ?? null,
-      },
-    ];
-
-    if (Array.isArray(item.seriesOptions) && item.seriesOptions.length > 0) {
-      return item.seriesOptions;
-    }
-
-    return fallbackOptions;
-  }, [item.compareAt, item.name, item.price, item.series, item.seriesOptions]);
-  const [selectedSeriesKey, setSelectedSeriesKey] = useState("");
+  const variationGroups = useMemo(
+    () => (Array.isArray(item.variationGroups) ? item.variationGroups : []),
+    [item.variationGroups],
+  );
+  const defaultSelectedOptions = useMemo(
+    () => buildDefaultSelectedOptions(variationGroups),
+    [variationGroups],
+  );
+  const primaryGroup = variationGroups[0] ?? null;
+  const defaultOption = primaryGroup?.options?.find((option) => option.isDefault) ?? primaryGroup?.options?.[0] ?? null;
+  const [selectedOptionKey, setSelectedOptionKey] = useState("");
 
   useEffect(() => {
-    setSelectedSeriesKey(seriesOptions[0]?.key ?? "");
-  }, [item.slug, seriesOptions]);
+    setSelectedOptionKey(defaultOption?.id ?? defaultOption?.value ?? "");
+  }, [item.slug, defaultOption?.id, defaultOption?.value]);
 
-  const activeSeries =
-    seriesOptions.find((option) => option.key === selectedSeriesKey) ??
-    seriesOptions[0] ??
-    null;
-  const activePrice = activeSeries?.price ?? (Number(item.price) || 0);
-  const activeCompareAt = activeSeries?.compareAt ?? item.compareAt ?? null;
+  const activeOption =
+    primaryGroup?.options?.find((option) => (option.id ?? option.value) === selectedOptionKey) ??
+    defaultOption;
+  const activeSelection = useMemo(
+    () =>
+      variationGroups
+        .map((group) => {
+          const groupOption =
+            group.id === primaryGroup?.id
+              ? activeOption
+              : defaultSelectedOptions.find((entry) => entry.groupId === group.id) ??
+                group.options?.find((option) => option.isDefault) ??
+                group.options?.[0] ??
+                null;
+
+          if (!groupOption) {
+            return null;
+          }
+
+          return {
+            groupId: group.id ?? "",
+            groupName: group.groupName ?? "Variation",
+            kind: group.kind ?? "text",
+            optionId: groupOption.id ?? "",
+            label: groupOption.label ?? "",
+            value: groupOption.value ?? groupOption.label ?? "",
+            priceDelta: Number(groupOption.priceDelta) || 0,
+            compareAtDelta: groupOption.compareAtDelta ?? null,
+            swatchColor: groupOption.swatchColor ?? "",
+            imageUrl: groupOption.imageUrl ?? "",
+            isDefault: Boolean(groupOption.isDefault),
+          };
+        })
+        .filter(Boolean),
+    [activeOption, defaultSelectedOptions, primaryGroup?.id, variationGroups],
+  );
+  const activePrice =
+    (Number(item.price) || 0) +
+    activeSelection.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
+  const activeCompareAt =
+    item.compareAt != null
+      ? Number(item.compareAt) +
+        activeSelection.reduce((sum, option) => sum + (Number(option.compareAtDelta) || 0), 0)
+      : null;
+  const activeImage =
+    activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
+  const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
 
   return (
     <article className="shop-card">
@@ -180,7 +221,7 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
           </Link>
         </div>
         <img
-          src={item.image}
+          src={activeImage}
           alt={item.name}
           className={
             item.imageClassName
@@ -194,47 +235,62 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
       <div className="shop-card__body">
         <h3>{item.name}</h3>
 
-        <div className="shop-card__variants" role="list" aria-label={`${item.name} series options`}>
-          {seriesOptions.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`shop-card__variant${
-                option.key === activeSeries?.key ? " is-active" : ""
-              }`}
-              onClick={() => setSelectedSeriesKey(option.key)}
-              aria-pressed={option.key === activeSeries?.key}
-              aria-label={`${item.name} ${option.label}`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="shop-card__footer">
-          <div className="shop-card__pricing">
-            <strong>{formatMoney(activePrice)}</strong>
-            {activeCompareAt != null && Number(activeCompareAt) > activePrice ? (
-              <span>{formatMoney(activeCompareAt)}</span>
-            ) : null}
+        {primaryGroup ? (
+          <div className="shop-card__variant-group">
+            <div className="shop-card__variant-label">
+              <span>{primaryGroup.groupName}</span>
+              <strong>{activeOption?.label ?? "Default"}</strong>
+            </div>
+            <div className="shop-card__variants" role="list" aria-label={`${item.name} ${primaryGroup.groupName} options`}>
+              {primaryGroup.options.map((option) => (
+                <button
+                  key={option.id ?? option.value ?? option.label}
+                  type="button"
+                  className={`shop-card__variant${
+                    (option.id ?? option.value) === selectedOptionKey ? " is-active" : ""
+                  }`}
+                  onClick={() => setSelectedOptionKey(option.id ?? option.value ?? "")}
+                  aria-pressed={(option.id ?? option.value) === selectedOptionKey}
+                  aria-label={`${item.name} ${option.label}`}
+                  style={
+                    option.swatchColor
+                      ? { "--variant-swatch": option.swatchColor }
+                      : undefined
+                  }
+                >
+                  {primaryGroup.kind === "color" && option.swatchColor ? (
+                    <span className="shop-card__variant-swatch" aria-hidden="true" />
+                  ) : null}
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
+        ) : null}
 
-          <button
-            type="button"
-            className="shop-card__add"
-            onClick={() =>
-              onAddToCart({
-                ...item,
-                price: activePrice,
-                compareAt: activeCompareAt,
-              series: activeSeries?.label ?? item.series,
-            })
-            }
-          >
-            <CartIcon />
-            Add To Cart
-          </button>
+        <div className="shop-card__price">
+          <strong>{formatMoney(activePrice)}</strong>
+          {activeCompareAt != null && Number(activeCompareAt) > activePrice ? (
+            <span>{formatMoney(activeCompareAt)}</span>
+          ) : null}
         </div>
+
+        <button
+          type="button"
+          className="shop-card__add"
+          onClick={() =>
+            onAddToCart({
+              ...item,
+              price: activePrice,
+              compareAt: activeCompareAt,
+              selectedOptions: activeSelection,
+              variantKey: activeVariantKey,
+            })
+          }
+        >
+          <CartIcon />
+          Add To Cart
+        </button>
       </div>
     </article>
   );
