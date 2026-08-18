@@ -602,28 +602,40 @@ const importBannerHighlights = [
 
 const testimonialItems = [
   {
-    name: "Amina K.",
-    title: "Verified Buyer",
+    name: "Michael A.",
     quote:
-      "The checkout was smooth and the delivery came faster than expected. The product quality was even better in person.",
+      "Ordering from Nexus was very easy. I placed my order, made payment and received updates throughout the shipping process. Everything arrived exactly as expected.",
     score: 5,
-    accent: "#f97316, #fb7185",
   },
   {
-    name: "Daniel O.",
-    title: "Returning Customer",
+    name: "Benjamin K.",
     quote:
-      "I like how easy it is to browse. The product photos feel clean, and the pricing is straightforward.",
-    score: 4,
-    accent: "#2563eb, #22c55e",
+      "I really liked how Nexus kept me updated about my order. I always knew what stage my shipment had reached, which made the whole process stress-free.",
+    score: 5,
   },
   {
-    name: "Sarah M.",
-    title: "Home Shopper",
+    name: "Paul T.",
     quote:
-      "The site feels polished now. I found what I wanted quickly and the customer support response was excellent.",
+      "Nexus has made ordering products from China much easier for me. They handle the shipping process and keep you informed until your items arrive in Ghana. Great service.",
     score: 5,
-    accent: "#db4444, #14b8a6",
+  },
+  {
+    name: "Joshua A.",
+    quote:
+      "The order tracking is one of my favorite things about Nexus. I can log into my account and see updates about my shipment without having to call anyone.",
+    score: 5,
+  },
+  {
+    name: "Emmanuel B.",
+    quote:
+      "My order arrived safely and in good condition. The process was simple from payment to delivery, and I received updates along the way. I’ll definitely order again.",
+    score: 5,
+  },
+  {
+    name: "Isaac A.",
+    quote:
+      "This was my first time ordering through Nexus and I had a good experience. The batch and shipping updates made it easy to understand what was happening with my order.",
+    score: 5,
   },
 ];
 
@@ -692,6 +704,9 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   const [isCategoryPaused, setIsCategoryPaused] = useState(false);
   const categoryCarouselRef = useRef(null);
   const categoryLoopWidthRef = useRef(0);
+  const [isTestimonialPaused, setIsTestimonialPaused] = useState(false);
+  const testimonialCarouselRef = useRef(null);
+  const testimonialLoopWidthRef = useRef(0);
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
@@ -729,6 +744,10 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     () => [...categoryCards, ...categoryCards],
     [categoryCards],
   );
+  const loopingTestimonialCards = useMemo(
+    () => [...testimonialItems, ...testimonialItems],
+    [],
+  );
 
   useEffect(() => {
     const measureLoopWidth = () => {
@@ -753,6 +772,30 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       window.removeEventListener("resize", measureLoopWidth);
     };
   }, [categoryCards.length]);
+
+  useEffect(() => {
+    const measureTestimonialLoopWidth = () => {
+      const container = testimonialCarouselRef.current;
+
+      if (!container) {
+        testimonialLoopWidthRef.current = 0;
+        return;
+      }
+
+      const cards = container.querySelectorAll(".testimonial-card");
+      const firstCardOfSecondLoop = cards[testimonialItems.length];
+
+      testimonialLoopWidthRef.current = firstCardOfSecondLoop?.offsetLeft ?? 0;
+    };
+
+    const frame = window.requestAnimationFrame(measureTestimonialLoopWidth);
+    window.addEventListener("resize", measureTestimonialLoopWidth);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", measureTestimonialLoopWidth);
+    };
+  }, []);
 
   const scrollCategories = useCallback((direction) => {
     const container = categoryCarouselRef.current;
@@ -797,6 +840,62 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       behavior: "smooth",
     });
   }, []);
+
+  const scrollTestimonials = useCallback((direction) => {
+    const container = testimonialCarouselRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const loopWidth = testimonialLoopWidthRef.current;
+
+    if (loopWidth > 0) {
+      if (container.scrollLeft >= loopWidth) {
+        container.scrollLeft -= loopWidth;
+      } else if (container.scrollLeft < 0) {
+        container.scrollLeft += loopWidth;
+      }
+    }
+
+    const firstCard = container.querySelector(".testimonial-card");
+    const cardWidth = firstCard?.getBoundingClientRect().width ?? 360;
+    const gap = 16;
+    const step = cardWidth + gap;
+    const maxScrollLeft = Math.max(container.scrollWidth - container.clientWidth, 0);
+    const nextScrollLeft = container.scrollLeft + direction * step;
+
+    if (maxScrollLeft <= 0) {
+      return;
+    }
+
+    if (direction > 0 && nextScrollLeft >= maxScrollLeft - 4) {
+      container.scrollTo({ left: 0, behavior: "auto" });
+      return;
+    }
+
+    if (direction < 0 && nextScrollLeft <= 0) {
+      container.scrollTo({ left: maxScrollLeft, behavior: "auto" });
+      return;
+    }
+
+    container.scrollBy({
+      left: direction * step,
+      behavior: "smooth",
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isTestimonialPaused || testimonialItems.length < 2) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      scrollTestimonials(1);
+    }, 1200);
+
+    return () => window.clearInterval(timer);
+  }, [isTestimonialPaused, scrollTestimonials]);
 
   useEffect(() => {
     if (categoryCards.length === 0) {
@@ -1149,29 +1248,30 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
           </div>
         </div>
 
-        <div className="testimonial-grid">
-          {testimonialItems.map((item) => (
-            <article className="testimonial-card" key={item.name}>
-              <div className="testimonial-card__avatar" aria-hidden="true">
-                {item.name
-                  .split(" ")
-                  .map((part) => part[0])
-                  .join("")}
-              </div>
-
-              <div className="testimonial-card__header">
-                <QuoteIcon />
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>{item.title}</span>
-                </div>
+        <div
+          className="testimonial-grid testimonial-grid--carousel"
+          ref={testimonialCarouselRef}
+          onMouseEnter={() => setIsTestimonialPaused(true)}
+          onMouseLeave={() => setIsTestimonialPaused(false)}
+        >
+          {loopingTestimonialCards.map((item, index) => (
+            <article className="testimonial-card" key={`${item.name}-${index}`}>
+              <div className="testimonial-card__stars" aria-label={`${item.score} out of 5 stars`}>
+                <StarRating score={item.score} />
               </div>
 
               <p className="testimonial-card__quote">{item.quote}</p>
 
               <div className="testimonial-card__footer">
-                <StarRating score={item.score} />
-                <span>Customer approved</span>
+                <div className="testimonial-card__footer-person">
+                  <div className="testimonial-card__avatar" aria-hidden="true">
+                    {item.name
+                      .split(" ")
+                      .map((part) => part[0])
+                      .join("")}
+                  </div>
+                  <strong>{item.name}</strong>
+                </div>
               </div>
             </article>
           ))}
