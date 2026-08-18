@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/nexuslogo.png";
@@ -70,18 +70,6 @@ function HeroTrustIcon({ kind }) {
     <span className="hero-banner__trust-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24">{icons[kind]}</svg>
     </span>
-  );
-}
-
-function ImportBannerIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 8h11v6H3z" />
-      <path d="M14 10h3l3 3v1h-6z" />
-      <path d="M6 8V6h6l2 2" />
-      <circle cx="8" cy="17.5" r="1.5" />
-      <circle cx="17" cy="17.5" r="1.5" />
-    </svg>
   );
 }
 
@@ -759,9 +747,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     error: productsError,
   } = useProducts();
   const [activeCategory, setActiveCategory] = useState("");
-  const [isCategoryPaused, setIsCategoryPaused] = useState(false);
-  const categoryCarouselRef = useRef(null);
-  const categoryLoopWidthRef = useRef(0);
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
@@ -795,83 +780,11 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     return picked.slice(0, 8);
   }, [liveBestSellingProducts, liveCatalogProducts]);
-  const loopingCategoryCards = useMemo(
-    () => [...categoryCards, ...categoryCards, ...categoryCards],
-    [categoryCards],
-  );
+  const loopingCategoryCards = useMemo(() => [...categoryCards, ...categoryCards], [categoryCards]);
   const loopingTestimonialCards = useMemo(
     () => [...testimonialItems, ...testimonialItems],
     [],
   );
-
-  useEffect(() => {
-    const measureLoopWidth = () => {
-      const container = categoryCarouselRef.current;
-
-      if (!container) {
-        categoryLoopWidthRef.current = 0;
-        return;
-      }
-
-      const cards = container.querySelectorAll(".category-card");
-      const firstCardOfSecondLoop = cards[categoryCards.length];
-      const firstCard = cards[0];
-
-      categoryLoopWidthRef.current =
-        firstCardOfSecondLoop && firstCard
-          ? firstCardOfSecondLoop.offsetLeft - firstCard.offsetLeft
-          : 0;
-
-      if (categoryLoopWidthRef.current > 0) {
-        container.scrollLeft = categoryLoopWidthRef.current;
-      }
-    };
-
-    const frame = window.requestAnimationFrame(measureLoopWidth);
-    window.addEventListener("resize", measureLoopWidth);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("resize", measureLoopWidth);
-    };
-  }, [categoryCards.length]);
-
-  const scrollCategories = useCallback((direction) => {
-    const container = categoryCarouselRef.current;
-
-    if (!container) {
-      return;
-    }
-
-    const loopWidth = categoryLoopWidthRef.current;
-
-    const firstCard = container.querySelector(".category-card");
-    const cardWidth = firstCard?.getBoundingClientRect().width ?? 220;
-    const gap = 20;
-    const step = cardWidth + gap;
-    const nextScrollLeft = container.scrollLeft + direction * step;
-
-    if (loopWidth <= 0) {
-      return;
-    }
-
-    if (direction > 0 && nextScrollLeft >= loopWidth * 2) {
-      container.scrollLeft = nextScrollLeft - loopWidth;
-      return;
-    }
-
-    if (direction < 0 && nextScrollLeft < loopWidth) {
-      container.scrollLeft = nextScrollLeft + loopWidth;
-      return;
-    }
-
-    container.scrollBy({
-      left: direction * step,
-      behavior: "smooth",
-    });
-  }, []);
-
-
   useEffect(() => {
     if (categoryCards.length === 0) {
       setActiveCategory("");
@@ -886,18 +799,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       setActiveCategory(categoryCards[0].slug);
     }
   }, [activeCategory, categoryCards]);
-
-  useEffect(() => {
-    if (isCategoryPaused || categoryCards.length < 2) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      scrollCategories(1);
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [categoryCards.length, isCategoryPaused, scrollCategories]);
 
   const goToProducts = (categorySlug = "") => {
     navigate(getCategoryProductsPath(categorySlug));
@@ -1023,19 +924,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             <SectionLabel icon="category">Categories</SectionLabel>
             <h2>Browse By Category</h2>
           </div>
-
-          <div className="section-controls">
-            <button type="button" aria-label="Previous categories" onClick={() => scrollCategories(-1)}>
-              &larr;
-            </button>
-            <button
-              type="button"
-              aria-label="Next categories"
-              onClick={() => scrollCategories(1)}
-            >
-              &rarr;
-            </button>
-          </div>
         </div>
 
         {categoriesError ? (
@@ -1049,51 +937,48 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </div>
           </div>
         ) : categoryCards.length > 0 ? (
-        <div
-            className="category-grid category-grid--carousel"
-            ref={categoryCarouselRef}
-            onMouseEnter={() => setIsCategoryPaused(true)}
-            onMouseLeave={() => setIsCategoryPaused(false)}
-          >
-            {loopingCategoryCards.map((category, index) => (
-              <article
-                key={`${category.slug}-${index}`}
-                className={`category-card${activeCategory === category.slug ? " is-active" : ""}${
-                  category.children?.length ? " has-children" : ""
-                }`}
-              >
-                <Link
-                  to={getCategoryProductsPath(category.slug)}
-                  className="category-card__link"
-                  onClick={() => setActiveCategory(category.slug)}
+          <div className="category-grid category-grid--carousel">
+            <div className="category-grid__track">
+              {loopingCategoryCards.map((category, index) => (
+                <article
+                  key={`${category.slug}-${index}`}
+                  className={`category-card${activeCategory === category.slug ? " is-active" : ""}${
+                    category.children?.length ? " has-children" : ""
+                  }`}
                 >
-                  <span className="category-card__media">
-                    <img src={category.image} alt={category.name} loading="lazy" />
-                  </span>
-                  <strong>{category.name}</strong>
-                  <span className="category-card__count">{category.productCount} Products</span>
-                </Link>
-
-                {Array.isArray(category.children) &&
-                category.children.length > 0 ? (
-                  <div
-                    className="category-card__children"
-                    aria-label={`${category.name} subcategories`}
+                  <Link
+                    to={getCategoryProductsPath(category.slug)}
+                    className="category-card__link"
+                    onClick={() => setActiveCategory(category.slug)}
                   >
-                    {category.children.map((child) => (
-                      <Link
-                        key={child.slug}
-                        to={getCategoryProductsPath(child.slug)}
-                        className="category-card__child"
-                        onClick={() => setActiveCategory(category.slug)}
-                      >
-                        {child.name}
-                      </Link>
-                    ))}
-                  </div>
-                ) : null}
-              </article>
-            ))}
+                    <span className="category-card__media">
+                      <img src={category.image} alt={category.name} loading="lazy" />
+                    </span>
+                    <strong>{category.name}</strong>
+                    <span className="category-card__count">{category.productCount} Products</span>
+                  </Link>
+
+                  {Array.isArray(category.children) &&
+                  category.children.length > 0 ? (
+                    <div
+                      className="category-card__children"
+                      aria-label={`${category.name} subcategories`}
+                    >
+                      {category.children.map((child) => (
+                        <Link
+                          key={child.slug}
+                          to={getCategoryProductsPath(child.slug)}
+                          className="category-card__child"
+                          onClick={() => setActiveCategory(category.slug)}
+                        >
+                          {child.name}
+                        </Link>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="category-grid">
@@ -1201,9 +1086,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
       <section className="home-import-banner" aria-label="Nexus import message">
         <div className="site-shell home-import-banner__inner">
-          <span className="home-import-banner__icon" aria-hidden="true">
-            <ImportBannerIcon />
-          </span>
           <div className="home-import-banner__copy">
             <p className="home-import-banner__eyebrow">Nexus Import Hub</p>
             <h2>

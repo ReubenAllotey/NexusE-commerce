@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import logo from "../../../assets/images/nexuslogo.png";
 import { getCategoryProductsPath } from "../../../pages/Home/catalogData";
 import { getCategoryProductCount, useCategoryTree } from "../../../shared/categoryStorage";
 import { useProducts } from "../../../pages/Products/productData";
@@ -41,16 +42,6 @@ function ProfileIcon() {
   );
 }
 
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 17H9" />
-      <path d="M18 17H6l1.5-2V10a4.5 4.5 0 0 1 9 0v5l1.5 2Z" />
-      <path d="M10 18a2 2 0 0 0 4 0" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -77,21 +68,11 @@ function MoonIcon() {
   );
 }
 
-function MenuIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 7h16" />
-      <path d="M4 12h16" />
-      <path d="M4 17h16" />
-    </svg>
-  );
-}
-
 function HomeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 11.5 12 5l8 6.5" />
-      <path d="M6.5 10.5V19h11V10.5" />
+      <path d="M4 11.5 12 5l8 6.5V20H4z" />
+      <path d="M9 20v-6h6v6" />
     </svg>
   );
 }
@@ -99,8 +80,8 @@ function HomeIcon() {
 function ShopIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 8h16l-1.3 12H5.3L4 8Z" />
-      <path d="M8 8a4 4 0 0 1 8 0" />
+      <path d="M4 7h16l-1.2 12H5.2L4 7Z" />
+      <path d="M8 7a4 4 0 0 1 8 0" />
     </svg>
   );
 }
@@ -108,7 +89,7 @@ function ShopIcon() {
 function CategoriesIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4.5 4.5h6v6h-6zM13.5 4.5h6v6h-6zM4.5 13.5h6v6h-6zM13.5 13.5h6v6h-6z" />
+      <path d="M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z" />
     </svg>
   );
 }
@@ -116,9 +97,7 @@ function CategoriesIcon() {
 function MoreIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="6" cy="12" r="1.4" />
-      <circle cx="12" cy="12" r="1.4" />
-      <circle cx="18" cy="12" r="1.4" />
+      <path d="M6 12h.01M12 12h.01M18 12h.01" />
     </svg>
   );
 }
@@ -136,31 +115,24 @@ function flattenCategories(categories = [], parentName = "") {
   });
 }
 
-function Header({
-  cartCount = 0,
-  wishlistCount = 0,
-  notificationCount = 0,
-  authUser = null,
-  onLogout = () => {},
-}) {
+function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = () => {} }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { tree: categoryTree, loading: categoriesLoading, error: categoriesError } = useCategoryTree();
   const { products: catalogProducts } = useProducts();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [theme, setTheme] = useState(() => {
     if (typeof window === "undefined") {
       return "light";
     }
+
     return window.localStorage.getItem("nexus-theme") || "light";
   });
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [isCategoriesSheetOpen, setIsCategoriesSheetOpen] = useState(false);
+  const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
+  const mobileSearchInputRef = useRef(null);
 
-  const categoryLinks = categoryTree.map((category) => ({
-    label: category.name,
-    to: getCategoryProductsPath(category.slug),
-    children: Array.isArray(category.children) ? category.children : [],
-  }));
   const categoryMenuItems = useMemo(
     () =>
       flattenCategories(categoryTree)
@@ -174,86 +146,105 @@ function Header({
   );
 
   useEffect(() => {
-    setIsMenuOpen(false);
-  }, [location.pathname]);
-
-  useEffect(() => {
     if (typeof document === "undefined") {
       return;
     }
+
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem("nexus-theme", theme);
   }, [theme]);
 
-  const closeMenu = () => setIsMenuOpen(false);
-  const handleSearchSubmit = (event) => {
-    event.preventDefault();
-    const term = searchValue.trim();
-    navigate(term ? `/products?search=${encodeURIComponent(term)}` : "/products");
-  };
-  const toggleTheme = () => {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
-  };
+  useEffect(() => {
+    setIsMobileSearchOpen(false);
+    setIsCategoriesSheetOpen(false);
+    setIsMoreSheetOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (isMobileSearchOpen) {
+      mobileSearchInputRef.current?.focus();
+    }
+  }, [isMobileSearchOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const hidden =
+      location.pathname.startsWith("/admin") ||
+      location.pathname.startsWith("/payment") ||
+      location.pathname.startsWith("/receipt") ||
+      location.pathname.startsWith("/account/set-password");
+
+    document.body.dataset.mobileBottomNav = hidden ? "false" : "true";
+  }, [location.pathname]);
+
   const isActivePath = (path) =>
     path === "/"
       ? location.pathname === path
       : location.pathname === path || location.pathname.startsWith(`${path}/`);
+
   const isCompanyActive = isActivePath("/about") || isActivePath("/contact");
-  const mobileStartHref = authUser ? "/profile/dashboard" : "/register/login";
-  const mobileStartLabel = authUser ? "Account" : "Get Started";
+  const isCategoriesActive =
+    location.pathname === "/products" && location.search.includes("category=");
+  const isAccountActive = authUser ? location.pathname.startsWith("/profile") : location.pathname.startsWith("/register");
+  const accountHref = authUser ? "/profile/dashboard" : "/register/login";
+  const accountLabel = authUser ? "Account" : "Sign In";
+  const mobileAccountLabel = authUser ? "Profile" : "Get Started";
+  const mobileAccountCompactLabel = authUser ? "Profile" : "Start";
+  const isMoreActive = isMoreSheetOpen || isCompanyActive;
+  const isMobileNavHidden =
+    location.pathname.startsWith("/admin") ||
+    location.pathname.startsWith("/payment") ||
+    location.pathname.startsWith("/receipt") ||
+    location.pathname.startsWith("/account/set-password");
+
+  const handleSearchSubmit = (event) => {
+    event.preventDefault();
+    const term = searchValue.trim();
+    navigate(term ? `/products?search=${encodeURIComponent(term)}` : "/products");
+    setIsMobileSearchOpen(false);
+  };
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
 
   return (
-    <header className="site-header">
-      <div className="site-shell site-header__inner">
-        <button
-          type="button"
-          className="site-header__menu-button"
-          aria-label="Open navigation"
-          aria-expanded={isMenuOpen}
-          aria-controls="site-mobile-menu"
-          onClick={() => setIsMenuOpen((current) => !current)}
-        >
-          <MenuIcon />
-        </button>
-
-        <Link to="/" className="site-brand" aria-label="Exclusive home">
-          Nexus Imports
+    <header className="nexus-header">
+      <div className="site-shell nexus-header__inner">
+        <Link to="/" className="nexus-header__brand" aria-label="Nexus Import Hub home">
+          <img src={logo} alt="Nexus Imports" />
         </Link>
 
-        <Link to="/products" className="site-header__mobile-search" aria-label="Search products">
-          <SearchIcon />
-        </Link>
-
-        <nav className="site-nav" aria-label="Primary">
+        <nav className="nexus-header__nav" aria-label="Primary">
           <Link to="/" className={isActivePath("/") ? "is-active" : ""}>
             Home
           </Link>
-          <Link
-            to="/products"
-            className={`site-nav__link ${isActivePath("/products") ? "is-active" : ""}`.trim()}
-          >
+          <Link to="/products" className={isActivePath("/products") ? "is-active" : ""}>
             Shop
           </Link>
-          <details className="site-nav__group">
-            <summary className="site-nav__trigger">
+          <details className="nexus-header__group">
+            <summary className={`nexus-header__trigger ${isCategoriesActive ? "is-active" : ""}`.trim()}>
               Categories
               <ChevronDownIcon />
             </summary>
-            <div className="site-nav__menu site-nav__menu--mega" aria-label="Categories menu">
+            <div className="nexus-header__menu nexus-header__menu--mega" aria-label="Categories menu">
               {categoriesError ? (
-                <div className="site-nav__menu-empty">Unable to load categories.</div>
-              ) : categoriesLoading && categoryLinks.length === 0 ? (
-                <div className="site-nav__menu-empty">Loading categories...</div>
+                <div className="nexus-header__menu-empty">Unable to load categories.</div>
+              ) : categoriesLoading && categoryMenuItems.length === 0 ? (
+                <div className="nexus-header__menu-empty">Loading categories...</div>
               ) : categoryMenuItems.length > 0 ? (
-                <div className="site-nav__menu-grid">
+                <div className="nexus-header__menu-grid">
                   {categoryMenuItems.map((item) => (
-                    <Link className="site-nav__menu-card" to={item.to} key={item.id}>
-                      <span className="site-nav__menu-thumb" aria-hidden="true">
+                    <Link className="nexus-header__menu-card" to={item.to} key={item.id}>
+                      <span className="nexus-header__menu-thumb" aria-hidden="true">
                         <img src={item.image} alt="" loading="lazy" />
                       </span>
-                      <span className="site-nav__menu-copy">
+                      <span className="nexus-header__menu-copy">
                         <strong>{item.name}</strong>
                         <span>{item.count} products</span>
                       </span>
@@ -261,255 +252,274 @@ function Header({
                   ))}
                 </div>
               ) : (
-                <div className="site-nav__menu-empty">No categories available.</div>
+                <div className="nexus-header__menu-empty">No categories available.</div>
               )}
             </div>
           </details>
-          <details className="site-nav__group">
-            <summary className={`site-nav__trigger ${isCompanyActive ? "is-active" : ""}`.trim()}>
+          <details className="nexus-header__group">
+            <summary className={`nexus-header__trigger ${isCompanyActive ? "is-active" : ""}`.trim()}>
               Company
               <ChevronDownIcon />
             </summary>
-            <div className="site-nav__menu" aria-label="Company menu">
-              <Link className="site-nav__menu-parent" to="/about">
+            <div className="nexus-header__menu" aria-label="Company menu">
+              <Link className="nexus-header__menu-parent" to="/about">
                 About
               </Link>
-              <Link className="site-nav__menu-parent" to="/contact">
+              <Link className="nexus-header__menu-parent" to="/contact">
                 Contact
               </Link>
             </div>
           </details>
         </nav>
 
-        <form className="site-search" role="search" onSubmit={handleSearchSubmit}>
-          <span className="site-search__icon" aria-hidden="true">
+        <form className="nexus-header__search" role="search" onSubmit={handleSearchSubmit}>
+          <span className="nexus-header__search-icon" aria-hidden="true">
             <SearchIcon />
           </span>
           <input
             type="search"
             value={searchValue}
             onChange={(event) => setSearchValue(event.target.value)}
-            placeholder="Search products or categories..."
-            aria-label="Search products, brands, categories"
+            placeholder="Search products..."
+            aria-label="Search products or categories"
           />
+          <button type="submit" aria-label="Search">
+            <SearchIcon />
+          </button>
         </form>
 
-        <div className="site-actions">
+        <div className="nexus-header__actions">
           {authUser ? (
-            <>
-              <Link
-                to="/profile/dashboard"
-                className="site-actions__icon-button"
-                aria-label={`${authUser.name}'s profile`}
-              >
-                <ProfileIcon />
-              </Link>
-              <button
-                type="button"
-                className="site-actions__signin site-actions__signin--ghost"
-                onClick={onLogout}
-              >
-                Logout
-              </button>
-            </>
-          ) : (
-            <Link className="site-actions__signin site-actions__signin--outline" to="/register/login">
+            <Link
+              to="/profile/dashboard"
+              className="nexus-header__signin"
+              aria-label={`${authUser.name || "Account"} profile`}
+            >
               <ProfileIcon />
-              <span>Sign In</span>
+              <span>{accountLabel}</span>
+            </Link>
+          ) : (
+            <Link className="nexus-header__signin" to="/register/login">
+              <ProfileIcon />
+              <span>{accountLabel}</span>
             </Link>
           )}
+
           <Link
             to="/wishlist"
-            className="site-actions__icon-button site-actions__icon-button--wishlist"
+            className="nexus-header__icon-button nexus-header__icon-button--wishlist"
             aria-label={`Wishlist, ${wishlistCount} items`}
           >
             <HeartIcon />
-            {wishlistCount > 0 ? (
-              <span className="site-actions__badge">{wishlistCount}</span>
-            ) : null}
+            {wishlistCount > 0 ? <span className="nexus-header__badge">{wishlistCount}</span> : null}
           </Link>
+
+          <Link
+            to="/cart"
+            className="nexus-header__icon-button nexus-header__icon-button--cart"
+            aria-label={`Cart, ${cartCount} items`}
+          >
+            <CartIcon />
+            {cartCount > 0 ? <span className="nexus-header__badge">{cartCount}</span> : null}
+          </Link>
+
           <button
             type="button"
-            className="site-actions__icon-button site-actions__icon-button--theme"
+            className="nexus-header__icon-button nexus-header__icon-button--theme"
             onClick={toggleTheme}
             aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
-          <Link to="/cart" className="site-actions__icon-button" aria-label={`Cart, ${cartCount} items`}>
-            <CartIcon />
-            {cartCount > 0 ? (
-              <span className="site-actions__badge">{cartCount}</span>
-            ) : null}
-          </Link>
-          {authUser ? (
-            <Link
-              to="/profile/notifications"
-              className="site-actions__icon-button"
-              aria-label={`Notifications, ${notificationCount} unread`}
-            >
-              <BellIcon />
-              {notificationCount > 0 ? (
-                <span className="site-actions__badge">{notificationCount}</span>
-              ) : null}
-            </Link>
-          ) : null}
         </div>
-      </div>
 
-      <nav className="site-mobile-tabs" aria-label="Quick navigation">
-        <Link to="/" className={`site-mobile-tabs__item ${isActivePath("/") ? "is-active" : ""}`.trim()}>
-          <HomeIcon />
-          <span>Home</span>
-        </Link>
-        <Link
-          to="/products"
-          className={`site-mobile-tabs__item ${isActivePath("/products") ? "is-active" : ""}`.trim()}
-        >
-          <ShopIcon />
-          <span>Shop</span>
-        </Link>
-        <Link
-          to="/#categories"
-          className={`site-mobile-tabs__item ${location.hash === "#categories" ? "is-active" : ""}`.trim()}
-        >
-          <CategoriesIcon />
-          <span>Categories</span>
-        </Link>
-        <Link
-          to="/wishlist"
-          className={`site-mobile-tabs__item ${isActivePath("/wishlist") ? "is-active" : ""}`.trim()}
-        >
-          <HeartIcon />
-          <span>Wishlist</span>
-        </Link>
-        <Link
-          to="/cart"
-          className={`site-mobile-tabs__item ${isActivePath("/cart") ? "is-active" : ""}`.trim()}
-        >
-          <CartIcon />
-          <span>Cart</span>
-        </Link>
         <button
           type="button"
-          className="site-mobile-tabs__item site-mobile-tabs__item--button"
-          onClick={() => setIsMenuOpen(true)}
-          aria-label="More navigation options"
+          className="nexus-header__mobile-search-button"
+          onClick={() => setIsMobileSearchOpen((current) => !current)}
+          aria-label="Search products"
+          aria-expanded={isMobileSearchOpen}
+          aria-controls="nexus-mobile-search-panel"
         >
-          <MoreIcon />
-          <span>More</span>
+          <SearchIcon />
         </button>
-        <Link to={mobileStartHref} className="site-mobile-tabs__item">
-          <ProfileIcon />
-          <span>{mobileStartLabel}</span>
-        </Link>
-      </nav>
+
+        {isMobileSearchOpen ? (
+          <form
+            id="nexus-mobile-search-panel"
+            className="nexus-header__mobile-search-panel"
+            role="search"
+            onSubmit={handleSearchSubmit}
+          >
+            <span className="nexus-header__mobile-search-icon" aria-hidden="true">
+              <SearchIcon />
+            </span>
+            <input
+              ref={mobileSearchInputRef}
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search products or categories..."
+              aria-label="Search products or categories"
+            />
+            <button type="submit">Search</button>
+          </form>
+        ) : null}
+      </div>
+
+      {!isMobileNavHidden ? (
+        <nav className="nexus-mobile-nav" aria-label="Mobile navigation">
+          <Link
+            to="/"
+            className={`nexus-mobile-nav__item ${isActivePath("/") ? "is-active" : ""}`.trim()}
+            aria-label="Home"
+          >
+            <HomeIcon />
+            <span>Home</span>
+          </Link>
+          <button
+            type="button"
+            className={`nexus-mobile-nav__item ${isCategoriesActive || isCategoriesSheetOpen ? "is-active" : ""}`.trim()}
+            onClick={() => setIsCategoriesSheetOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={isCategoriesSheetOpen}
+            aria-controls="nexus-mobile-categories-sheet"
+            aria-label="Categories"
+          >
+            <CategoriesIcon />
+            <span>Categories</span>
+          </button>
+          <Link
+            to="/products"
+            className={`nexus-mobile-nav__item ${isActivePath("/products") ? "is-active" : ""}`.trim()}
+            aria-label="Shop"
+          >
+            <ShopIcon />
+            <span>Shop</span>
+          </Link>
+          <button
+            type="button"
+            className={`nexus-mobile-nav__item ${isMoreActive ? "is-active" : ""}`.trim()}
+            onClick={() => setIsMoreSheetOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={isMoreSheetOpen}
+            aria-controls="nexus-mobile-more-sheet"
+            aria-label="More"
+          >
+            <MoreIcon />
+            <span>More</span>
+          </button>
+          <Link
+            to="/cart"
+            className={`nexus-mobile-nav__item ${isActivePath("/cart") ? "is-active" : ""}`.trim()}
+            aria-label={`Cart, ${cartCount} items`}
+          >
+            <span className="nexus-mobile-nav__badge-wrap">
+              <CartIcon />
+              {cartCount > 0 ? <span className="nexus-mobile-nav__badge">{cartCount}</span> : null}
+            </span>
+            <span>Cart</span>
+          </Link>
+          <Link
+            to="/wishlist"
+            className={`nexus-mobile-nav__item ${isActivePath("/wishlist") ? "is-active" : ""}`.trim()}
+            aria-label={`Wishlist, ${wishlistCount} items`}
+          >
+            <span className="nexus-mobile-nav__badge-wrap">
+              <HeartIcon />
+              {wishlistCount > 0 ? <span className="nexus-mobile-nav__badge">{wishlistCount}</span> : null}
+            </span>
+            <span>Wishlist</span>
+          </Link>
+          <Link
+            to={accountHref}
+            className={`nexus-mobile-nav__item ${isAccountActive ? "is-active" : ""}`.trim()}
+            aria-label={authUser ? "Profile" : "Get Started"}
+          >
+            <ProfileIcon />
+            <span className="nexus-mobile-nav__label nexus-mobile-nav__label--wide">{mobileAccountLabel}</span>
+            <span className="nexus-mobile-nav__label nexus-mobile-nav__label--compact">
+              {mobileAccountCompactLabel}
+            </span>
+          </Link>
+        </nav>
+      ) : null}
 
       <MobileDrawer
-        open={isMenuOpen}
-        onClose={closeMenu}
-        title="Main navigation"
-        className="site-mobile-drawer"
-        maxWidth="min(82vw, 340px)"
+        open={isCategoriesSheetOpen}
+        onClose={() => setIsCategoriesSheetOpen(false)}
+        title="Categories"
+        className="nexus-mobile-categories-drawer"
+        maxWidth="100%"
       >
-        <nav className="site-mobile-menu" id="site-mobile-menu" aria-label="Main navigation">
-          <div className="site-mobile-menu__group">
-            <Link to="/" onClick={closeMenu} className="site-mobile-menu__link">
-              Home
-            </Link>
-            <Link to="/products" onClick={closeMenu} className="site-mobile-menu__link">
-              Shop
-            </Link>
+        <div className="nexus-mobile-categories-sheet" id="nexus-mobile-categories-sheet">
+          <div className="nexus-mobile-categories-sheet__header">
+            <strong>Categories</strong>
           </div>
-
-          <div className="site-mobile-menu__group">
-            <p className="site-mobile-menu__label">Categories</p>
+          <div className="nexus-mobile-categories-sheet__list">
             {categoriesError ? (
-              <p className="site-mobile-menu__empty">Unable to load categories.</p>
-            ) : categoriesLoading && categoryLinks.length === 0 ? (
-              <p className="site-mobile-menu__empty">Loading categories...</p>
-            ) : categoryLinks.length > 0 ? (
-              categoryLinks.map((item) => (
-                <div className="site-mobile-menu__category" key={item.label}>
-                  <Link to={item.to} onClick={closeMenu} className="site-mobile-menu__category-link">
-                    {item.label}
-                  </Link>
-                  {item.children.length > 0 ? (
-                    <div className="site-mobile-menu__children">
-                      {item.children.map((child) => (
-                        <Link
-                          key={child.slug}
-                          to={getCategoryProductsPath(child.slug)}
-                          onClick={closeMenu}
-                          className="site-mobile-menu__child"
-                        >
-                          {child.name}
-                        </Link>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+              <p className="nexus-mobile-categories-sheet__empty">Unable to load categories.</p>
+            ) : categoriesLoading && categoryMenuItems.length === 0 ? (
+              <p className="nexus-mobile-categories-sheet__empty">Loading categories...</p>
+            ) : categoryMenuItems.length > 0 ? (
+              categoryMenuItems.map((item) => (
+                <Link
+                  key={item.id}
+                  to={item.to}
+                  className="nexus-mobile-categories-sheet__item"
+                  onClick={() => setIsCategoriesSheetOpen(false)}
+                >
+                  <span className="nexus-mobile-categories-sheet__thumb" aria-hidden="true">
+                    <img src={item.image} alt="" loading="lazy" />
+                  </span>
+                  <span className="nexus-mobile-categories-sheet__copy">
+                    <strong>{item.name}</strong>
+                    <span>{item.count} products</span>
+                  </span>
+                </Link>
               ))
             ) : (
-              <p className="site-mobile-menu__empty">No categories available.</p>
+              <p className="nexus-mobile-categories-sheet__empty">No categories available.</p>
             )}
           </div>
+        </div>
+      </MobileDrawer>
 
-          <div className="site-mobile-menu__group">
-            <p className="site-mobile-menu__label">Account</p>
-            <Link to="/wishlist" onClick={closeMenu} className="site-mobile-menu__link">
-              Wishlist
-            </Link>
-            <Link to="/cart" onClick={closeMenu} className="site-mobile-menu__link">
-              Cart
-            </Link>
-            {authUser ? (
-              <>
-                <Link
-                  to="/profile/dashboard"
-                  onClick={closeMenu}
-                  className="site-mobile-menu__link"
-                >
-                  Profile
-                </Link>
-                <Link
-                  to="/profile/notifications"
-                  onClick={closeMenu}
-                  className="site-mobile-menu__link"
-                >
-                  Notifications
-                </Link>
-                <button
-                  type="button"
-                  className="site-mobile-menu__button"
-                  onClick={() => {
-                    closeMenu();
-                    onLogout();
-                  }}
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                <Link
-                  to="/register/login"
-                  onClick={closeMenu}
-                  className="site-mobile-menu__link"
-                >
-                  Login
-                </Link>
-                <Link
-                  to="/register/signup"
-                  onClick={closeMenu}
-                  className="site-mobile-menu__link"
-                >
-                  Sign Up
-                </Link>
-              </>
-            )}
+      <MobileDrawer
+        open={isMoreSheetOpen}
+        onClose={() => setIsMoreSheetOpen(false)}
+        title="More"
+        className="nexus-mobile-more-drawer"
+        maxWidth="100%"
+      >
+        <div className="nexus-mobile-more-sheet" id="nexus-mobile-more-sheet">
+          <div className="nexus-mobile-more-sheet__header">
+            <strong>More</strong>
           </div>
-        </nav>
+          <div className="nexus-mobile-more-sheet__list">
+            <Link
+              to="/about"
+              className="nexus-mobile-more-sheet__item"
+              onClick={() => setIsMoreSheetOpen(false)}
+            >
+              Company
+            </Link>
+            <Link
+              to="/about"
+              className="nexus-mobile-more-sheet__item"
+              onClick={() => setIsMoreSheetOpen(false)}
+            >
+              About
+            </Link>
+            <Link
+              to="/contact"
+              className="nexus-mobile-more-sheet__item"
+              onClick={() => setIsMoreSheetOpen(false)}
+            >
+              Contact
+            </Link>
+          </div>
+        </div>
       </MobileDrawer>
     </header>
   );
