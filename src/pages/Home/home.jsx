@@ -788,11 +788,27 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       testimonialLoopWidthRef.current = firstCardOfSecondLoop?.offsetLeft ?? 0;
     };
 
+    const initializeTestimonialScroll = () => {
+      const container = testimonialCarouselRef.current;
+
+      if (!container) {
+        return;
+      }
+
+      const loopWidth = testimonialLoopWidthRef.current;
+
+      if (loopWidth > 0 && container.scrollLeft < loopWidth) {
+        container.scrollLeft = loopWidth;
+      }
+    };
+
     const frame = window.requestAnimationFrame(measureTestimonialLoopWidth);
+    const startFrame = window.requestAnimationFrame(initializeTestimonialScroll);
     window.addEventListener("resize", measureTestimonialLoopWidth);
 
     return () => {
       window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(startFrame);
       window.removeEventListener("resize", measureTestimonialLoopWidth);
     };
   }, []);
@@ -850,39 +866,23 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     const loopWidth = testimonialLoopWidthRef.current;
 
-    if (loopWidth > 0) {
-      if (container.scrollLeft >= loopWidth) {
-        container.scrollLeft -= loopWidth;
-      } else if (container.scrollLeft < 0) {
-        container.scrollLeft += loopWidth;
-      }
-    }
-
     const firstCard = container.querySelector(".testimonial-card");
     const cardWidth = firstCard?.getBoundingClientRect().width ?? 360;
     const gap = 16;
     const step = cardWidth + gap;
-    const maxScrollLeft = Math.max(container.scrollWidth - container.clientWidth, 0);
     const nextScrollLeft = container.scrollLeft + direction * step;
 
-    if (maxScrollLeft <= 0) {
+    if (loopWidth > 0 && nextScrollLeft >= loopWidth) {
+      container.scrollLeft = nextScrollLeft - loopWidth;
       return;
     }
 
-    if (direction > 0 && nextScrollLeft >= maxScrollLeft - 4) {
-      container.scrollTo({ left: 0, behavior: "auto" });
+    if (loopWidth > 0 && nextScrollLeft < 0) {
+      container.scrollLeft = nextScrollLeft + loopWidth;
       return;
     }
 
-    if (direction < 0 && nextScrollLeft <= 0) {
-      container.scrollTo({ left: maxScrollLeft, behavior: "auto" });
-      return;
-    }
-
-    container.scrollBy({
-      left: direction * step,
-      behavior: "smooth",
-    });
+    container.scrollBy({ left: direction * step, behavior: "smooth" });
   }, []);
 
   useEffect(() => {
@@ -1244,7 +1244,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
         <div className="section-header">
           <div>
             <SectionLabel icon="feedback">Feedback</SectionLabel>
-            <h2>Customer Testimonials</h2>
+            <h2>Hear from Our Customers</h2>
           </div>
         </div>
 
