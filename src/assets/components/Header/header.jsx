@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getCategoryProductsPath } from "../../../pages/Home/catalogData";
 import { getCategoryProductCount, useCategoryTree } from "../../../shared/categoryStorage";
@@ -41,16 +41,6 @@ function ProfileIcon() {
   );
 }
 
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 17H9" />
-      <path d="M18 17H6l1.5-2V10a4.5 4.5 0 0 1 9 0v5l1.5 2Z" />
-      <path d="M10 18a2 2 0 0 0 4 0" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -73,16 +63,6 @@ function MoonIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M19.5 14.5A8.5 8.5 0 0 1 9.5 4.5 8.5 8.5 0 1 0 19.5 14.5Z" />
-    </svg>
-  );
-}
-
-function MenuIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 7h16" />
-      <path d="M4 12h16" />
-      <path d="M4 17h16" />
     </svg>
   );
 }
@@ -146,19 +126,18 @@ function Header({
   const { tree: categoryTree, loading: categoriesLoading, error: categoriesError } = useCategoryTree();
   const { products: catalogProducts } = useProducts();
   const [searchValue, setSearchValue] = useState("");
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [isCategoriesSheetOpen, setIsCategoriesSheetOpen] = useState(false);
+  const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     if (typeof window === "undefined") {
       return "light";
     }
+
     return window.localStorage.getItem("nexus-theme") || "light";
   });
-  const [isCategoriesSheetOpen, setIsCategoriesSheetOpen] = useState(false);
+  const mobileSearchRef = useRef(null);
 
-  const categoryLinks = categoryTree.map((category) => ({
-    label: category.name,
-    to: getCategoryProductsPath(category.slug),
-    children: Array.isArray(category.children) ? category.children : [],
-  }));
   const categoryMenuItems = useMemo(
     () =>
       flattenCategories(categoryTree)
@@ -175,6 +154,7 @@ function Header({
     if (typeof document === "undefined") {
       return;
     }
+
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
@@ -182,8 +162,16 @@ function Header({
   }, [theme]);
 
   useEffect(() => {
+    setIsMobileSearchOpen(false);
     setIsCategoriesSheetOpen(false);
+    setIsMoreSheetOpen(false);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (isMobileSearchOpen) {
+      mobileSearchRef.current?.focus();
+    }
+  }, [isMobileSearchOpen]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -200,32 +188,40 @@ function Header({
     document.body.dataset.mobileBottomNav = hidden ? "false" : "true";
   }, [location.pathname]);
 
-  const handleSearchSubmit = (event) => {
-    event.preventDefault();
-    const term = searchValue.trim();
-    navigate(term ? `/products?search=${encodeURIComponent(term)}` : "/products");
-  };
-  const toggleTheme = () => {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
-  };
   const isActivePath = (path) =>
     path === "/"
       ? location.pathname === path
       : location.pathname === path || location.pathname.startsWith(`${path}/`);
+
   const isCompanyActive = isActivePath("/about") || isActivePath("/contact");
-  const isBottomNavHidden =
+  const isCategoriesActive =
+    location.pathname === "/products" && location.search.includes("category=");
+  const isMobileNavHidden =
     location.pathname.startsWith("/admin") ||
     location.pathname.startsWith("/payment") ||
     location.pathname.startsWith("/receipt") ||
     location.pathname.startsWith("/account/set-password") ||
     location.pathname.startsWith("/register");
-  const isAccountActive = authUser
-    ? location.pathname.startsWith("/profile")
-    : location.pathname.startsWith("/register");
   const accountHref = authUser ? "/profile/dashboard" : "/register/login";
   const accountLabel = authUser ? "Account" : "Sign In";
-  const isCategoriesActive =
-    location.pathname === "/products" && location.search.includes("category=");
+  const mobileAccountLabel = authUser ? "Profile" : "Get Started";
+  const mobileAccountCompactLabel = authUser ? "Profile" : "Start";
+  const mobileAccountAriaLabel = authUser ? "Profile" : "Get Started";
+  const isAccountBottomNavActive = authUser
+    ? location.pathname.startsWith("/profile")
+    : location.pathname.startsWith("/register");
+  const isMoreActive = isMoreSheetOpen || isCompanyActive;
+
+  const handleSearchSubmit = (event) => {
+    event.preventDefault();
+    const term = searchValue.trim();
+    navigate(term ? `/products?search=${encodeURIComponent(term)}` : "/products");
+    setIsMobileSearchOpen(false);
+  };
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
 
   return (
     <header className="site-header">
@@ -252,7 +248,7 @@ function Header({
             <div className="site-nav__menu site-nav__menu--mega" aria-label="Categories menu">
               {categoriesError ? (
                 <div className="site-nav__menu-empty">Unable to load categories.</div>
-              ) : categoriesLoading && categoryLinks.length === 0 ? (
+              ) : categoriesLoading && categoryMenuItems.length === 0 ? (
                 <div className="site-nav__menu-empty">Loading categories...</div>
               ) : categoryMenuItems.length > 0 ? (
                 <div className="site-nav__menu-grid">
@@ -303,13 +299,16 @@ function Header({
         </form>
 
         <div className="site-actions">
-          <Link
-            to="/products"
+          <button
+            type="button"
             className="site-header__mobile-search"
+            onClick={() => setIsMobileSearchOpen((current) => !current)}
             aria-label="Search products"
+            aria-expanded={isMobileSearchOpen}
+            aria-controls="site-mobile-search-panel"
           >
             <SearchIcon />
-          </Link>
+          </button>
           <Link
             to="/wishlist"
             className="site-actions__icon-button site-actions__icon-button--wishlist"
@@ -327,51 +326,114 @@ function Header({
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </div>
+
+        {isMobileSearchOpen ? (
+          <form
+            id="site-mobile-search-panel"
+            className="site-header__mobile-search-panel"
+            role="search"
+            onSubmit={handleSearchSubmit}
+          >
+            <span className="site-header__mobile-search-panel-icon" aria-hidden="true">
+              <SearchIcon />
+            </span>
+            <input
+              ref={mobileSearchRef}
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search products or categories..."
+              aria-label="Search products, brands, categories"
+            />
+            <button type="submit">Search</button>
+          </form>
+        ) : null}
       </div>
 
-      {!isBottomNavHidden ? (
-        <nav className="site-mobile-tabs" aria-label="Mobile navigation">
+      {!isMobileNavHidden ? (
+        <nav className="nexus-mobile-bottom-nav" aria-label="Mobile navigation">
           <Link
             to="/"
-            className={`site-mobile-tabs__item ${isActivePath("/") ? "is-active" : ""}`.trim()}
+            className={`nexus-mobile-bottom-nav__item ${isActivePath("/") ? "is-active" : ""}`.trim()}
+            aria-label="Home"
           >
             <HomeIcon />
             <span>Home</span>
           </Link>
+          <button
+            type="button"
+            className={`nexus-mobile-bottom-nav__item ${isCategoriesActive || isCategoriesSheetOpen ? "is-active" : ""}`.trim()}
+            onClick={() => {
+              setIsMobileSearchOpen(false);
+              setIsMoreSheetOpen(false);
+              setIsCategoriesSheetOpen(true);
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={isCategoriesSheetOpen}
+            aria-controls="mobile-category-sheet"
+            aria-label="Categories"
+          >
+            <CategoriesIcon />
+            <span>Categories</span>
+          </button>
           <Link
             to="/products"
-            className={`site-mobile-tabs__item ${isActivePath("/products") ? "is-active" : ""}`.trim()}
+            className={`nexus-mobile-bottom-nav__item ${isActivePath("/products") ? "is-active" : ""}`.trim()}
+            aria-label="Shop"
           >
             <ShopIcon />
             <span>Shop</span>
           </Link>
           <button
             type="button"
-            className={`site-mobile-tabs__item ${isCategoriesActive || isCategoriesSheetOpen ? "is-active" : ""}`.trim()}
-            onClick={() => setIsCategoriesSheetOpen(true)}
+            className={`nexus-mobile-bottom-nav__item ${isMoreActive ? "is-active" : ""}`.trim()}
+            onClick={() => {
+              setIsMobileSearchOpen(false);
+              setIsCategoriesSheetOpen(false);
+              setIsMoreSheetOpen(true);
+            }}
             aria-haspopup="dialog"
-            aria-expanded={isCategoriesSheetOpen}
-            aria-controls="mobile-category-sheet"
+            aria-expanded={isMoreSheetOpen}
+            aria-controls="mobile-more-sheet"
+            aria-label="More"
           >
-            <CategoriesIcon />
-            <span>Categories</span>
+            <MoreIcon />
+            <span>More</span>
           </button>
           <Link
-            to={accountHref}
-            className={`site-mobile-tabs__item ${isAccountActive ? "is-active" : ""}`.trim()}
-          >
-            <ProfileIcon />
-            <span>{accountLabel}</span>
-          </Link>
-          <Link
             to="/cart"
-            className={`site-mobile-tabs__item ${isActivePath("/cart") ? "is-active" : ""}`.trim()}
+            className={`nexus-mobile-bottom-nav__item ${isActivePath("/cart") ? "is-active" : ""}`.trim()}
+            aria-label={`Cart, ${cartCount} items`}
           >
-            <span className="site-mobile-tabs__badge-wrap">
+            <span className="nexus-mobile-bottom-nav__badge-wrap">
               <CartIcon />
-              {cartCount > 0 ? <span className="site-mobile-tabs__badge">{cartCount}</span> : null}
+              {cartCount > 0 ? <span className="nexus-mobile-bottom-nav__badge">{cartCount}</span> : null}
             </span>
             <span>Cart</span>
+          </Link>
+          <Link
+            to="/wishlist"
+            className={`nexus-mobile-bottom-nav__item ${isActivePath("/wishlist") ? "is-active" : ""}`.trim()}
+            aria-label={`Wishlist, ${wishlistCount} items`}
+          >
+            <span className="nexus-mobile-bottom-nav__badge-wrap">
+              <HeartIcon />
+              {wishlistCount > 0 ? <span className="nexus-mobile-bottom-nav__badge">{wishlistCount}</span> : null}
+            </span>
+            <span>Wishlist</span>
+          </Link>
+          <Link
+            to={accountHref}
+            className={`nexus-mobile-bottom-nav__item ${isAccountBottomNavActive ? "is-active" : ""}`.trim()}
+            aria-label={mobileAccountAriaLabel}
+          >
+            <ProfileIcon />
+            <span className="nexus-mobile-bottom-nav__label nexus-mobile-bottom-nav__label--full">
+              {mobileAccountLabel}
+            </span>
+            <span className="nexus-mobile-bottom-nav__label nexus-mobile-bottom-nav__label--compact">
+              {mobileAccountCompactLabel}
+            </span>
           </Link>
         </nav>
       ) : null}
@@ -380,38 +442,68 @@ function Header({
         open={isCategoriesSheetOpen}
         onClose={() => setIsCategoriesSheetOpen(false)}
         title="Categories"
-        className="site-mobile-categories-drawer"
+        className="nexus-mobile-categories-drawer"
         maxWidth="100%"
       >
-        <div className="site-mobile-categories-sheet" id="mobile-category-sheet">
-          <div className="site-mobile-categories-sheet__header">
+        <div className="nexus-mobile-categories-sheet" id="mobile-category-sheet">
+          <div className="nexus-mobile-categories-sheet__header">
             <strong>Categories</strong>
           </div>
-          <div className="site-mobile-categories-sheet__list">
+          <div className="nexus-mobile-categories-sheet__list">
             {categoriesError ? (
-              <p className="site-mobile-categories-sheet__empty">Unable to load categories.</p>
+              <p className="nexus-mobile-categories-sheet__empty">Unable to load categories.</p>
             ) : categoriesLoading && categoryMenuItems.length === 0 ? (
-              <p className="site-mobile-categories-sheet__empty">Loading categories...</p>
+              <p className="nexus-mobile-categories-sheet__empty">Loading categories...</p>
             ) : categoryMenuItems.length > 0 ? (
               categoryMenuItems.map((item) => (
                 <Link
                   key={item.id}
                   to={item.to}
-                  className="site-mobile-categories-sheet__item"
+                  className="nexus-mobile-categories-sheet__item"
                   onClick={() => setIsCategoriesSheetOpen(false)}
                 >
-                  <span className="site-mobile-categories-sheet__thumb" aria-hidden="true">
+                  <span className="nexus-mobile-categories-sheet__thumb" aria-hidden="true">
                     <img src={item.image} alt="" loading="lazy" />
                   </span>
-                  <span className="site-mobile-categories-sheet__copy">
+                  <span className="nexus-mobile-categories-sheet__copy">
                     <strong>{item.name}</strong>
                     <span>{item.count} products</span>
                   </span>
                 </Link>
               ))
             ) : (
-              <p className="site-mobile-categories-sheet__empty">No categories available.</p>
+              <p className="nexus-mobile-categories-sheet__empty">No categories available.</p>
             )}
+          </div>
+        </div>
+      </MobileDrawer>
+
+      <MobileDrawer
+        open={isMoreSheetOpen}
+        onClose={() => setIsMoreSheetOpen(false)}
+        title="More"
+        className="nexus-mobile-more-drawer"
+        maxWidth="100%"
+      >
+        <div className="nexus-mobile-more-sheet" id="mobile-more-sheet">
+          <div className="nexus-mobile-more-sheet__header">
+            <strong>Company</strong>
+          </div>
+          <div className="nexus-mobile-more-sheet__list">
+            <Link
+              to="/about"
+              className="nexus-mobile-more-sheet__item"
+              onClick={() => setIsMoreSheetOpen(false)}
+            >
+              About
+            </Link>
+            <Link
+              to="/contact"
+              className="nexus-mobile-more-sheet__item"
+              onClick={() => setIsMoreSheetOpen(false)}
+            >
+              Contact
+            </Link>
           </div>
         </div>
       </MobileDrawer>
