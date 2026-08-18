@@ -744,9 +744,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   const [isCategoryPaused, setIsCategoryPaused] = useState(false);
   const categoryCarouselRef = useRef(null);
   const categoryLoopWidthRef = useRef(0);
-  const [isTestimonialPaused, setIsTestimonialPaused] = useState(false);
-  const testimonialCarouselRef = useRef(null);
-  const testimonialLoopWidthRef = useRef(0);
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
@@ -813,46 +810,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     };
   }, [categoryCards.length]);
 
-  useEffect(() => {
-    const measureTestimonialLoopWidth = () => {
-      const container = testimonialCarouselRef.current;
-
-      if (!container) {
-        testimonialLoopWidthRef.current = 0;
-        return;
-      }
-
-      const cards = container.querySelectorAll(".testimonial-card");
-      const firstCardOfSecondLoop = cards[testimonialItems.length];
-
-      testimonialLoopWidthRef.current = firstCardOfSecondLoop?.offsetLeft ?? 0;
-    };
-
-    const initializeTestimonialScroll = () => {
-      const container = testimonialCarouselRef.current;
-
-      if (!container) {
-        return;
-      }
-
-      const loopWidth = testimonialLoopWidthRef.current;
-
-      if (loopWidth > 0 && container.scrollLeft < loopWidth) {
-        container.scrollLeft = loopWidth;
-      }
-    };
-
-    const frame = window.requestAnimationFrame(measureTestimonialLoopWidth);
-    const startFrame = window.requestAnimationFrame(initializeTestimonialScroll);
-    window.addEventListener("resize", measureTestimonialLoopWidth);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.cancelAnimationFrame(startFrame);
-      window.removeEventListener("resize", measureTestimonialLoopWidth);
-    };
-  }, []);
-
   const scrollCategories = useCallback((direction) => {
     const container = categoryCarouselRef.current;
 
@@ -897,45 +854,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     });
   }, []);
 
-  const scrollTestimonials = useCallback((direction) => {
-    const container = testimonialCarouselRef.current;
-
-    if (!container) {
-      return;
-    }
-
-    const loopWidth = testimonialLoopWidthRef.current;
-
-    const firstCard = container.querySelector(".testimonial-card");
-    const cardWidth = firstCard?.getBoundingClientRect().width ?? 360;
-    const gap = 16;
-    const step = cardWidth + gap;
-    const nextScrollLeft = container.scrollLeft + direction * step;
-
-    if (loopWidth > 0 && nextScrollLeft >= loopWidth) {
-      container.scrollLeft = nextScrollLeft - loopWidth;
-      return;
-    }
-
-    if (loopWidth > 0 && nextScrollLeft < 0) {
-      container.scrollLeft = nextScrollLeft + loopWidth;
-      return;
-    }
-
-    container.scrollBy({ left: direction * step, behavior: "smooth" });
-  }, []);
-
-  useEffect(() => {
-    if (isTestimonialPaused || testimonialItems.length < 2) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      scrollTestimonials(1);
-    }, 1200);
-
-    return () => window.clearInterval(timer);
-  }, [isTestimonialPaused, scrollTestimonials]);
 
   useEffect(() => {
     if (categoryCards.length === 0) {
@@ -1290,31 +1208,30 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
         <div
           className="testimonial-grid testimonial-grid--carousel"
-          ref={testimonialCarouselRef}
-          onMouseEnter={() => setIsTestimonialPaused(true)}
-          onMouseLeave={() => setIsTestimonialPaused(false)}
         >
-          {loopingTestimonialCards.map((item, index) => (
-            <article className="testimonial-card" key={`${item.name}-${index}`}>
-              <div className="testimonial-card__stars" aria-label={`${item.score} out of 5 stars`}>
-                <StarRating score={item.score} />
-              </div>
-
-              <p className="testimonial-card__quote">{item.quote}</p>
-
-              <div className="testimonial-card__footer">
-                <div className="testimonial-card__footer-person">
-                  <div className="testimonial-card__avatar" aria-hidden="true">
-                    {item.name
-                      .split(" ")
-                      .map((part) => part[0])
-                      .join("")}
-                  </div>
-                  <strong>{item.name}</strong>
+          <div className="testimonial-grid__track">
+            {loopingTestimonialCards.map((item, index) => (
+              <article className="testimonial-card" key={`${item.name}-${index}`}>
+                <div className="testimonial-card__stars" aria-label={`${item.score} out of 5 stars`}>
+                  <StarRating score={item.score} />
                 </div>
-              </div>
-            </article>
-          ))}
+
+                <p className="testimonial-card__quote">{item.quote}</p>
+
+                <div className="testimonial-card__footer">
+                  <div className="testimonial-card__footer-person">
+                    <div className="testimonial-card__avatar" aria-hidden="true">
+                      {item.name
+                        .split(" ")
+                        .map((part) => part[0])
+                        .join("")}
+                    </div>
+                    <strong>{item.name}</strong>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 

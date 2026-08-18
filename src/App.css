@@ -2499,20 +2499,25 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 }
 
 .testimonial-grid {
-  display: flex;
-  gap: 1rem;
-}
-
-.testimonial-grid--carousel {
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  scrollbar-width: none;
+  overflow: hidden;
   padding: 0.5rem 0 0.2rem;
 }
 
-.testimonial-grid--carousel::-webkit-scrollbar {
-  display: none;
+.testimonial-grid--carousel {
+  position: relative;
+}
+
+.testimonial-grid__track {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  width: max-content;
+  will-change: transform;
+  animation: testimonialTrackScroll 42s linear infinite;
+}
+
+.testimonial-grid--carousel:hover .testimonial-grid__track {
+  animation-play-state: paused;
 }
 
 .testimonial-card {
@@ -2536,6 +2541,16 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 .testimonial-card:hover {
   transform: translateY(-8px) scale(1.02);
   box-shadow: 0 28px 52px rgba(16, 32, 27, 0.14);
+}
+
+@keyframes testimonialTrackScroll {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 .testimonial-card__avatar {
