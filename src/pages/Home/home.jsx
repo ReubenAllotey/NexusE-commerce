@@ -796,7 +796,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     return picked.slice(0, 8);
   }, [liveBestSellingProducts, liveCatalogProducts]);
   const loopingCategoryCards = useMemo(
-    () => [...categoryCards, ...categoryCards],
+    () => [...categoryCards, ...categoryCards, ...categoryCards],
     [categoryCards],
   );
   const loopingTestimonialCards = useMemo(
@@ -815,8 +815,16 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
       const cards = container.querySelectorAll(".category-card");
       const firstCardOfSecondLoop = cards[categoryCards.length];
+      const firstCard = cards[0];
 
-      categoryLoopWidthRef.current = firstCardOfSecondLoop?.offsetLeft ?? 0;
+      categoryLoopWidthRef.current =
+        firstCardOfSecondLoop && firstCard
+          ? firstCardOfSecondLoop.offsetLeft - firstCard.offsetLeft
+          : 0;
+
+      if (categoryLoopWidthRef.current > 0) {
+        container.scrollLeft = categoryLoopWidthRef.current;
+      }
     };
 
     const frame = window.requestAnimationFrame(measureLoopWidth);
@@ -837,32 +845,23 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     const loopWidth = categoryLoopWidthRef.current;
 
-    if (loopWidth > 0) {
-      if (container.scrollLeft >= loopWidth) {
-        container.scrollLeft -= loopWidth;
-      } else if (container.scrollLeft < 0) {
-        container.scrollLeft += loopWidth;
-      }
-    }
-
     const firstCard = container.querySelector(".category-card");
     const cardWidth = firstCard?.getBoundingClientRect().width ?? 220;
     const gap = 20;
     const step = cardWidth + gap;
-    const maxScrollLeft = Math.max(container.scrollWidth - container.clientWidth, 0);
     const nextScrollLeft = container.scrollLeft + direction * step;
 
-    if (maxScrollLeft <= 0) {
+    if (loopWidth <= 0) {
       return;
     }
 
-    if (direction > 0 && nextScrollLeft >= maxScrollLeft - 4) {
-      container.scrollTo({ left: 0, behavior: "smooth" });
+    if (direction > 0 && nextScrollLeft >= loopWidth * 2) {
+      container.scrollLeft = nextScrollLeft - loopWidth;
       return;
     }
 
-    if (direction < 0 && nextScrollLeft <= 0) {
-      container.scrollTo({ left: maxScrollLeft, behavior: "smooth" });
+    if (direction < 0 && nextScrollLeft < loopWidth) {
+      container.scrollLeft = nextScrollLeft + loopWidth;
       return;
     }
 
