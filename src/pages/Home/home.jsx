@@ -921,9 +921,9 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             </h1>
             <p className="hero-banner__copy-text">{heroContent.copy}</p>
             <div className="hero-banner__actions">
-              <Link className="hero-banner__link" to={heroContent.primaryHref}>
-                {heroContent.primaryCta} <span aria-hidden="true">&rarr;</span>
-              </Link>
+          <Link className="hero-banner__link hero-banner__link--primary" to={heroContent.primaryHref}>
+            {heroContent.primaryCta} <span aria-hidden="true">&rarr;</span>
+          </Link>
               <Link
                 className="hero-banner__link hero-banner__link--ghost"
                 to={heroContent.secondaryHref}

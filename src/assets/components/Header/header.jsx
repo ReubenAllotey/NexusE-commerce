@@ -87,6 +87,42 @@ function MenuIcon() {
   );
 }
 
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 11.5 12 5l8 6.5" />
+      <path d="M6.5 10.5V19h11V10.5" />
+    </svg>
+  );
+}
+
+function ShopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 8h16l-1.3 12H5.3L4 8Z" />
+      <path d="M8 8a4 4 0 0 1 8 0" />
+    </svg>
+  );
+}
+
+function CategoriesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4.5 4.5h6v6h-6zM13.5 4.5h6v6h-6zM4.5 13.5h6v6h-6zM13.5 13.5h6v6h-6z" />
+    </svg>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="6" cy="12" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="18" cy="12" r="1.4" />
+    </svg>
+  );
+}
+
 function flattenCategories(categories = [], parentName = "") {
   return (Array.isArray(categories) ? categories : []).flatMap((category) => {
     const current = {
@@ -165,6 +201,8 @@ function Header({
       ? location.pathname === path
       : location.pathname === path || location.pathname.startsWith(`${path}/`);
   const isCompanyActive = isActivePath("/about") || isActivePath("/contact");
+  const mobileStartHref = authUser ? "/profile/dashboard" : "/register/login";
+  const mobileStartLabel = authUser ? "Account" : "Get Started";
 
   return (
     <header className="site-header">
@@ -182,6 +220,10 @@ function Header({
 
         <Link to="/" className="site-brand" aria-label="Exclusive home">
           Nexus Imports
+        </Link>
+
+        <Link to="/products" className="site-header__mobile-search" aria-label="Search products">
+          <SearchIcon />
         </Link>
 
         <nav className="site-nav" aria-label="Primary">
@@ -278,7 +320,7 @@ function Header({
           )}
           <Link
             to="/wishlist"
-            className="site-actions__icon-button"
+            className="site-actions__icon-button site-actions__icon-button--wishlist"
             aria-label={`Wishlist, ${wishlistCount} items`}
           >
             <HeartIcon />
@@ -314,6 +356,54 @@ function Header({
           ) : null}
         </div>
       </div>
+
+      <nav className="site-mobile-tabs" aria-label="Quick navigation">
+        <Link to="/" className={`site-mobile-tabs__item ${isActivePath("/") ? "is-active" : ""}`.trim()}>
+          <HomeIcon />
+          <span>Home</span>
+        </Link>
+        <Link
+          to="/products"
+          className={`site-mobile-tabs__item ${isActivePath("/products") ? "is-active" : ""}`.trim()}
+        >
+          <ShopIcon />
+          <span>Shop</span>
+        </Link>
+        <Link
+          to="/#categories"
+          className={`site-mobile-tabs__item ${location.hash === "#categories" ? "is-active" : ""}`.trim()}
+        >
+          <CategoriesIcon />
+          <span>Categories</span>
+        </Link>
+        <Link
+          to="/wishlist"
+          className={`site-mobile-tabs__item ${isActivePath("/wishlist") ? "is-active" : ""}`.trim()}
+        >
+          <HeartIcon />
+          <span>Wishlist</span>
+        </Link>
+        <Link
+          to="/cart"
+          className={`site-mobile-tabs__item ${isActivePath("/cart") ? "is-active" : ""}`.trim()}
+        >
+          <CartIcon />
+          <span>Cart</span>
+        </Link>
+        <button
+          type="button"
+          className="site-mobile-tabs__item site-mobile-tabs__item--button"
+          onClick={() => setIsMenuOpen(true)}
+          aria-label="More navigation options"
+        >
+          <MoreIcon />
+          <span>More</span>
+        </button>
+        <Link to={mobileStartHref} className="site-mobile-tabs__item">
+          <ProfileIcon />
+          <span>{mobileStartLabel}</span>
+        </Link>
+      </nav>
 
       <MobileDrawer
         open={isMenuOpen}
