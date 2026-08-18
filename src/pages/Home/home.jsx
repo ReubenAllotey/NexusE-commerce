@@ -526,6 +526,29 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
   );
 }
 
+function ContactIcon({ kind }) {
+  const icons = {
+    mail: (
+      <>
+        <path d="M4 6h16v12H4z" />
+        <path d="m4 7 8 6 8-6" />
+      </>
+    ),
+    phone: (
+      <>
+        <path d="M5.5 4.5 8 3l3 5-2 2c1.5 3 3.5 5.5 6.5 7l2-2 4 2.5-1.5 3c-.5 1-1.4 1.5-2.5 1.5C10.4 22 2 13.6 2 5.5c0-1.1.5-2 1.5-2.5l2-.5Z" />
+      </>
+    ),
+    default: <path d="M12 3v18M3 12h18" />,
+  };
+
+  return (
+    <span className="contact-card__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24">{icons[kind] ?? icons.default}</svg>
+    </span>
+  );
+}
+
 function SectionLabel({ children, icon = "default" }) {
   return (
     <p className="section-label">
@@ -636,6 +659,23 @@ const testimonialItems = [
     quote:
       "This was my first time ordering through Nexus and I had a good experience. The batch and shipping updates made it easy to understand what was happening with my order.",
     score: 5,
+  },
+];
+
+const contactCards = [
+  {
+    kind: "mail",
+    title: "Email Us",
+    value: "info@nexushubgh",
+    note: "We are happy to help with orders and product questions.",
+    href: "mailto:info@nexushubgh",
+  },
+  {
+    kind: "phone",
+    title: "Call or WhatsApp",
+    value: "0556428948",
+    note: "Available for order updates and quick support.",
+    href: "tel:+233556428948",
   },
 ];
 
@@ -1273,6 +1313,29 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                   <strong>{item.name}</strong>
                 </div>
               </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="site-shell section-block contact-section" id="contact">
+        <div className="contact-section__header">
+          <span className="contact-section__eyebrow">Get In Touch</span>
+          <h2>Ready to Connect?</h2>
+          <h3>We&rsquo;re Here to Help</h3>
+          <p>
+            Visit our store, call us, or email us. We&rsquo;re always ready to assist you
+            with quality home appliances.
+          </p>
+        </div>
+
+        <div className="contact-section__cards">
+          {contactCards.map((item) => (
+            <article className="contact-card" key={item.title}>
+              <ContactIcon kind={item.kind} />
+              <strong>{item.title}</strong>
+              <a href={item.href}>{item.value}</a>
+              <span>{item.note}</span>
             </article>
           ))}
         </div>

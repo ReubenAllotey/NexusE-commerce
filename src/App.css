@@ -2597,6 +2597,122 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   line-height: 1.25;
 }
 
+.contact-section {
+  padding-top: 3rem;
+}
+
+.contact-section__header {
+  display: grid;
+  justify-items: center;
+  gap: 0.9rem;
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.contact-section__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.9rem;
+  padding: 0 1.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(43, 74, 203, 0.18);
+  color: #2b4acb;
+  background: rgba(43, 74, 203, 0.06);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.contact-section__header h2,
+.contact-section__header h3 {
+  margin: 0;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+}
+
+.contact-section__header h2 {
+  color: #1c2852;
+  font-size: clamp(2.2rem, 4.8vw, 4rem);
+}
+
+.contact-section__header h3 {
+  color: #2b4acb;
+  font-size: clamp(2.2rem, 4.8vw, 4rem);
+  font-weight: 800;
+}
+
+.contact-section__header p {
+  max-width: 60rem;
+  margin: 0;
+  color: rgba(28, 40, 82, 0.72);
+  font-size: 1.08rem;
+  line-height: 1.7;
+}
+
+.contact-section__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.contact-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  padding: 2.4rem 1.25rem 2rem;
+  border-radius: 1.25rem;
+  background: #ffffff;
+  border: 1px solid rgba(16, 32, 27, 0.08);
+  box-shadow: 0 16px 32px rgba(16, 32, 27, 0.06);
+  text-align: center;
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.contact-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 28px 52px rgba(16, 32, 27, 0.12);
+}
+
+.contact-card__icon {
+  width: 3.55rem;
+  height: 3.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #2b4acb;
+}
+
+.contact-card__icon svg {
+  width: 2rem;
+  height: 2rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.contact-card strong {
+  color: #1c2852;
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.contact-card a {
+  color: #1c2852;
+  font-size: 1.08rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.contact-card span {
+  color: rgba(28, 40, 82, 0.68);
+  font-size: 0.96rem;
+  line-height: 1.55;
+}
+
 .service-strip {
   margin: 2rem 0 2.5rem;
   padding: 0;
