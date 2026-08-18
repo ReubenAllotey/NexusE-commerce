@@ -2800,7 +2800,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 .site-footer {
   margin-top: 4rem;
   padding: 3.5rem 0 1.25rem;
-  background: #000000;
+  background: #1A2549;
   color: #ffffff;
 }
 
@@ -3042,9 +3042,10 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   margin-top: 1rem;
 }
 
-.site-footer__socials span {
-  width: 1.8rem;
-  height: 1.8rem;
+.site-footer__social-link,
+.site-footer__socials a {
+  width: 2rem;
+  height: 2rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3052,6 +3053,15 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   border-radius: 999px;
   color: #ffffff;
   font-size: 0.8rem;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.site-footer__social-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
 }
 
 .site-footer__bottom {

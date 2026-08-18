@@ -680,7 +680,7 @@ const contactCards = [
 ];
 
 const footerLinks = {
-  support: ["Accra-Ghana", "nexusimport@gmail.com", "+233 53-404-8292"],
+  support: ["Accra-Ghana", "info@nexushubgh", "0556428948"],
   account: [
     { label: "My Account", to: "/profile/dashboard" },
     { label: "Login", to: "/register/login" },
@@ -694,6 +694,24 @@ const footerLinks = {
     { label: "Contact", to: "/contact" },
   ],
 };
+
+const socialLinks = [
+  {
+    label: "Facebook",
+    href: "https://www.facebook.com/share/1HoDuuHb43/?mibextid=wwXIfr",
+    short: "f",
+  },
+  {
+    label: "TikTok",
+    href: "https://www.tiktok.com/@nexusimporthub?_r=1&_t=ZS-98u5xJbNI5V",
+    short: "t",
+  },
+  {
+    label: "Instagram",
+    href: "https://www.instagram.com/nexus_importhub?igsh=eGwwb29rd3I5Y2wz&utm_source=qr",
+    short: "i",
+  },
+];
 
 const heroContent = {
   eyebrow: "WELCOME",
@@ -1268,21 +1286,22 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 <p>Subscribe</p>
               </div>
             </div>
-            <span>Get 10% off your first order</span>
+            <span>Connect with us on social media</span>
 
-            <form
-              className="site-footer__form"
-              onSubmit={(event) => event.preventDefault()}
-            >
-              <input
-                type="email"
-                placeholder="Enter your email"
-                aria-label="Email address"
-              />
-              <button type="submit" aria-label="Subscribe">
-                &rarr;
-              </button>
-            </form>
+            <div className="site-footer__social-links" aria-label="Social media links">
+              {socialLinks.map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={item.label}
+                  className="site-footer__social-link"
+                >
+                  {item.short}
+                </a>
+              ))}
+            </div>
           </div>
 
           <div className="site-footer__column">
@@ -1313,10 +1332,17 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
           <div className="site-footer__column">
             <h3>Connect</h3>
             <div className="site-footer__socials" aria-label="Social links">
-              <span>f</span>
-              <span>t</span>
-              <span>i</span>
-              <span>in</span>
+              {socialLinks.map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={item.label}
+                >
+                  {item.short}
+                </a>
+              ))}
             </div>
           </div>
         </div>
