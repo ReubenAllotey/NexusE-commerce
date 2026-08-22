@@ -12,7 +12,7 @@ import NexusProductCard from "./ProductCard";
 import logo from "../../assets/images/nexuslogo.png";
 import { getDiscoverCategoryCards } from "../../shared/categoryStorage";
 
-const ITEMS_PER_PAGE = 6;
+const ITEMS_PER_PAGE = 24;
 
 function parseCategorySelection(value) {
   if (!value) {
@@ -41,8 +41,6 @@ function matchesCategorySelection(item, categorySelection) {
 
   return trail.some((entry) => slugify(entry) === selectedSlug);
 }
-
-const brandOptions = ["Nexus", "Canon", "Samsung", "TechPro", "NBG", "Omni"];
 
 const sortOptions = [
   { value: "featured", label: "Featured" },
@@ -73,6 +71,30 @@ function SearchIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="m21 21-4.3-4.3" />
       <circle cx="11" cy="11" r="6.5" />
+    </svg>
+  );
+}
+
+function ShopBadgeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 6h16l-1.3 11a2 2 0 0 1-2 1.8H7.3a2 2 0 0 1-2-1.8L4 6Z" />
+      <path d="M8 6V4.8A2.8 2.8 0 0 1 10.8 2h2.4A2.8 2.8 0 0 1 16 4.8V6" />
+      <path d="M9 10h6" />
+    </svg>
+  );
+}
+
+function FiltersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 6h8" />
+      <path d="M16 6h4" />
+      <path d="M10 6v4" />
+      <path d="M4 12h16" />
+      <path d="M4 18h4" />
+      <path d="M12 18h8" />
+      <path d="M14 18v-4" />
     </svg>
   );
 }
@@ -139,6 +161,22 @@ function toggleItem(list, item) {
   return list.includes(item)
     ? list.filter((entry) => entry !== item)
     : [...list, item];
+}
+
+function getProductColorEntries(item = {}) {
+  if (Array.isArray(item.availableColors) && item.availableColors.length > 0) {
+    return item.availableColors.filter(Boolean);
+  }
+
+  if (Array.isArray(item.colors) && item.colors.length > 0) {
+    return item.colors.filter(Boolean);
+  }
+
+  return [];
+}
+
+function getColorSelectionKey(entry = {}) {
+  return slugify(entry?.value ?? entry?.key ?? entry?.label ?? entry?.name ?? "");
 }
 
 function renderStars(score) {
@@ -334,9 +372,8 @@ function Products({
   const categoryParam = searchParams.get("category") ?? "";
   const searchParam = searchParams.get("search") ?? "";
   const [searchTerm, setSearchTerm] = useState(searchParam);
-  const [selectedBrands, setSelectedBrands] = useState([]);
   const [sortBy, setSortBy] = useState("featured");
-  const [priceLimit, setPriceLimit] = useState(1500);
+  const [selectedColors, setSelectedColors] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const visibleCategoryRecords = useMemo(
     () =>
@@ -357,6 +394,27 @@ function Products({
         }),
     [products, visibleCategoryRecords],
   );
+  const colorOptions = useMemo(() => {
+    const colors = new Map();
+
+    (Array.isArray(products) ? products : []).forEach((product) => {
+      getProductColorEntries(product).forEach((entry) => {
+        const key = getColorSelectionKey(entry);
+
+        if (!key || colors.has(key)) {
+          return;
+        }
+
+        colors.set(key, {
+          key,
+          label: entry?.label ?? entry?.name ?? entry?.value ?? entry?.key ?? "Color",
+          swatch: entry?.swatch ?? entry?.previewTint ?? entry?.swatchColor ?? "",
+        });
+      });
+    });
+
+    return Array.from(colors.values()).sort((left, right) => left.label.localeCompare(right.label));
+  }, [products]);
   const selectedCategories = parseCategorySelection(categoryParam);
 
   useEffect(() => {
@@ -374,11 +432,14 @@ function Products({
           const matchesCategory =
             selectedCategories.length === 0 ||
             selectedCategories.some((selection) => matchesCategorySelection(item, selection));
-          const matchesBrand =
-            selectedBrands.length === 0 || selectedBrands.includes(item.brand);
-          const matchesPrice = item.price <= priceLimit;
+          const productColors = getProductColorEntries(item);
+          const matchesColor =
+            selectedColors.length === 0 ||
+            selectedColors.some((selection) =>
+              productColors.some((entry) => getColorSelectionKey(entry) === selection),
+            );
 
-          return matchesSearch && matchesCategory && matchesBrand && matchesPrice;
+          return matchesSearch && matchesCategory && matchesColor;
         })
         .sort((a, b) => {
           switch (sortBy) {
@@ -394,13 +455,15 @@ function Products({
               return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
           }
         }),
-    [priceLimit, products, searchTerm, selectedBrands, selectedCategories, sortBy],
+    [products, searchTerm, selectedCategories, selectedColors, sortBy],
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
   const startIndex = (safePage - 1) * ITEMS_PER_PAGE;
   const visibleProducts = filteredProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const visibleStart = filteredProducts.length > 0 ? startIndex + 1 : 0;
+  const visibleEnd = startIndex + visibleProducts.length;
 
   const handleSearchChange = (value) => {
     setSearchTerm(value);
@@ -435,8 +498,8 @@ function Products({
     setCurrentPage(1);
   };
 
-  const handleBrandToggle = (brand) => {
-    setSelectedBrands((current) => toggleItem(current, brand));
+  const handleColorToggle = (colorKey) => {
+    setSelectedColors((current) => toggleItem(current, colorKey));
     setCurrentPage(1);
   };
 
@@ -445,96 +508,104 @@ function Products({
     setCurrentPage(1);
   };
 
-  const handlePriceChange = (value) => {
-    setPriceLimit(Number(value));
-    setCurrentPage(1);
-  };
-
   return (
     <main className="shop-page" id="top">
+      <section className="shop-page__hero">
+        <div className="shop-shell shop-page__hero-inner">
+          <div className="shop-page__badge">
+            <ShopBadgeIcon />
+            <span>Shop</span>
+          </div>
+          <h1>Our Products</h1>
+          <p>Discover premium electronics and gadgets at unbeatable prices.</p>
+        </div>
+      </section>
+
       <div className="shop-page__content">
         <div className="shop-shell">
-          <div className="shop-breadcrumb">
-            <Link to="/">Home</Link>
-            <ChevronIcon direction="right" />
-            <span>Products</span>
-          </div>
+          <section className="shop-main" id="catalog">
+            <div className="shop-toolbar">
+              <label className="shop-toolbar__search" htmlFor="shop-toolbar-search">
+                <SearchIcon />
+                <input
+                  id="shop-toolbar-search"
+                  type="search"
+                  value={searchTerm}
+                  onChange={(event) => handleSearchChange(event.target.value)}
+                  placeholder="Search products, brands, categories..."
+                />
+              </label>
 
-          <section className="shop-layout" id="catalog">
-            <aside className="shop-sidebar" id="filters">
-              <div className="shop-filter">
-                <h3>Categories</h3>
-                {categoriesError ? <p className="shop-filter__note">Unable to load categories.</p> : null}
-                <div className="shop-filter__list">
-                  {categoriesLoading && categoryOptions.length === 0 ? (
-                    <p className="shop-filter__note">Loading categories...</p>
-                  ) : categoryOptions.length > 0 ? (
-                    categoryOptions.map((category) => (
-                      <label key={category.slug} className="shop-check">
-                        <input
-                          type="checkbox"
-                        checked={selectedCategories.includes(category.slug)}
-                        onChange={() => handleCategoryToggle(category.slug)}
-                      />
-                        <span>{category.label}</span>
-                      </label>
-                    ))
-                  ) : (
-                    <p className="shop-filter__note">No categories available.</p>
-                  )}
+              <div className="shop-toolbar__filters">
+                <div className="shop-toolbar__filters-label">
+                  <FiltersIcon />
+                  <span>Filters</span>
                 </div>
-              </div>
 
-              <div className="shop-filter">
-                <h3>Brand</h3>
-                <div className="shop-filter__list">
-                  {brandOptions.map((brand) => (
-                    <label key={brand} className="shop-check">
-                      <input
-                        type="checkbox"
-                        checked={selectedBrands.includes(brand)}
-                        onChange={() => handleBrandToggle(brand)}
-                      />
-                      <span>{brand}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="shop-filter">
-                <h3>Price Range</h3>
-                <div className="shop-range">
-                  <input
-                    type="range"
-                    min="0"
-                    max="1500"
-                    step="25"
-                    value={priceLimit}
-                    onChange={(event) => handlePriceChange(event.target.value)}
-                  />
-                  <div className="shop-range__labels">
-                    <span>$0</span>
-                    <span>{formatMoney(priceLimit)} max</span>
+                <details className="shop-filter-pill">
+                  <summary>
+                    <span>Category</span>
+                    <ChevronIcon direction="right" />
+                  </summary>
+                  <div className="shop-filter-pill__panel">
+                    <div className="shop-filter__list">
+                      {categoriesError ? <p className="shop-filter__note">Unable to load categories.</p> : null}
+                      {categoriesLoading && categoryOptions.length === 0 ? (
+                        <p className="shop-filter__note">Loading categories...</p>
+                      ) : categoryOptions.length > 0 ? (
+                        categoryOptions.map((category) => (
+                          <label key={category.slug} className="shop-check">
+                            <input
+                              type="checkbox"
+                              checked={selectedCategories.includes(category.slug)}
+                              onChange={() => handleCategoryToggle(category.slug)}
+                            />
+                            <span>{category.label}</span>
+                          </label>
+                        ))
+                      ) : (
+                        <p className="shop-filter__note">No categories available.</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            </aside>
+                </details>
 
-            <div className="shop-main">
-              <div className="shop-toolbar">
-                <label className="shop-toolbar__search" htmlFor="shop-toolbar-search">
-                  <SearchIcon />
-                  <input
-                    id="shop-toolbar-search"
-                    type="search"
-                    value={searchTerm}
-                    onChange={(event) => handleSearchChange(event.target.value)}
-                    placeholder="Search products or categories..."
-                  />
-                </label>
+                <details className="shop-filter-pill">
+                  <summary>
+                    <span>Color</span>
+                    <ChevronIcon direction="right" />
+                  </summary>
+                  <div className="shop-filter-pill__panel">
+                    <div className="shop-filter__list">
+                      {colorOptions.length > 0 ? (
+                        colorOptions.map((color) => (
+                          <label key={color.key} className="shop-check">
+                            <input
+                              type="checkbox"
+                              checked={selectedColors.includes(color.key)}
+                              onChange={() => handleColorToggle(color.key)}
+                            />
+                            <span>
+                              {color.swatch ? (
+                                <span
+                                  className="shop-check__swatch"
+                                  style={{ "--variant-swatch": color.swatch }}
+                                  aria-hidden="true"
+                                />
+                              ) : null}
+                              {color.label}
+                            </span>
+                          </label>
+                        ))
+                      ) : (
+                        <p className="shop-filter__note">No colors available.</p>
+                      )}
+                    </div>
+                  </div>
+                </details>
 
                 <label className="shop-toolbar__sort" htmlFor="shop-sort">
-                  <span>Sort by:</span>
+                  <span>Sort:</span>
                   <select
                     id="shop-sort"
                     value={sortBy}
@@ -548,81 +619,84 @@ function Products({
                   </select>
                 </label>
               </div>
-
-              {productsError ? (
-                <div className="shop-empty">
-                  <h3>Unable to load products right now.</h3>
-                  <p>{productsError.message || "Please try again in a moment."}</p>
-                </div>
-              ) : null}
-
-              {productsLoading && filteredProducts.length === 0 ? (
-                <div className="shop-empty">
-                  <h3>Loading products...</h3>
-                  <p>We are pulling the current catalog from Supabase.</p>
-                </div>
-              ) : null}
-
-              <p className="shop-summary">
-                Showing {filteredProducts.length} product
-                {filteredProducts.length === 1 ? "" : "s"}
-              </p>
-
-              <div className="shop-grid">
-                {visibleProducts.length > 0 ? (
-                  visibleProducts.map((item) => (
-                    <NexusProductCard
-                      key={item.name}
-                      item={item}
-                      isWishlisted={wishlistItems.includes(item.name)}
-                      onAddToCart={onAddToCart}
-                      onToggleWishlist={onToggleWishlist}
-                      classNamePrefix="shop-card"
-                    />
-                  ))
-                ) : (
-                  <div className="shop-empty">
-                    <h3>No products match your filters.</h3>
-                    <p>Try clearing a category, brand, or search term to see more items.</p>
-                  </div>
-                )}
-              </div>
-
-              {filteredProducts.length > 0 ? (
-                <div className="shop-pagination" aria-label="Pagination">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
-                    disabled={safePage === 1}
-                    aria-label="Previous page"
-                  >
-                    <ChevronIcon direction="left" />
-                  </button>
-
-                  {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-                    <button
-                      type="button"
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={page === safePage ? "is-active" : ""}
-                      aria-label={`Page ${page}`}
-                      aria-current={page === safePage ? "page" : undefined}
-                    >
-                      {page}
-                    </button>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((page) => Math.min(page + 1, totalPages))}
-                    disabled={safePage === totalPages}
-                    aria-label="Next page"
-                  >
-                    <ChevronIcon direction="right" />
-                  </button>
-                </div>
-              ) : null}
             </div>
+
+            {productsError ? (
+              <div className="shop-empty">
+                <h3>Unable to load products right now.</h3>
+                <p>{productsError.message || "Please try again in a moment."}</p>
+              </div>
+            ) : null}
+
+            {productsLoading && filteredProducts.length === 0 ? (
+              <div className="shop-empty">
+                <h3>Loading products...</h3>
+                <p>We are pulling the current catalog from Supabase.</p>
+              </div>
+            ) : null}
+
+            <p className="shop-summary">
+              <strong>{filteredProducts.length}</strong> products found
+            </p>
+
+            <p className="shop-summary shop-summary--sub">
+              Showing {visibleStart}-{visibleEnd} of {filteredProducts.length} products
+            </p>
+
+            <div className="shop-grid">
+              {visibleProducts.length > 0 ? (
+                visibleProducts.map((item) => (
+                  <NexusProductCard
+                    key={item.name}
+                    item={item}
+                    isWishlisted={wishlistItems.includes(item.name)}
+                    onAddToCart={onAddToCart}
+                    onToggleWishlist={onToggleWishlist}
+                    classNamePrefix="shop-card"
+                  />
+                ))
+              ) : (
+                <div className="shop-empty">
+                  <h3>No products match your filters.</h3>
+                  <p>Try clearing a category, color, or search term to see more items.</p>
+                </div>
+              )}
+            </div>
+
+            {filteredProducts.length > 0 ? (
+              <div className="shop-pagination" aria-label="Pagination">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                  disabled={safePage === 1}
+                  aria-label="Previous page"
+                >
+                  <ChevronIcon direction="left" />
+                </button>
+
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                  <button
+                    type="button"
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={page === safePage ? "is-active" : ""}
+                    aria-label={`Page ${page}`}
+                    aria-current={page === safePage ? "page" : undefined}
+                  >
+                    {page}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(page + 1, totalPages))}
+                  disabled={safePage === totalPages}
+                  aria-label="Next page"
+                >
+                  <ChevronIcon direction="right" />
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>
       </div>
