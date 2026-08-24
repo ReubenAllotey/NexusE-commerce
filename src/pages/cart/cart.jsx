@@ -41,6 +41,16 @@ function TrashIcon() {
   );
 }
 
+function NoteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 20.2a8.2 8.2 0 1 0 0-16.4 8.2 8.2 0 0 0 0 16.4Z" />
+      <path d="M12 8.2v4.5" />
+      <path d="M12 15.8h.01" />
+    </svg>
+  );
+}
+
 function Cart({
   cartItems = [],
   loading = false,
@@ -317,14 +327,25 @@ function Cart({
                 Proceed to Payment
               </button>
 
-              <p className="cart-summary__note">
-                Shipping is calculated per item so you can see the cost before
-                checkout.
-              </p>
-              <p className="cart-summary__note">
-                Items with shipping fees marked as pending will be updated and
-                the customer will be notified after purchase.
-              </p>
+              <ul className="cart-summary__notes" aria-label="Checkout notes">
+                <li className="cart-summary__note">
+                  <span className="cart-summary__note-icon" aria-hidden="true">
+                    <NoteIcon />
+                  </span>
+                  <span>
+                    Shipping is calculated per item so you can see the cost before checkout.
+                  </span>
+                </li>
+                <li className="cart-summary__note">
+                  <span className="cart-summary__note-icon" aria-hidden="true">
+                    <NoteIcon />
+                  </span>
+                  <span>
+                    Items with shipping fees marked as pending will be updated and the customer
+                    will be notified after purchase.
+                  </span>
+                </li>
+              </ul>
             </aside>
           </section>
         ) : (

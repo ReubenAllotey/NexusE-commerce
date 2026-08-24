@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
-import { clearGuestLoginHint, loadGuestLoginHint, saveSessionUser } from "./authStorage";
+import { saveSessionUser } from "./authStorage";
 
 function GoogleIcon() {
   return (
@@ -98,9 +98,10 @@ function EyeOffIcon() {
 
 function Login() {
   const navigate = useNavigate();
-  const guestHint = loadGuestLoginHint();
+  const location = useLocation();
+  const guestCheckoutEmail = String(location.state?.guestCheckoutEmail ?? "").trim().toLowerCase();
   const [formData, setFormData] = useState({
-    email: guestHint?.email ?? "",
+    email: guestCheckoutEmail ?? "",
     password: "",
   });
   const [error, setError] = useState("");
@@ -127,15 +128,15 @@ function Login() {
   };
 
   useEffect(() => {
-    if (!guestHint?.email) {
+    if (!guestCheckoutEmail) {
       return;
     }
 
     setFormData((current) => ({
       ...current,
-      email: guestHint.email || current.email,
+      email: guestCheckoutEmail || current.email,
     }));
-  }, [guestHint?.email]);
+  }, [guestCheckoutEmail]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -194,7 +195,6 @@ function Login() {
         ...profile,
         must_change_password: data.session.user.user_metadata?.must_change_password ?? false,
       });
-      clearGuestLoginHint();
       navigate(
         (data.session.user.user_metadata?.must_change_password ?? profile.must_change_password)
           ? "/profile/settings"
@@ -253,7 +253,7 @@ function Login() {
             <span>Please login to your account.</span>
           </div>
 
-          {guestHint ? (
+          {guestCheckoutEmail ? (
             <div className="auth-card__notice">
               Guest checkout detected. Use the email from your payment success page. If the
               email already has an account, sign in or use Forgot Password to track your order.

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { createOrderFromCart } from "../Profile/ordersStorage";
-import { saveGuestLoginHint } from "../register/authStorage";
 import {
   defaultSiteBanner,
   normalizeSiteBanner,
@@ -1017,19 +1016,9 @@ function PaymentStatusPage({
               guestInstructions || "An account already exists for this email. Sign in or use Forgot Password to track your order.",
             );
           }
-          saveGuestLoginHint({
-            email: guestEmailFromServer,
-            name: clean(serverOrder?.customerName || activeOrder?.customerName || session?.customerName || ""),
-          });
         } else {
           setGuestCredentials(null);
           setGuestMessage(guestInstructions || result?.guestMessage || "");
-          if (serverOrder?.customerEmail || activeOrder?.customerEmail || session?.customerEmail) {
-            saveGuestLoginHint({
-              email: serverOrder?.customerEmail ?? activeOrder?.customerEmail ?? session?.customerEmail ?? "",
-              name: serverOrder?.customerName ?? activeOrder?.customerName ?? session?.customerName ?? "",
-            });
-          }
         }
 
         savePaymentSession(
@@ -1203,22 +1192,33 @@ function PaymentStatusPage({
   };
 
   const handleGuestNext = () => {
-    if (!guestCredentials) {
-      if (session?.customerEmail || activeOrder?.customerEmail) {
-        saveGuestLoginHint({
-          email: session?.customerEmail ?? activeOrder?.customerEmail ?? "",
-          name: session?.customerName ?? activeOrder?.customerName ?? "",
-        });
-      }
+    const guestEmail = clean(
+      guestCredentials?.email ||
+        session?.customerEmail ||
+        activeOrder?.customerEmail ||
+        "",
+    );
+    const guestName = clean(
+      guestCredentials?.name ||
+        session?.customerName ||
+        activeOrder?.customerName ||
+        "",
+    );
 
-      navigate("/register/login");
+    if (!guestCredentials) {
+      navigate("/register/login", {
+        state: {
+          guestCheckoutEmail: guestEmail,
+          guestCheckoutName: guestName,
+        },
+      });
       return;
     }
 
-    saveGuestLoginHint(guestCredentials);
     navigate("/register/login", {
       state: {
-        guestCheckoutEmail: guestCredentials.email,
+        guestCheckoutEmail: guestEmail,
+        guestCheckoutName: guestName,
       },
     });
   };

@@ -8689,18 +8689,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 .cart-page {
   min-height: 100vh;
   padding: 1.5rem 0 3rem;
-  background:
-    radial-gradient(
-      circle at top left,
-      rgba(37, 99, 235, 0.08),
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at top right,
-      rgba(16, 185, 129, 0.08),
-      transparent 26%
-    ),
-    linear-gradient(180deg, #f7faff 0%, #eef3fb 100%);
+  background: #ffffff;
   color: #172033;
 }
 
@@ -8770,11 +8759,12 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 }
 
 .cart-table th {
-  color: #5f6c86;
+  color: #286deb;
   font-size: 0.8rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   background: #f5f8fd;
+  font-weight: 800;
 }
 
 .cart-table td {
@@ -9061,11 +9051,11 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   margin-top: 1rem;
   border: 0;
   border-radius: 1rem;
-  background: black;
+  background: #286deb;
   color: #ffffff;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.25);
+  box-shadow: 0 16px 30px rgba(40, 109, 235, 0.22);
   transition:
     transform 0.16s ease,
     box-shadow 0.16s ease,
@@ -9074,15 +9064,47 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .cart-checkout:hover {
   transform: translateY(-1px);
-  box-shadow: 0 20px 34px rgba(15, 23, 42, 0.3);
-  filter: brightness(1.05);
+  box-shadow: 0 20px 34px rgba(40, 109, 235, 0.28);
+  filter: brightness(0.98);
+}
+
+.cart-summary__notes {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .cart-summary__note {
-  margin: 1rem 0 0;
-  color: black;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  margin: 0;
+  color: #0f172a;
   font-size: 0.85rem;
   line-height: 1.6;
+}
+
+.cart-summary__note-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  color: #286deb;
+}
+
+.cart-summary__note-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .cart-empty {
