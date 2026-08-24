@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { saveSessionUser } from "./authStorage";
+
+const VERIFICATION_CODE_LENGTH = 6;
+const VERIFICATION_RESEND_SECONDS = 60;
 
 function SparkIcon() {
   return (
@@ -53,6 +56,7 @@ function EyeOffIcon() {
 
 function Signup() {
   const navigate = useNavigate();
+  const codeInputRefs = useRef([]);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -64,6 +68,40 @@ function Signup() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState("");
+  const [verificationCode, setVerificationCode] = useState(() =>
+    Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
+  );
+  const [verificationError, setVerificationError] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
+
+  const verificationToken = useMemo(
+    () => verificationCode.join("").trim(),
+    [verificationCode],
+  );
+  const isVerificationComplete = verificationCode.every((digit) => /^\d$/.test(digit));
+
+  useEffect(() => {
+    if (!pendingVerificationEmail || resendCountdown <= 0) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setResendCountdown((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [pendingVerificationEmail, resendCountdown]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -72,6 +110,178 @@ function Signup() {
       ...current,
       [name]: value,
     }));
+  };
+
+  const focusVerificationInput = (index) => {
+    const input = codeInputRefs.current[index];
+
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  };
+
+  const resetVerificationCode = () => {
+    setVerificationCode(Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""));
+    codeInputRefs.current[0]?.focus?.();
+  };
+
+  const handleVerificationChange = (index, value) => {
+    const digits = String(value ?? "").replace(/\D/g, "");
+
+    if (!digits) {
+      setVerificationCode((current) => {
+        const next = [...current];
+        next[index] = "";
+        return next;
+      });
+      return;
+    }
+
+    setVerificationCode((current) => {
+      const next = [...current];
+      let targetIndex = index;
+
+      for (const digit of digits.slice(0, VERIFICATION_CODE_LENGTH - index)) {
+        next[targetIndex] = digit;
+        targetIndex += 1;
+      }
+
+      const nextIndex = Math.min(targetIndex, VERIFICATION_CODE_LENGTH - 1);
+      queueMicrotask(() => focusVerificationInput(nextIndex));
+
+      return next;
+    });
+  };
+
+  const handleVerificationPaste = (event) => {
+    const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, VERIFICATION_CODE_LENGTH);
+
+    if (!pasted) {
+      return;
+    }
+
+    event.preventDefault();
+
+    setVerificationCode(() => {
+      const next = Array.from({ length: VERIFICATION_CODE_LENGTH }, (_, index) => pasted[index] ?? "");
+      queueMicrotask(() => focusVerificationInput(Math.min(pasted.length, VERIFICATION_CODE_LENGTH - 1)));
+      return next;
+    });
+  };
+
+  const handleVerificationKeyDown = (index, event) => {
+    if (event.key === "Backspace" && !verificationCode[index] && index > 0) {
+      event.preventDefault();
+      focusVerificationInput(index - 1);
+      setVerificationCode((current) => {
+        const next = [...current];
+        next[index - 1] = "";
+        return next;
+      });
+    }
+
+    if (event.key === "ArrowLeft" && index > 0) {
+      event.preventDefault();
+      focusVerificationInput(index - 1);
+    }
+
+    if (event.key === "ArrowRight" && index < VERIFICATION_CODE_LENGTH - 1) {
+      event.preventDefault();
+      focusVerificationInput(index + 1);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (!pendingVerificationEmail) {
+      return;
+    }
+
+    setVerificationError("");
+    setVerificationMessage("");
+    setIsResending(true);
+
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: "signup",
+        email: pendingVerificationEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/register/signup`,
+        },
+      });
+
+      if (resendError) {
+        throw resendError;
+      }
+
+      setResendCountdown(VERIFICATION_RESEND_SECONDS);
+      setVerificationMessage("We sent a fresh verification code to your email.");
+      resetVerificationCode();
+    } catch (resendErr) {
+      setVerificationError(resendErr.message || "Unable to resend the verification code right now.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const handleVerifyCode = async (event) => {
+    event.preventDefault();
+
+    if (!pendingVerificationEmail) {
+      setVerificationError("Please complete signup first.");
+      return;
+    }
+
+    if (!isVerificationComplete) {
+      setVerificationError("Enter the verification code from your email.");
+      return;
+    }
+
+    setIsVerifying(true);
+    setVerificationError("");
+    setVerificationMessage("");
+
+    try {
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        email: pendingVerificationEmail,
+        token: verificationToken,
+        type: "email",
+      });
+
+      if (verifyError) {
+        throw verifyError;
+      }
+
+      if (!data?.session?.user?.id) {
+        throw new Error("We could not verify your account yet. Please try again.");
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select(
+          "id, full_name, email, phone_number, photo_url, date_of_birth, gender, role, account_type, status, created_at, updated_at",
+        )
+        .eq("id", data.session.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      if (!profile) {
+        throw new Error("Your profile could not be loaded after verification.");
+      }
+
+      saveSessionUser(profile);
+      setPendingVerificationEmail("");
+      setVerificationCode(Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""));
+      setResendCountdown(0);
+      navigate("/profile/dashboard", { replace: true });
+    } catch (verifyErr) {
+      setVerificationError(verifyErr.message || "Unable to verify your account right now.");
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -112,7 +322,10 @@ function Signup() {
       }
 
       if (!data?.session) {
-        setNotice("Check your email to confirm your account.");
+        setPendingVerificationEmail(cleanEmail.toLowerCase());
+        setVerificationCode(Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""));
+        setResendCountdown(VERIFICATION_RESEND_SECONDS);
+        setNotice("We sent a verification code to your email. Enter it below to activate your account.");
         return;
       }
 
@@ -259,6 +472,81 @@ function Signup() {
               {isSubmitting ? "Creating account..." : "Create account"}
             </button>
           </form>
+
+          {pendingVerificationEmail ? (
+            <div className="auth-verification" role="dialog" aria-modal="true" aria-labelledby="signup-verification-title">
+              <div className="auth-verification__backdrop" aria-hidden="true" />
+              <div className="auth-verification__panel">
+                <p className="auth-verification__eyebrow">Email verification</p>
+                <h3 id="signup-verification-title">Enter the code we emailed you</h3>
+                <p className="auth-verification__lead">
+                  We sent a verification code to <strong>{pendingVerificationEmail}</strong>. Enter the
+                  code below to confirm your account and continue.
+                </p>
+
+                <form className="auth-verification__form" onSubmit={handleVerifyCode}>
+                  <div className="auth-verification__code" aria-label="Verification code">
+                    {verificationCode.map((digit, index) => (
+                      <input
+                        key={`verification-digit-${index}`}
+                        ref={(node) => {
+                          codeInputRefs.current[index] = node;
+                        }}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(event) => handleVerificationChange(index, event.target.value)}
+                        onPaste={index === 0 ? handleVerificationPaste : undefined}
+                        onKeyDown={(event) => handleVerificationKeyDown(index, event)}
+                        aria-label={`Verification code digit ${index + 1}`}
+                        disabled={isVerifying || isResending}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="auth-verification__meta">
+                    <span>
+                      {resendCountdown > 0
+                        ? `Code expires soon. Resend available in ${Math.floor(resendCountdown / 60)}:${String(
+                            resendCountdown % 60,
+                          ).padStart(2, "0")}.`
+                        : "If the code expires, request a new one."}
+                    </span>
+                  </div>
+
+                  {verificationError ? <p className="auth-form__error">{verificationError}</p> : null}
+                  {verificationMessage ? <div className="auth-card__notice">{verificationMessage}</div> : null}
+
+                  <div className="auth-verification__actions">
+                    <button
+                      type="submit"
+                      className="auth-form__button"
+                      disabled={isVerifying || isResending || !isVerificationComplete}
+                    >
+                      {isVerifying ? "Verifying..." : "Verify code"}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="auth-verification__resend"
+                      onClick={handleResendCode}
+                      disabled={isVerifying || isResending || resendCountdown > 0}
+                    >
+                      {isResending
+                        ? "Resending..."
+                        : resendCountdown > 0
+                          ? `Resend in ${Math.floor(resendCountdown / 60)}:${String(
+                              resendCountdown % 60,
+                            ).padStart(2, "0")}`
+                          : "Resend code"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          ) : null}
 
           <p className="auth-switch">
             Already have an account? <Link to="/register/login">Login</Link>
