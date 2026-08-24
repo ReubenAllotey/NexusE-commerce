@@ -97,7 +97,9 @@ function CategoriesIcon() {
 function MoreIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M6 12h.01M12 12h.01M18 12h.01" />
+      <rect x="7.2" y="3.8" width="9.6" height="16.4" rx="2.2" />
+      <path d="M10 6.2h4" />
+      <path d="M12 17.1h.01" />
     </svg>
   );
 }
