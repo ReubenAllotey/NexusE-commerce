@@ -9131,7 +9131,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   justify-content: center;
   padding: 0 1.2rem;
   border-radius: 0.85rem;
-  background: black;
+  background: #286deb;
   color: #ffffff;
   font-weight: 800;
 }
@@ -9139,18 +9139,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 .shipping-page {
   min-height: 100vh;
   padding: 1.5rem 0 3rem;
-  background:
-    radial-gradient(
-      circle at top left,
-      rgba(37, 99, 235, 0.08),
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at top right,
-      rgba(16, 185, 129, 0.08),
-      transparent 26%
-    ),
-    linear-gradient(180deg, #f7faff 0%, #eef3fb 100%);
+  background: #ffffff;
   color: #172033;
 }
 
@@ -9221,7 +9210,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .shipping-panel__eyebrow {
   margin: 0;
-  color: #db4444;
+  color: #286deb;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.18em;
@@ -9238,7 +9227,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 .shipping-panel__link {
   border: 0;
   background: transparent;
-  color: #2563eb;
+  color: #286deb;
   font-weight: 800;
   cursor: pointer;
 }
@@ -9341,11 +9330,11 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   padding: 0 1.25rem;
   border: 0;
   border-radius: 1rem;
-  background: #111111;
+  background: #286deb;
   color: #ffffff;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.25);
+  box-shadow: 0 16px 30px rgba(40, 109, 235, 0.22);
   transition:
     transform 0.16s ease,
     box-shadow 0.16s ease,
@@ -9354,8 +9343,13 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .shipping-footer__button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 20px 34px rgba(15, 23, 42, 0.3);
-  filter: brightness(1.05);
+  box-shadow: 0 20px 34px rgba(40, 109, 235, 0.28);
+  filter: brightness(0.98);
+}
+
+.shipping-required {
+  color: #ef4444;
+  font-weight: 800;
 }
 
 .shipping-empty {
@@ -16437,7 +16431,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 }
 
 .payment-breadcrumb a {
-  color: #d64545;
+  color: #286deb;
 }
 
 .payment-header,
@@ -16451,7 +16445,15 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   border-bottom: 1px solid rgba(16, 32, 27, 0.08);
 }
 
-.payment-header p,
+.payment-header p {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #286deb;
+}
+
 .receipt-header p {
   margin: 0 0 0.35rem;
   text-transform: uppercase;
@@ -16521,7 +16523,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   letter-spacing: 0.2em;
   font-size: 0.74rem;
   font-weight: 800;
-  color: #d64545;
+  color: #286deb;
 }
 
 .payment-panel__header h2 {
@@ -16532,8 +16534,8 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 .payment-panel__secure {
   padding: 0.6rem 0.8rem;
   border-radius: 999px;
-  background: rgba(214, 69, 69, 0.12);
-  color: #111111;
+  background: rgba(40, 109, 235, 0.12);
+  color: #286deb;
   font-size: 0.88rem;
   font-weight: 700;
 }
@@ -16571,8 +16573,8 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 }
 
 .payment-method-card.is-selected {
-  border-color: #d64545;
-  box-shadow: 0 18px 30px rgba(214, 69, 69, 0.12);
+  border-color: #286deb;
+  box-shadow: 0 18px 30px rgba(40, 109, 235, 0.12);
 }
 
 .payment-method-card__top {
@@ -16604,7 +16606,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 }
 
 .payment-method-card.is-selected .payment-method-card__radio {
-  border-color: #d64545;
+  border-color: #286deb;
 }
 
 .payment-method-card.is-selected .payment-method-card__radio::after {
@@ -16612,7 +16614,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   position: absolute;
   inset: 0.2rem;
   border-radius: inherit;
-  background: #d64545;
+  background: #286deb;
 }
 
 .payment-method-card__list {
@@ -16671,8 +16673,8 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .payment-field input:focus,
 .payment-field select:focus {
-  border-color: #d64545;
-  box-shadow: 0 0 0 3px rgba(214, 69, 69, 0.12);
+  border-color: #286deb;
+  box-shadow: 0 0 0 3px rgba(40, 109, 235, 0.12);
   outline: none;
 }
 
@@ -16682,7 +16684,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   gap: 0.7rem;
   padding: 0.95rem 1rem;
   border-radius: 1rem;
-  background: rgba(214, 69, 69, 0.08);
+  background: rgba(40, 109, 235, 0.08);
   color: #22322d;
 }
 
@@ -16714,8 +16716,8 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   min-height: 3.35rem;
   padding: 0.95rem 1.25rem;
   color: #ffffff;
-  background: #000000;
-  box-shadow: 0 18px 28px rgba(0, 0, 0, 0.22);
+  background: #286deb;
+  box-shadow: 0 18px 28px rgba(40, 109, 235, 0.22);
 }
 
 .payment-submit:disabled {
@@ -16763,7 +16765,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.2em;
-  color: #d64545;
+  color: #286deb;
   font-weight: 800;
 }
 
@@ -16875,7 +16877,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .payment-status-card__eyebrow {
   margin: 0;
-  color: #d64545;
+  color: #286deb;
   font-size: 0.82rem;
   font-weight: 800;
   letter-spacing: 0.24em;
@@ -16911,7 +16913,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .payment-guest-card__eyebrow {
   margin: 0;
-  color: #d64545;
+  color: #286deb;
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.22em;

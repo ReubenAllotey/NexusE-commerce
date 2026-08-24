@@ -397,7 +397,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     ) : null}
 
                     <div className="address-card__contact">
-                      <span>Phone:</span>
+                      <span>WhatsApp Number:</span>
                       <strong>{selectedAddress.phoneNumber}</strong>
                     </div>
 
@@ -416,7 +416,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
 
                     {selectedAddress.postalCode ? (
                       <p className="address-card__line address-card__line--muted">
-                        Postal Code: {selectedAddress.postalCode}
+                        GPS Code: {selectedAddress.postalCode}
                       </p>
                     ) : null}
 
@@ -438,7 +438,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
 
                   <div className="address-modal__grid shipping-form__grid">
                     <label className="address-modal__field address-modal__field--full">
-                      <span>Full Name</span>
+                      <span>Full Name <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         type="text"
                         name="fullName"
@@ -450,7 +450,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field">
-                      <span>Phone Number</span>
+                      <span>WhatsApp Number <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         type="tel"
                         name="phoneNumber"
@@ -462,7 +462,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field">
-                      <span>Email Address</span>
+                      <span>Email Address <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         type="email"
                         name="emailAddress"
@@ -474,7 +474,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field">
-                      <span>Country</span>
+                      <span>Country <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         type="text"
                         name="country"
@@ -486,7 +486,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field">
-                      <span>Region</span>
+                      <span>Region <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         type="text"
                         name="region"
@@ -498,7 +498,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field">
-                      <span>City</span>
+                      <span>City <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         type="text"
                         name="city"
@@ -510,7 +510,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field address-modal__field--full">
-                      <span>Street Address</span>
+                      <span>Street Address <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         type="text"
                         name="streetAddress"
@@ -543,7 +543,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field">
-                      <span>Postal Code</span>
+                      <span>GPS Code</span>
                       <input
                         type="text"
                         name="postalCode"
