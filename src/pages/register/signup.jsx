@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { saveSessionUser } from "./authStorage";
 
-const VERIFICATION_CODE_LENGTH = 6;
+const VERIFICATION_CODE_LENGTH = 8;
 const VERIFICATION_RESEND_SECONDS = 60;
 
 function SparkIcon() {
@@ -82,7 +82,9 @@ function Signup() {
     () => verificationCode.join("").trim(),
     [verificationCode],
   );
-  const isVerificationComplete = verificationCode.every((digit) => /^\d$/.test(digit));
+  const isVerificationComplete = verificationCode.every((digit) =>
+    /^\d$/.test(digit),
+  );
 
   useEffect(() => {
     if (!pendingVerificationEmail || resendCountdown <= 0) {
@@ -122,7 +124,9 @@ function Signup() {
   };
 
   const resetVerificationCode = () => {
-    setVerificationCode(Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""));
+    setVerificationCode(
+      Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
+    );
     codeInputRefs.current[0]?.focus?.();
   };
 
@@ -155,7 +159,10 @@ function Signup() {
   };
 
   const handleVerificationPaste = (event) => {
-    const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, VERIFICATION_CODE_LENGTH);
+    const pasted = event.clipboardData
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, VERIFICATION_CODE_LENGTH);
 
     if (!pasted) {
       return;
@@ -164,8 +171,15 @@ function Signup() {
     event.preventDefault();
 
     setVerificationCode(() => {
-      const next = Array.from({ length: VERIFICATION_CODE_LENGTH }, (_, index) => pasted[index] ?? "");
-      queueMicrotask(() => focusVerificationInput(Math.min(pasted.length, VERIFICATION_CODE_LENGTH - 1)));
+      const next = Array.from(
+        { length: VERIFICATION_CODE_LENGTH },
+        (_, index) => pasted[index] ?? "",
+      );
+      queueMicrotask(() =>
+        focusVerificationInput(
+          Math.min(pasted.length, VERIFICATION_CODE_LENGTH - 1),
+        ),
+      );
       return next;
     });
   };
@@ -215,10 +229,15 @@ function Signup() {
       }
 
       setResendCountdown(VERIFICATION_RESEND_SECONDS);
-      setVerificationMessage("We sent a fresh verification code to your email.");
+      setVerificationMessage(
+        "We sent a fresh verification code to your email.",
+      );
       resetVerificationCode();
     } catch (resendErr) {
-      setVerificationError(resendErr.message || "Unable to resend the verification code right now.");
+      setVerificationError(
+        resendErr.message ||
+          "Unable to resend the verification code right now.",
+      );
     } finally {
       setIsResending(false);
     }
@@ -253,7 +272,9 @@ function Signup() {
       }
 
       if (!data?.session?.user?.id) {
-        throw new Error("We could not verify your account yet. Please try again.");
+        throw new Error(
+          "We could not verify your account yet. Please try again.",
+        );
       }
 
       const { data: profile, error: profileError } = await supabase
@@ -274,11 +295,15 @@ function Signup() {
 
       saveSessionUser(profile);
       setPendingVerificationEmail("");
-      setVerificationCode(Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""));
+      setVerificationCode(
+        Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
+      );
       setResendCountdown(0);
       navigate("/profile/dashboard", { replace: true });
     } catch (verifyErr) {
-      setVerificationError(verifyErr.message || "Unable to verify your account right now.");
+      setVerificationError(
+        verifyErr.message || "Unable to verify your account right now.",
+      );
     } finally {
       setIsVerifying(false);
     }
@@ -323,9 +348,13 @@ function Signup() {
 
       if (!data?.session) {
         setPendingVerificationEmail(cleanEmail.toLowerCase());
-        setVerificationCode(Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""));
+        setVerificationCode(
+          Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
+        );
         setResendCountdown(VERIFICATION_RESEND_SECONDS);
-        setNotice("We sent a verification code to your email. Enter it below to activate your account.");
+        setNotice(
+          "We sent a verification code to your email. Enter it below to activate your account.",
+        );
         return;
       }
 
@@ -360,9 +389,12 @@ function Signup() {
         <aside className="auth-panel auth-panel--visual">
           <div className="auth-visual__text">
             <p className="auth-visual__eyebrow">Nexus Import Hub</p>
-            <h2 className="auth-visual__title">Create your Nexus account with confidence.</h2>
+            <h2 className="auth-visual__title">
+              Create your Nexus account with confidence.
+            </h2>
             <p className="auth-visual__lead">
-              Keep your details saved, shop faster, and track every shipment from one account.
+              Keep your details saved, shop faster, and track every shipment
+              from one account.
             </p>
 
             <ul className="auth-visual__points" aria-label="Benefits">
@@ -386,7 +418,6 @@ function Signup() {
               </li>
             </ul>
           </div>
-
         </aside>
 
         <section className="auth-panel auth-panel--form">
@@ -395,7 +426,10 @@ function Signup() {
               <strong>Nexus Imports</strong>
             </div>
             <h2>Create Your Account</h2>
-            <span>Join Nexus to shop faster, track orders, and manage checkout with ease.</span>
+            <span>
+              Join Nexus to shop faster, track orders, and manage checkout with
+              ease.
+            </span>
           </div>
 
           {notice ? <div className="auth-card__notice">{notice}</div> : null}
@@ -459,7 +493,11 @@ function Signup() {
                   type="button"
                   className="auth-password__toggle"
                   onClick={() => setShowConfirmPassword((current) => !current)}
-                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                  aria-label={
+                    showConfirmPassword
+                      ? "Hide confirm password"
+                      : "Show confirm password"
+                  }
                 >
                   {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
@@ -468,24 +506,42 @@ function Signup() {
 
             {error ? <p className="auth-form__error">{error}</p> : null}
 
-            <button type="submit" className="auth-form__button" disabled={isSubmitting}>
+            <button
+              type="submit"
+              className="auth-form__button"
+              disabled={isSubmitting}
+            >
               {isSubmitting ? "Creating account..." : "Create account"}
             </button>
           </form>
 
           {pendingVerificationEmail ? (
-            <div className="auth-verification" role="dialog" aria-modal="true" aria-labelledby="signup-verification-title">
+            <div
+              className="auth-verification"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="signup-verification-title"
+            >
               <div className="auth-verification__backdrop" aria-hidden="true" />
               <div className="auth-verification__panel">
                 <p className="auth-verification__eyebrow">Email verification</p>
-                <h3 id="signup-verification-title">Enter the code we emailed you</h3>
+                <h3 id="signup-verification-title">
+                  Enter the code we emailed you
+                </h3>
                 <p className="auth-verification__lead">
-                  We sent a verification code to <strong>{pendingVerificationEmail}</strong>. Enter the
-                  code below to confirm your account and continue.
+                  We sent a verification code to{" "}
+                  <strong>{pendingVerificationEmail}</strong>. Enter the code
+                  below to confirm your account and continue.
                 </p>
 
-                <form className="auth-verification__form" onSubmit={handleVerifyCode}>
-                  <div className="auth-verification__code" aria-label="Verification code">
+                <form
+                  className="auth-verification__form"
+                  onSubmit={handleVerifyCode}
+                >
+                  <div
+                    className="auth-verification__code"
+                    aria-label="Verification code"
+                  >
                     {verificationCode.map((digit, index) => (
                       <input
                         key={`verification-digit-${index}`}
@@ -497,9 +553,15 @@ function Signup() {
                         pattern="[0-9]*"
                         maxLength={1}
                         value={digit}
-                        onChange={(event) => handleVerificationChange(index, event.target.value)}
-                        onPaste={index === 0 ? handleVerificationPaste : undefined}
-                        onKeyDown={(event) => handleVerificationKeyDown(index, event)}
+                        onChange={(event) =>
+                          handleVerificationChange(index, event.target.value)
+                        }
+                        onPaste={
+                          index === 0 ? handleVerificationPaste : undefined
+                        }
+                        onKeyDown={(event) =>
+                          handleVerificationKeyDown(index, event)
+                        }
                         aria-label={`Verification code digit ${index + 1}`}
                         disabled={isVerifying || isResending}
                       />
@@ -516,14 +578,22 @@ function Signup() {
                     </span>
                   </div>
 
-                  {verificationError ? <p className="auth-form__error">{verificationError}</p> : null}
-                  {verificationMessage ? <div className="auth-card__notice">{verificationMessage}</div> : null}
+                  {verificationError ? (
+                    <p className="auth-form__error">{verificationError}</p>
+                  ) : null}
+                  {verificationMessage ? (
+                    <div className="auth-card__notice">
+                      {verificationMessage}
+                    </div>
+                  ) : null}
 
                   <div className="auth-verification__actions">
                     <button
                       type="submit"
                       className="auth-form__button"
-                      disabled={isVerifying || isResending || !isVerificationComplete}
+                      disabled={
+                        isVerifying || isResending || !isVerificationComplete
+                      }
                     >
                       {isVerifying ? "Verifying..." : "Verify code"}
                     </button>
@@ -532,7 +602,9 @@ function Signup() {
                       type="button"
                       className="auth-verification__resend"
                       onClick={handleResendCode}
-                      disabled={isVerifying || isResending || resendCountdown > 0}
+                      disabled={
+                        isVerifying || isResending || resendCountdown > 0
+                      }
                     >
                       {isResending
                         ? "Resending..."
