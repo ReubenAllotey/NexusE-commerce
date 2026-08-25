@@ -22923,6 +22923,16 @@ body[data-theme="dark"] .nexus-mobile-nav__item:focus-visible {
 
   .auth-page .auth-verification__actions {
     flex-direction: column;
+    gap: 0.55rem;
+    align-items: stretch;
+  }
+
+  .auth-page .auth-verification__actions .auth-form__button,
+  .auth-page .auth-verification__resend {
+    min-height: 2.7rem;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.88rem;
+    border-radius: 0.85rem;
   }
 }
 
