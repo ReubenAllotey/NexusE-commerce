@@ -22790,7 +22790,7 @@ body[data-theme="dark"] .nexus-mobile-nav__item:focus-visible {
 
 .auth-page .auth-verification__code {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
@@ -22913,12 +22913,13 @@ body[data-theme="dark"] .nexus-mobile-nav__item:focus-visible {
   }
 
   .auth-page .auth-verification__code {
-    gap: 0.42rem;
+    gap: 0.32rem;
   }
 
   .auth-page .auth-verification__code input {
-    font-size: 1rem;
-    border-radius: 0.85rem;
+    min-height: 2.5rem;
+    font-size: 0.96rem;
+    border-radius: 0.78rem;
   }
 
   .auth-page .auth-verification__actions {
