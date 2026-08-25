@@ -6604,19 +6604,19 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 }
 
 .profile-sidebar__link:hover {
-  background: rgba(219, 68, 68, 0.08);
-  color: #db4444;
+  background: rgba(40, 109, 235, 0.08);
+  color: #286deb;
   transform: translateX(2px);
 }
 
 .profile-sidebar__link.is-active {
-  background: rgba(219, 68, 68, 0.12);
-  color: #db4444;
-  box-shadow: inset 0 0 0 1px rgba(219, 68, 68, 0.18);
+  background: rgba(40, 109, 235, 0.12);
+  color: #286deb;
+  box-shadow: inset 0 0 0 1px rgba(40, 109, 235, 0.18);
 }
 
 .profile-sidebar__link.is-active:hover {
-  color: #db4444;
+  color: #286deb;
 }
 
 .profile-content {
@@ -6633,7 +6633,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .profile-section__eyebrow {
   margin: 0;
-  color: #db4444;
+  color: #286deb;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.2em;
@@ -6681,7 +6681,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  color: #db4444;
+  color: #286deb;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.16em;
@@ -7496,7 +7496,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .wishlist-page__eyebrow {
   margin: 0;
-  color: #db4444;
+  color: #286deb;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.18em;
@@ -17257,7 +17257,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .account-settings-header__eyebrow {
   margin: 0;
-  color: #db4444;
+  color: #286deb;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.18em;
@@ -18135,9 +18135,9 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .profile-mobile-menu__link.is-active,
 .admin-mobile-menu__link.is-active {
-  border-color: rgba(219, 68, 68, 0.22);
-  background: rgba(219, 68, 68, 0.08);
-  color: #db4444;
+  border-color: rgba(40, 109, 235, 0.22);
+  background: rgba(40, 109, 235, 0.08);
+  color: #286deb;
 }
 
 @media (max-width: 768px) {
