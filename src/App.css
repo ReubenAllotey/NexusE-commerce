@@ -24449,6 +24449,188 @@ body[data-theme="dark"] .auth-page .auth-verification__resend {
   color: var(--nexus-text);
 }
 
+body[data-theme="dark"] .profile-page {
+  background: #0b1220;
+  background-color: #0b1220;
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .profile-hero,
+body[data-theme="dark"] .profile-sidebar,
+body[data-theme="dark"] .profile-section,
+body[data-theme="dark"] .dashboard-stat,
+body[data-theme="dark"] .dashboard-panel,
+body[data-theme="dark"] .dashboard-empty,
+body[data-theme="dark"] .dashboard-list,
+body[data-theme="dark"] .dashboard-orders,
+body[data-theme="dark"] .dashboard-action,
+body[data-theme="dark"] .profile-mobile-menu__link,
+body[data-theme="dark"] .profile-mobile-menu__logout {
+  background: var(--nexus-surface);
+  border-color: var(--nexus-border);
+  color: var(--nexus-text);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.26);
+}
+
+body[data-theme="dark"] .profile-hero strong,
+body[data-theme="dark"] .profile-section__title,
+body[data-theme="dark"] .profile-sidebar__header h2,
+body[data-theme="dark"] .dashboard-panel__header h2,
+body[data-theme="dark"] .dashboard-stat strong,
+body[data-theme="dark"] .dashboard-empty p,
+body[data-theme="dark"] .dashboard-list strong,
+body[data-theme="dark"] .dashboard-orders strong {
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .profile-hero p,
+body[data-theme="dark"] .profile-section__eyebrow,
+body[data-theme="dark"] .profile-sidebar__header p,
+body[data-theme="dark"] .dashboard-panel__header a,
+body[data-theme="dark"] .dashboard-stat span,
+body[data-theme="dark"] .dashboard-stat small,
+body[data-theme="dark"] .profile-section__description,
+body[data-theme="dark"] .addresses-summary__note,
+body[data-theme="dark"] .orders-summary__note,
+body[data-theme="dark"] .dashboard-empty span,
+body[data-theme="dark"] .dashboard-list span,
+body[data-theme="dark"] .dashboard-orders span {
+  color: var(--nexus-text-secondary);
+}
+
+body[data-theme="dark"] .profile-hero {
+  background: #111827;
+  border-color: var(--nexus-border);
+}
+
+body[data-theme="dark"] .profile-hero p,
+body[data-theme="dark"] .profile-section__eyebrow,
+body[data-theme="dark"] .profile-sidebar__header p,
+body[data-theme="dark"] .addresses-summary__label,
+body[data-theme="dark"] .addresses-panel__eyebrow,
+body[data-theme="dark"] .address-card__badge,
+body[data-theme="dark"] .address-card__default-note {
+  color: #8ab4ff;
+}
+
+body[data-theme="dark"] .profile-sidebar {
+  background: #111827;
+}
+
+body[data-theme="dark"] .profile-sidebar__nav {
+  gap: 0.45rem;
+}
+
+body[data-theme="dark"] .profile-sidebar__link {
+  background: transparent;
+  color: var(--nexus-text-secondary);
+}
+
+body[data-theme="dark"] .profile-sidebar__link:hover {
+  background: #182235;
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .profile-sidebar__link.is-active {
+  background: rgba(28, 63, 183, 0.18);
+  color: #dbeafe;
+  box-shadow: inset 0 0 0 1px rgba(138, 180, 255, 0.18);
+}
+
+body[data-theme="dark"] .profile-section {
+  background: #111827;
+}
+
+body[data-theme="dark"] .dashboard-stats {
+  gap: 0.9rem;
+}
+
+body[data-theme="dark"] .dashboard-stat {
+  background: #111827;
+  border: 1px solid var(--nexus-border);
+}
+
+body[data-theme="dark"] .dashboard-stat:hover {
+  background: #182235;
+}
+
+body[data-theme="dark"] .dashboard-panel {
+  background: #111827;
+  border: 1px solid var(--nexus-border);
+}
+
+body[data-theme="dark"] .dashboard-panel__header {
+  border-color: var(--nexus-border);
+}
+
+body[data-theme="dark"] .dashboard-panel__header a {
+  color: #8ab4ff;
+}
+
+body[data-theme="dark"] .dashboard-panel__header a:hover {
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .dashboard-empty {
+  background: #182235;
+  border: 1px dashed rgba(138, 180, 255, 0.18);
+}
+
+body[data-theme="dark"] .dashboard-empty p,
+body[data-theme="dark"] .dashboard-empty span {
+  color: var(--nexus-text-secondary);
+}
+
+body[data-theme="dark"] .dashboard-list li,
+body[data-theme="dark"] .dashboard-orders li {
+  background: #182235;
+  border-color: var(--nexus-border);
+}
+
+body[data-theme="dark"] .dashboard-actions {
+  gap: 0.8rem;
+}
+
+body[data-theme="dark"] .dashboard-action {
+  background: #182235;
+  border: 1px solid var(--nexus-border);
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .dashboard-action:hover {
+  background: #202b3d;
+  border-color: rgba(138, 180, 255, 0.28);
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .profile-menu-button {
+  background: #111827;
+  border-color: var(--nexus-border);
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .profile-menu-button:hover {
+  background: #182235;
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .profile-mobile-menu__link {
+  background: transparent;
+  color: var(--nexus-text-secondary);
+}
+
+body[data-theme="dark"] .profile-mobile-menu__link:hover,
+body[data-theme="dark"] .profile-mobile-menu__link.is-active {
+  background: #182235;
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .profile-mobile-menu__logout {
+  background: #182235;
+  border: 1px solid var(--nexus-border);
+  color: var(--nexus-text);
+}
+
 body[data-theme="dark"] .address-modal__field span {
   color: var(--nexus-text);
 }
