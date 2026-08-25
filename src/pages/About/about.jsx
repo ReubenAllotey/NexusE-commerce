@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import logoImage from "../../assets/images/nexuslogo.png";
 import manImage from "../../assets/images/man.jpg";
 import womanImage from "../../assets/images/Woman.jpg";
+import SiteFooter from "../../shared/SiteFooter";
 
 function ArrowIcon() {
   return (
@@ -151,75 +152,7 @@ function About() {
         </div>
       </section>
 
-      <footer className="site-footer" id="footer">
-        <div className="site-shell site-footer__inner">
-          <div className="site-footer__brand">
-            <div className="site-footer__brand-row">
-              <img
-                src={logoImage}
-                alt="Nexus logo "
-                className="site-footer__logo"
-              />
-              <div>
-                <h3>Nexus Imports </h3>
-                <p>Subscribe</p>
-              </div>
-            </div>
-            <span>Get 10% off your first order</span>
-
-            <form
-              className="site-footer__form"
-              onSubmit={(event) => event.preventDefault()}
-            >
-              <input
-                type="email"
-                placeholder="Enter your email"
-                aria-label="Email address"
-              />
-              <button type="submit" aria-label="Subscribe">
-                &rarr;
-              </button>
-            </form>
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Support</h3>
-            <span>Accra-Ghana</span>
-            <span>nexusimport@gmail.com</span>
-            <span>+233 53-404-8292</span>
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Account</h3>
-            <Link to="/profile/dashboard">My Account</Link>
-            <Link to="/register/login">Login</Link>
-            <Link to="/register/signup">Register</Link>
-            <Link to="/cart">Cart</Link>
-            <Link to="/wishlist">Wishlist</Link>
-            <Link to="/products">Shop</Link>
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Quick Link</h3>
-            <Link to="/about">About</Link>
-            <Link to="/contact">Contact</Link>
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Connect</h3>
-            <div className="site-footer__socials" aria-label="Social links">
-              <span>f</span>
-              <span>t</span>
-              <span>i</span>
-              <span>in</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="site-shell site-footer__bottom">
-          <p>Copyright @ Nexus 2026</p>
-        </div>
-      </footer>
+      <SiteFooter logoSrc={logoImage} logoAlt="Nexus logo" />
     </main>
   );
 }

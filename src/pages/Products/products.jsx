@@ -11,6 +11,7 @@ import {
 import NexusProductCard from "./ProductCard";
 import logo from "../../assets/images/nexuslogo.png";
 import { getDiscoverCategoryCards } from "../../shared/categoryStorage";
+import SiteFooter from "../../shared/SiteFooter";
 
 const ITEMS_PER_PAGE = 24;
 
@@ -49,22 +50,6 @@ const sortOptions = [
   { value: "rating-desc", label: "Top Rated" },
   { value: "name-asc", label: "Name: A to Z" },
 ];
-
-const footerLinks = {
-  support: ["Accra-Ghana", "nexusimport@gmail.com", "+233 53-404-8292"],
-  account: [
-    { label: "My Account", to: "/profile/dashboard" },
-    { label: "Login", to: "/register/login" },
-    { label: "Register", to: "/register/signup" },
-    { label: "Cart", to: "/cart" },
-    { label: "Wishlist", to: "/wishlist" },
-    { label: "Shop", to: "/products" },
-  ],
-  quickLink: [
-    { label: "About", to: "/about" },
-    { label: "Contact", to: "/contact" },
-  ],
-};
 
 function SearchIcon() {
   return (
@@ -701,73 +686,7 @@ function Products({
         </div>
       </div>
 
-      <footer className="site-footer" id="footer">
-        <div className="site-shell site-footer__inner">
-          <div className="site-footer__brand">
-            <div className="site-footer__brand-row">
-              <img src={logo} alt="Nexus logo " className="site-footer__logo" />
-              <div>
-                <h3>Nexus Imports </h3>
-                <p>Subscribe</p>
-              </div>
-            </div>
-            <span>Get 10% off your first order</span>
-
-            <form
-              className="site-footer__form"
-              onSubmit={(event) => event.preventDefault()}
-            >
-              <input
-                type="email"
-                placeholder="Enter your email"
-                aria-label="Email address"
-              />
-              <button type="submit" aria-label="Subscribe">
-                &rarr;
-              </button>
-            </form>
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Support</h3>
-            {footerLinks.support.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Account</h3>
-            {footerLinks.account.map((item) => (
-              <Link to={item.to} key={item.label}>
-                {item.label}
-              </Link>
-            ))}
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Quick Link</h3>
-            {footerLinks.quickLink.map((item) => (
-              <Link to={item.to} key={item.label}>
-                {item.label}
-              </Link>
-            ))}
-          </div>
-
-          <div className="site-footer__column">
-            <h3>Connect</h3>
-            <div className="site-footer__socials" aria-label="Social links">
-              <span>f</span>
-              <span>t</span>
-              <span>i</span>
-              <span>in</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="site-shell site-footer__bottom">
-          <p>Copyright @ Nexus 2026</p>
-        </div>
-      </footer>
+      <SiteFooter logoSrc={logo} logoAlt="Nexus logo" />
     </main>
   );
 }
