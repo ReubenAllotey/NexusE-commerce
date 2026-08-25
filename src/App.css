@@ -6568,7 +6568,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .profile-sidebar__header p {
   margin: 0;
-  color: #db4444;
+  color: #286deb;
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.18em;
@@ -7092,7 +7092,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 .orders-card__meta span,
 .orders-card__totals span {
   display: block;
-  color: #64748b;
+  color: #286deb;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.16em;
@@ -17322,7 +17322,7 @@ body[data-theme="dark"] .site-nav__menu-copy span {
 
 .account-settings-panel__header p {
   margin: 0;
-  color: #db4444;
+  color: #286deb;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.16em;
