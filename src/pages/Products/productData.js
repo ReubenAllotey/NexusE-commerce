@@ -1380,6 +1380,16 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
   }
 
   const categoryId = cleanText(values.categoryId ?? values.category ?? existing?.category_id ?? existing?.categoryId);
+  const availabilityType = normalizeAvailabilityType(
+    values.availabilityType ?? values.availability_type ?? existing?.availability_type ?? DEFAULT_AVAILABILITY_TYPE,
+  );
+  const isPreorder = availabilityType === "preorder";
+  const estimatedArrival = isPreorder
+    ? normalizeOptionalText(values.estimatedArrival ?? values.estimated_arrival ?? existing?.estimated_arrival)
+    : null;
+  const preorderTerms = isPreorder
+    ? normalizeOptionalText(values.preorderTerms ?? values.preorder_terms ?? existing?.preorder_terms)
+    : null;
   const legacyFields = existing
     ? {
         brand: existing.brand || null,
@@ -1387,20 +1397,6 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
         series: existing.series || null,
         rating: existing.rating,
         review_count: existing.review_count,
-        availability_type:
-          normalizeAvailabilityType(values.availabilityType ?? values.availability_type ?? existing?.availability_type),
-        estimated_arrival:
-          normalizeAvailabilityType(
-            values.availabilityType ?? values.availability_type ?? existing?.availability_type,
-          ) === "preorder"
-            ? normalizeOptionalText(values.estimatedArrival ?? values.estimated_arrival ?? existing?.estimated_arrival)
-            : null,
-        preorder_terms:
-          normalizeAvailabilityType(
-            values.availabilityType ?? values.availability_type ?? existing?.availability_type,
-          ) === "preorder"
-            ? normalizeOptionalText(values.preorderTerms ?? values.preorder_terms ?? existing?.preorder_terms)
-            : null,
       }
     : {};
 
@@ -1430,6 +1426,12 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
         values.subcategoryLabel === "" || values.subcategoryLabel == null
           ? null
           : cleanText(values.subcategoryLabel),
+      availability_type: availabilityType,
+      availabilityType,
+      estimated_arrival: estimatedArrival,
+      estimatedArrival,
+      preorder_terms: preorderTerms,
+      preorderTerms,
       ...legacyFields,
     },
     images: imageRows,
