@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useCategoryRecords } from "../../../shared/categoryStorage";
 import { supabase } from "../../../lib/supabaseClient";
 import {
+  DEFAULT_AVAILABILITY_TYPE,
   PRODUCT_SHIPPING_METHOD_OPTIONS,
+  getAvailabilityMeta,
   normalizeVariationGroups,
   slugify,
 } from "../../Products/productData";
@@ -325,6 +327,9 @@ function buildImageEntries(value) {
     compareAt: value?.compareAt ?? "",
     shippingFee: value?.shippingFee ?? "",
     shippingMethod: value?.shippingMethod ?? "air-freight",
+    availabilityType: value?.availabilityType ?? value?.availability_type ?? DEFAULT_AVAILABILITY_TYPE,
+    estimatedArrival: value?.estimatedArrival ?? value?.estimated_arrival ?? "",
+    preorderTerms: value?.preorderTerms ?? value?.preorder_terms ?? "",
     mainImage,
     galleryImages: gallery
       .map((entry, index) => ({
@@ -942,8 +947,51 @@ function ProductEditorForm({
             value={formData.stockStatus}
             onChange={handleChange}
             placeholder="In Stock & Ready to Ship"
-            />
-          </Field>
+          />
+        </Field>
+
+        <Field>
+          <span>Availability</span>
+          <select
+            name="availabilityType"
+            value={formData.availabilityType ?? DEFAULT_AVAILABILITY_TYPE}
+            onChange={handleChange}
+          >
+            <option value="ready_stock">Ready Stock</option>
+            <option value="preorder">Pre-order</option>
+            <option value="coming_soon">Coming Soon</option>
+          </select>
+          <small className="admin-product-form__hint">
+            {getAvailabilityMeta(formData.availabilityType ?? DEFAULT_AVAILABILITY_TYPE).label} products
+            use the storefront label and action button automatically.
+          </small>
+        </Field>
+
+        {String(formData.availabilityType ?? DEFAULT_AVAILABILITY_TYPE) === "preorder" ? (
+          <>
+            <Field>
+              <span>Estimated Arrival</span>
+              <input
+                type="text"
+                name="estimatedArrival"
+                value={formData.estimatedArrival}
+                onChange={handleChange}
+                placeholder="6–10 weeks"
+              />
+            </Field>
+
+            <Field fullWidth>
+              <span>Pre-order Terms</span>
+              <textarea
+                name="preorderTerms"
+                value={formData.preorderTerms}
+                onChange={handleChange}
+                rows="3"
+                placeholder="Product payment confirms your order. Final shipping fee will be calculated separately when the item arrives in Ghana."
+              />
+            </Field>
+          </>
+        ) : null}
 
         <Field fullWidth>
           <span>Main Image</span>

@@ -4,6 +4,7 @@ import { useCategoryRecords } from "../../shared/categoryStorage";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
+  getAvailabilityMeta,
   getProductPath,
   slugify,
   useProducts,
@@ -240,6 +241,7 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
   const activeImage =
     activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
+  const availabilityMeta = getAvailabilityMeta(item.availabilityType ?? item.availability_type);
 
   return (
     <article className="shop-card">
@@ -275,6 +277,12 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
       </div>
 
       <div className="shop-card__body">
+        <div className="shop-card__topline">
+          <span className={`shop-card__availability shop-card__availability--${availabilityMeta.tone ?? "green"}`}>
+            {availabilityMeta.badge}
+          </span>
+        </div>
+
         <h3>{item.name}</h3>
 
         {primaryGroup ? (
@@ -319,7 +327,10 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
 
         <button
           type="button"
-          className="shop-card__add nexus-product-card__cart-button"
+          className={`shop-card__add nexus-product-card__cart-button${
+            availabilityMeta.disabled ? " is-disabled" : ""
+          }`}
+          disabled={availabilityMeta.disabled}
           onClick={() =>
             onAddToCart({
               ...item,
@@ -327,11 +338,12 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
               compareAt: activeCompareAt,
               selectedOptions: activeSelection,
               variantKey: activeVariantKey,
+              availabilityType: item.availabilityType ?? item.availability_type,
             })
           }
         >
           <CartIcon className="nexus-product-card__cart-icon" />
-          Add To Cart
+          {availabilityMeta.buttonLabel}
         </button>
       </div>
     </article>

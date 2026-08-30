@@ -48,8 +48,7 @@ export const PRODUCT_SHIPPING_METHOD_OPTIONS = [
   },
 ];
 
-const PRODUCT_SELECT =
-  "id,category_id,subcategory_label,slug,name,series,brand,sold_by,price,compare_at,rating,review_count,badge,stock_status,description,overview,primary_image_url,shipping_fee,shipping_fee_status,shipping_method,status,source,deleted_at,created_at,updated_at";
+const PRODUCT_SELECT = "*";
 const CATEGORY_SELECT = "id,name,slug,parent_id,status,deleted_at";
 const CHILD_SELECT = "id,product_id,image_url,display_order,created_at";
 const COLOR_SELECT = "id,product_id,color_name,display_order";
@@ -91,6 +90,30 @@ const PRODUCT_IMAGE_ASSET_MAP = {
 };
 
 const DEFAULT_STOCK_STATUS = "In Stock & Ready to Ship";
+export const DEFAULT_AVAILABILITY_TYPE = "ready_stock";
+const AVAILABILITY_TYPE_LABELS = {
+  ready_stock: {
+    label: "In Stock",
+    badge: "IN STOCK",
+    buttonLabel: "Add to Cart",
+    tone: "green",
+    disabled: false,
+  },
+  preorder: {
+    label: "Pre-Order",
+    badge: "PRE-ORDER",
+    buttonLabel: "PRE-ORDER NOW",
+    tone: "orange",
+    disabled: false,
+  },
+  coming_soon: {
+    label: "Coming Soon",
+    badge: "COMING SOON",
+    buttonLabel: "COMING SOON",
+    tone: "blue",
+    disabled: true,
+  },
+};
 
 function cleanText(value, fallback = "") {
   return String(value ?? fallback).trim();
@@ -99,6 +122,22 @@ function cleanText(value, fallback = "") {
 function normalizeOptionalText(value) {
   const text = cleanText(value);
   return text || null;
+}
+
+export function normalizeAvailabilityType(value) {
+  const normalized = cleanText(value)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  return normalized in AVAILABILITY_TYPE_LABELS ? normalized : DEFAULT_AVAILABILITY_TYPE;
+}
+
+export function getAvailabilityMeta(value) {
+  const availabilityType = normalizeAvailabilityType(value);
+  return {
+    availabilityType,
+    ...AVAILABILITY_TYPE_LABELS[availabilityType],
+  };
 }
 
 function normalizeNumber(value) {
@@ -729,6 +768,9 @@ export function mapProductRowToLegacyViewModel(row = {}, bundle = {}) {
     reviews: Math.max(0, Math.round(Number(row?.review_count) || 0)),
     badge: cleanText(row?.badge) || "New",
     stockStatus: cleanText(row?.stock_status) || DEFAULT_STOCK_STATUS,
+    availabilityType: normalizeAvailabilityType(row?.availability_type),
+    estimatedArrival: normalizeOptionalText(row?.estimated_arrival),
+    preorderTerms: normalizeOptionalText(row?.preorder_terms),
     description: cleanText(row?.description),
     overview: cleanText(row?.overview),
     image: primaryImageUrl,
@@ -1196,6 +1238,15 @@ function normalizeExistingProductFields(existingProduct = {}) {
     review_count: normalizeNonNegativeInteger(existingProduct.reviews ?? existingProduct.review_count) ?? 0,
     badge: cleanText(existingProduct.badge),
     stock_status: cleanText(existingProduct.stockStatus ?? existingProduct.stock_status),
+    availability_type: normalizeAvailabilityType(
+      existingProduct.availabilityType ?? existingProduct.availability_type,
+    ),
+    estimated_arrival: normalizeOptionalText(
+      existingProduct.estimatedArrival ?? existingProduct.estimated_arrival,
+    ),
+    preorder_terms: normalizeOptionalText(
+      existingProduct.preorderTerms ?? existingProduct.preorder_terms,
+    ),
     description: cleanText(existingProduct.description),
     overview: cleanText(existingProduct.overview),
     primary_image_url: normalizeImageSrc(existingProduct.image ?? existingProduct.primary_image_url),
@@ -1266,6 +1317,13 @@ export function buildProductBundlePayloadFromLegacyProduct(product = {}, overrid
       review_count: next.review_count,
       badge: next.badge || null,
       stock_status: next.stock_status || DEFAULT_STOCK_STATUS,
+      availability_type: normalizeAvailabilityType(next.availability_type),
+      estimated_arrival:
+        normalizeAvailabilityType(next.availability_type) === "preorder"
+          ? next.estimated_arrival || null
+          : null,
+      preorder_terms:
+        normalizeAvailabilityType(next.availability_type) === "preorder" ? next.preorder_terms || null : null,
       description: next.description || null,
       overview: next.overview || null,
       primary_image_url: primaryImage || null,
@@ -1329,6 +1387,20 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
         series: existing.series || null,
         rating: existing.rating,
         review_count: existing.review_count,
+        availability_type:
+          normalizeAvailabilityType(values.availabilityType ?? values.availability_type ?? existing?.availability_type),
+        estimated_arrival:
+          normalizeAvailabilityType(
+            values.availabilityType ?? values.availability_type ?? existing?.availability_type,
+          ) === "preorder"
+            ? normalizeOptionalText(values.estimatedArrival ?? values.estimated_arrival ?? existing?.estimated_arrival)
+            : null,
+        preorder_terms:
+          normalizeAvailabilityType(
+            values.availabilityType ?? values.availability_type ?? existing?.availability_type,
+          ) === "preorder"
+            ? normalizeOptionalText(values.preorderTerms ?? values.preorder_terms ?? existing?.preorder_terms)
+            : null,
       }
     : {};
 
@@ -1411,7 +1483,69 @@ async function queryRpc(functionName, args = {}) {
 
 export async function saveProductBundle(payload = {}) {
   const normalizedPayload = ensureProductBundleRows(payload);
-  return queryRpc("save_product_bundle", { payload: normalizedPayload });
+  const result = await queryRpc("save_product_bundle", { payload: normalizedPayload });
+
+  if (!result.ok) {
+    return result;
+  }
+
+  const savedProduct = result?.data?.product ?? null;
+  const productId = cleanText(savedProduct?.id);
+
+  if (!productId) {
+    return result;
+  }
+
+  const productPayload = normalizedPayload?.product ?? {};
+  const availabilityType = normalizeAvailabilityType(
+    productPayload.availabilityType
+    ?? productPayload.availability_type
+    ?? savedProduct?.availability_type
+    ?? "ready_stock",
+  );
+  const estimatedArrival = availabilityType === "preorder"
+    ? normalizeOptionalText(
+        productPayload.estimatedArrival
+        ?? productPayload.estimated_arrival
+        ?? savedProduct?.estimated_arrival,
+      )
+    : null;
+  const preorderTerms = availabilityType === "preorder"
+    ? normalizeOptionalText(
+        productPayload.preorderTerms
+        ?? productPayload.preorder_terms
+        ?? savedProduct?.preorder_terms,
+      )
+    : null;
+
+  const { error } = await supabase.rpc("set_product_availability", {
+    p_product_id: productId,
+    p_availability_type: availabilityType,
+    p_estimated_arrival: estimatedArrival,
+    p_preorder_terms: preorderTerms,
+  });
+
+  if (error) {
+    return mapDbError(error, "Unable to update the product availability.");
+  }
+
+  return {
+    ...result,
+    data: result?.data
+      ? {
+          ...result.data,
+          product: {
+            ...(result.data.product ?? {}),
+            availability_type: availabilityType,
+            availabilityType,
+            estimated_arrival: estimatedArrival,
+            estimatedArrival,
+            preorder_terms: preorderTerms,
+            preorderTerms,
+          },
+        }
+      : result.data,
+  };
 }
 
 export async function setProductDeletedAt(productId, deletedAt = new Date().toISOString()) {

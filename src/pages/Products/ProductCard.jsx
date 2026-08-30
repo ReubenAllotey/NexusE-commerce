@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
+  getAvailabilityMeta,
   getProductPath,
   slugify,
 } from "./productData";
@@ -152,6 +153,7 @@ function ProductCard({
     FALLBACK_IMAGE;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
   const detailHref = getProductPath(item.slug ?? slugify(item.name));
+  const availabilityMeta = getAvailabilityMeta(item.availabilityType ?? item.availability_type);
 
   const handleSelectOption = (group, option) => {
     setSelectedOptions((current) => {
@@ -199,6 +201,12 @@ function ProductCard({
       </div>
 
       <div className={`${prefix}__body`}>
+        <div className={`${prefix}__topline`}>
+          <span className={`${prefix}__availability ${prefix}__availability--${availabilityMeta.tone ?? "green"}`}>
+            {availabilityMeta.badge}
+          </span>
+        </div>
+
         <Link to={detailHref} className={`${prefix}__title-link`}>
           <h3>{item.name}</h3>
         </Link>
@@ -275,7 +283,10 @@ function ProductCard({
 
         <button
           type="button"
-          className={`${prefix}__button nexus-product-card__cart-button`}
+          className={`${prefix}__button nexus-product-card__cart-button${
+            availabilityMeta.disabled ? " is-disabled" : ""
+          }`}
+          disabled={availabilityMeta.disabled}
           onClick={() =>
             onAddToCart({
               ...item,
@@ -283,11 +294,12 @@ function ProductCard({
               compareAt: activeCompareAt,
               selectedOptions: activeSelection,
               variantKey: activeVariantKey,
+              availabilityType: item.availabilityType ?? item.availability_type,
             })
           }
         >
           <CartIcon className="nexus-product-card__cart-icon" />
-          Add to Cart
+          {availabilityMeta.buttonLabel}
         </button>
       </div>
     </article>

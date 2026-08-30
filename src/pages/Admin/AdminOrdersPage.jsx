@@ -16,6 +16,12 @@ const STATUS_FILTERS = [
   { key: "cancelled", label: "Cancelled" },
 ];
 
+const ORDER_TYPE_FILTERS = [
+  { key: "all", label: "All" },
+  { key: "preorder", label: "Pre-orders" },
+  { key: "ready_stock", label: "Ready Stock" },
+];
+
 const SHIPMENT_FILTERS = [
   { key: "all", label: "All shipment" },
   { key: "air", label: "Air" },
@@ -24,7 +30,14 @@ const SHIPMENT_FILTERS = [
 ];
 
 const ORDER_STATUS_OPTIONS = [
+  { value: "preorder_received", label: "Pre-order Received" },
   { value: "processing", label: "Processing" },
+  { value: "shipped", label: "Shipped" },
+  { value: "in_transit", label: "In Transit" },
+  { value: "arrived_in_ghana", label: "Arrived in Ghana" },
+  { value: "shipping_fee_pending", label: "Shipping Fee Pending" },
+  { value: "ready_for_delivery", label: "Ready for Delivery" },
+  { value: "completed", label: "Completed" },
   { value: "delivered", label: "Delivered" },
   { value: "cancelled", label: "Cancelled" },
 ];
@@ -51,6 +64,8 @@ function getOrderSearchBlob(order) {
     order?.total,
     order?.status,
     order?.paymentStatus,
+    order?.orderType,
+    order?.order_type,
     order?.shipmentType,
     ...items.flatMap((item) => [item.name, item.slug, item.brand]),
   ]
@@ -66,7 +81,7 @@ function getOrderStatusValue(order) {
     return "cancelled";
   }
 
-  if (status === "delivered") {
+  if (status === "delivered" || status === "completed") {
     return "delivered";
   }
 
@@ -78,6 +93,18 @@ function getOrderStatusValue(order) {
     return "pending";
   }
 
+  if (
+    status === "preorder_received" ||
+    status === "processing" ||
+    status === "shipped" ||
+    status === "in_transit" ||
+    status === "arrived_in_ghana" ||
+    status === "shipping_fee_pending" ||
+    status === "ready_for_delivery"
+  ) {
+    return status;
+  }
+
   return "processing";
 }
 
@@ -87,6 +114,14 @@ function getOrderSummaryStatus(order) {
 
 function getPaymentStatusLabel(order) {
   return normalizeText(order?.paymentStatus) === "paid" ? "Paid" : "Pending";
+}
+
+function getOrderTypeValue(order) {
+  return normalizeText(order?.orderType ?? order?.order_type) === "preorder" ? "preorder" : "ready_stock";
+}
+
+function getOrderTypeLabel(order) {
+  return getOrderTypeValue(order) === "preorder" ? "Pre-Order" : "Ready Stock";
 }
 
 function getShipmentType(order) {
@@ -116,6 +151,18 @@ function formatShipmentLabel(value) {
 
 function getStatusTone(status) {
   switch (status) {
+    case "preorder_received":
+    case "shipping_fee_pending":
+      return "amber";
+    case "ready_for_delivery":
+      return "blue";
+    case "arrived_in_ghana":
+      return "violet";
+    case "shipped":
+    case "in_transit":
+      return "indigo";
+    case "completed":
+      return "green";
     case "delivered":
       return "green";
     case "processing":
@@ -165,6 +212,7 @@ function ChevronDownIcon() {
 function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = () => {} }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [orderTypeFilter, setOrderTypeFilter] = useState("all");
   const [shipmentFilter, setShipmentFilter] = useState("all");
   const [openOrderId, setOpenOrderId] = useState(null);
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
@@ -188,8 +236,13 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     const totalOrders = orders.length;
     const pendingOrders = orders.filter((order) => getOrderSummaryStatus(order) === "pending").length;
     const processingOrders = orders.filter((order) => getOrderSummaryStatus(order) === "processing").length;
-    const deliveredOrders = orders.filter((order) => getOrderSummaryStatus(order) === "delivered").length;
+    const deliveredOrders = orders.filter((order) => {
+      const status = getOrderSummaryStatus(order);
+      return status === "delivered" || status === "completed";
+    }).length;
     const cancelledOrders = orders.filter((order) => getOrderSummaryStatus(order) === "cancelled").length;
+    const preorderOrders = orders.filter((order) => getOrderTypeValue(order) === "preorder").length;
+    const readyStockOrders = Math.max(totalOrders - preorderOrders, 0);
 
     return {
       totalOrders,
@@ -197,6 +250,8 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
       processingOrders,
       deliveredOrders,
       cancelledOrders,
+      preorderOrders,
+      readyStockOrders,
     };
   }, [orders]);
 
@@ -205,17 +260,22 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
 
     return [...orders]
       .sort((left, right) => new Date(right.createdAt ?? 0) - new Date(left.createdAt ?? 0))
-      .filter((order) => {
-        const orderStatus = getOrderSummaryStatus(order);
-        const shipmentType = getShipmentType(order);
+        .filter((order) => {
+          const orderStatus = getOrderSummaryStatus(order);
+          const orderType = getOrderTypeValue(order);
+          const shipmentType = getShipmentType(order);
 
-        if (statusFilter !== "all" && orderStatus !== statusFilter) {
-          return false;
-        }
+          if (statusFilter !== "all" && orderStatus !== statusFilter) {
+            return false;
+          }
 
-        if (shipmentFilter !== "all" && shipmentType !== shipmentFilter) {
-          return false;
-        }
+          if (orderTypeFilter !== "all" && orderType !== orderTypeFilter) {
+            return false;
+          }
+
+          if (shipmentFilter !== "all" && shipmentType !== shipmentFilter) {
+            return false;
+          }
 
         if (!search) {
           return true;
@@ -223,7 +283,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
 
         return getOrderSearchBlob(order).includes(search);
       });
-  }, [orders, query, statusFilter, shipmentFilter]);
+   }, [orders, query, statusFilter, orderTypeFilter, shipmentFilter]);
 
   const openStatusModal = (order) => {
     setStatusModalOrderId(order.id);
@@ -304,6 +364,18 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
               tone="amber"
             />
             <SummaryCard
+              label="Pre-orders"
+              value={summary.preorderOrders}
+              note="Orders placed through the preorder flow."
+              tone="indigo"
+            />
+            <SummaryCard
+              label="Ready stock"
+              value={summary.readyStockOrders}
+              note="Orders placed from stocked products."
+              tone="blue"
+            />
+            <SummaryCard
               label="Processing"
               value={summary.processingOrders}
               note="Orders still moving toward delivery."
@@ -374,6 +446,27 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                   </div>
 
                   <div className="admin-orders-filter-group">
+                    <span>Order type</span>
+                    <div className="admin-orders-filter-set admin-orders-filter-set--menu">
+                      {ORDER_TYPE_FILTERS.map((filter) => (
+                        <button
+                          key={filter.key}
+                          type="button"
+                          className={`admin-orders-filter${
+                            orderTypeFilter === filter.key ? " is-active" : ""
+                          }`}
+                          onClick={() => {
+                            setOrderTypeFilter(filter.key);
+                            setIsFilterMenuOpen(false);
+                          }}
+                        >
+                          {filter.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="admin-orders-filter-group">
                     <span>Shipment</span>
                     <div className="admin-orders-filter-set admin-orders-filter-set--menu">
                       {SHIPMENT_FILTERS.map((filter) => (
@@ -399,6 +492,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                     className="admin-orders-filter-menu__reset"
                     onClick={() => {
                       setStatusFilter("all");
+                      setOrderTypeFilter("all");
                       setShipmentFilter("all");
                       setIsFilterMenuOpen(false);
                     }}
@@ -421,6 +515,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                     <th>Items</th>
                     <th>Amount</th>
                     <th>Payment</th>
+                    <th>Order Type</th>
                     <th>Shipment</th>
                     <th>Order Status</th>
                     <th>Date</th>
@@ -448,19 +543,24 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                             <strong>{order.customerName || "Guest checkout"}</strong>
                             <small>{order.customerEmail || "No email captured"}</small>
                           </td>
-                          <td>{orderCount}</td>
-                          <td>{formatMoney(order.total ?? 0)}</td>
-                          <td>
-                            <Pill tone={normalizeText(order.paymentStatus) === "paid" ? "green" : "amber"}>
-                              {getPaymentStatusLabel(order)}
-                            </Pill>
-                          </td>
-                          <td>
-                            <Pill tone={getShipmentTone(shipmentType)}>
-                              {formatShipmentLabel(shipmentType)}
-                            </Pill>
-                            <small>
-                              {shipment?.stepLabel ?? "No live shipment row yet"}
+                            <td>{orderCount}</td>
+                            <td>{formatMoney(order.total ?? 0)}</td>
+                            <td>
+                              <Pill tone={normalizeText(order.paymentStatus) === "paid" ? "green" : "amber"}>
+                                {getPaymentStatusLabel(order)}
+                              </Pill>
+                            </td>
+                            <td>
+                              <Pill tone={getOrderTypeValue(order) === "preorder" ? "amber" : "blue"}>
+                                {getOrderTypeLabel(order)}
+                              </Pill>
+                            </td>
+                            <td>
+                              <Pill tone={getShipmentTone(shipmentType)}>
+                                {formatShipmentLabel(shipmentType)}
+                              </Pill>
+                              <small>
+                                {shipment?.stepLabel ?? "No live shipment row yet"}
                             </small>
                             <small>
                               {shipment
@@ -502,7 +602,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
 
                         {isExpanded ? (
                           <tr className="admin-orders-details-row">
-                            <td colSpan={8}>
+                            <td colSpan={11}>
                               <div className="admin-orders-details">
                                 <div className="admin-orders-details__summary">
                                   <div>
@@ -522,6 +622,14 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                                     <strong>
                                       <Pill tone={getShipmentTone(shipmentType)}>
                                         {formatShipmentLabel(shipmentType)}
+                                      </Pill>
+                                    </strong>
+                                  </div>
+                                  <div>
+                                    <span>Order type</span>
+                                    <strong>
+                                      <Pill tone={getOrderTypeValue(order) === "preorder" ? "amber" : "blue"}>
+                                        {getOrderTypeLabel(order)}
                                       </Pill>
                                     </strong>
                                   </div>

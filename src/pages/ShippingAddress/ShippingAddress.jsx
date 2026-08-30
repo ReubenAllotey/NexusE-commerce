@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { getShippingFee, useProducts } from "../Products/productData";
+import { getShippingFee, normalizeAvailabilityType, useProducts } from "../Products/productData";
 import {
   loadCheckoutDraft as loadPaymentCheckoutDraft,
   saveCheckoutDraft as savePaymentCheckoutDraft,
@@ -66,10 +66,18 @@ function resolveCartRows(cartItems = [], productLookup = new Map()) {
       }
 
       const quantity = item.quantity ?? 1;
+      const availabilityType = normalizeAvailabilityType(
+        item.availabilityType ??
+          item.availability_type ??
+          product?.availabilityType ??
+          product?.availability_type,
+      );
       const shippingFee =
-        typeof item.shippingFee === "number"
-          ? item.shippingFee
-          : getShippingFee(product);
+        availabilityType === "preorder"
+          ? 0
+          : typeof item.shippingFee === "number"
+            ? item.shippingFee
+            : getShippingFee(product);
       const effectiveShippingFee = typeof shippingFee === "number" ? shippingFee : 0;
 
       return {
@@ -80,6 +88,7 @@ function resolveCartRows(cartItems = [], productLookup = new Map()) {
         effectiveShippingFee,
         lineSubtotal: product.price * quantity,
         lineShipping: effectiveShippingFee * quantity,
+        availabilityType,
         variant: item.variant ?? null,
       };
     })

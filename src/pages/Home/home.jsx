@@ -6,6 +6,7 @@ import { getCategoryProductsPath } from "./catalogData";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
+  getAvailabilityMeta,
   getProductPath,
   slugify,
 } from "../Products/productData";
@@ -415,6 +416,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
   const activeImage =
     activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
+  const availabilityMeta = getAvailabilityMeta(item.availabilityType ?? item.availability_type);
 
   return (
     <article className="product-card">
@@ -453,6 +455,12 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
       </div>
 
       <div className="product-card__body">
+        <div className="product-card__topline">
+          <span className={`product-card__availability product-card__availability--${availabilityMeta.tone ?? "green"}`}>
+            {availabilityMeta.badge}
+          </span>
+        </div>
+
         <Link to={detailHref} className="product-card__title-link">
           <h3>{item.name}</h3>
         </Link>
@@ -496,7 +504,10 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
         </div>
         <button
           type="button"
-          className="product-card__button nexus-product-card__cart-button"
+          className={`product-card__button nexus-product-card__cart-button${
+            availabilityMeta.disabled ? " is-disabled" : ""
+          }`}
+          disabled={availabilityMeta.disabled}
           onClick={() =>
             onAddToCart({
               ...item,
@@ -504,11 +515,12 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
               compareAt: activeCompareAt,
               selectedOptions: activeSelection,
               variantKey: activeVariantKey,
+              availabilityType: item.availabilityType ?? item.availability_type,
             })
           }
         >
           <CartIcon className="nexus-product-card__cart-icon" />
-          Add To Cart
+          {availabilityMeta.buttonLabel}
         </button>
       </div>
     </article>

@@ -86,6 +86,16 @@ function normalizeSelectedOptions(value = []) {
     .filter(Boolean);
 }
 
+function normalizeAvailabilityType(value) {
+  const normalized = clean(value).toLowerCase().replace(/[\s-]+/g, "_");
+
+  if (normalized === "preorder" || normalized === "coming_soon" || normalized === "ready_stock") {
+    return normalized;
+  }
+
+  return "ready_stock";
+}
+
 function buildVariantLabel(selectedOptions = [], selectedColor = "", selectedSize = "") {
   if (Array.isArray(selectedOptions) && selectedOptions.length > 0) {
     return selectedOptions.map((option) => clean(option.label)).filter(Boolean).join(" / ");
@@ -100,6 +110,7 @@ function normalizeOrderItemRecord(item = {}) {
   const selectedColor = clean(readField(item, "selectedColor", "selected_color"));
   const selectedSize = clean(readField(item, "selectedSize", "selected_size"));
   const selectedOptions = normalizeSelectedOptions(readField(item, "selectedOptions", "selected_options", []));
+  const availabilityType = normalizeAvailabilityType(readField(item, "availabilityType", "availability_type"));
 
   return {
     key: clean(readField(item, "key", "id")) || `${clean(readField(item, "productSlug", "product_slug"))}-${clean(readField(item, "productId", "product_id"))}`,
@@ -119,6 +130,9 @@ function normalizeOrderItemRecord(item = {}) {
     variantKey: clean(readField(item, "variantKey", "variant_key")),
     selectedOptions,
     shippingFee,
+    availabilityType,
+    estimatedArrival: toNullableText(readField(item, "estimatedArrival", "estimated_arrival")),
+    preorderTerms: toNullableText(readField(item, "preorderTerms", "preorder_terms")),
     lineSubtotal: normalizeNumber(readField(item, "lineSubtotal", "line_subtotal"), 0),
     lineShipping: normalizeNumber(readField(item, "lineShipping", "line_shipping"), 0),
   };
@@ -149,6 +163,9 @@ function mapOrderBundleToLegacyViewModel(bundle = {}, fallbackItems = []) {
     customerEmail:
       clean(readField(order, "customerEmail", "customer_email")) ||
       clean(readField(order, "customer_email", "customer_email")),
+    orderType: normalizeAvailabilityType(readField(order, "orderType", "order_type")) === "preorder"
+      ? "preorder"
+      : "ready_stock",
     status: clean(readField(order, "status", "status")) || "pending_payment",
     paymentStatus: clean(readField(order, "paymentStatus", "payment_status")) || "pending",
     shipmentType: clean(readField(order, "shipmentType", "shipment_type")),
@@ -158,6 +175,8 @@ function mapOrderBundleToLegacyViewModel(bundle = {}, fallbackItems = []) {
     subtotal: normalizeNumber(readField(order, "subtotal", "subtotal"), 0),
     shippingTotal: normalizeNumber(readField(order, "shippingTotal", "shipping_total"), 0),
     total: normalizeNumber(readField(order, "total", "total"), 0),
+    estimatedArrival: toNullableText(readField(order, "estimatedArrival", "estimated_arrival")),
+    preorderTerms: toNullableText(readField(order, "preorderTerms", "preorder_terms")),
     deliveredAt: readField(order, "deliveredAt", "delivered_at", null),
     createdAt: clean(readField(order, "createdAt", "created_at")),
     updatedAt: clean(readField(order, "updatedAt", "updated_at")),
@@ -220,47 +239,11 @@ async function loadCurrentProfile(userId) {
 }
 
 function getOrderSelect() {
-  return [
-    "id",
-    "order_number",
-    "user_id",
-    "customer_name",
-    "customer_email",
-    "status",
-    "payment_status",
-    "shipment_type",
-    "batch_number",
-    "shipping_address_id",
-    "shipping_address_snapshot",
-    "subtotal",
-    "shipping_total",
-    "total",
-    "delivered_at",
-    "created_at",
-    "updated_at",
-  ].join(",");
+  return "*";
 }
 
 function getOrderItemSelect() {
-  return [
-    "id",
-    "order_id",
-    "product_id",
-    "product_name",
-    "product_slug",
-    "brand",
-    "image_url",
-    "unit_price",
-    "quantity",
-    "selected_color",
-    "selected_size",
-    "variant_key",
-    "selected_options",
-    "shipping_fee",
-    "line_subtotal",
-    "line_shipping",
-    "created_at",
-  ].join(",");
+  return "*";
 }
 
 async function fetchOrderItems(orderIds = []) {
@@ -445,12 +428,21 @@ export function mapOrderRowsToLegacyViewModelArray(rows = [], itemsByOrderId = n
 }
 
 export function isDeliveredOrder(order) {
-  return clean(order?.status).toLowerCase() === "delivered";
+  const status = clean(order?.status).toLowerCase();
+  return status === "delivered" || status === "completed";
 }
 
 export function isInTransitOrder(order) {
   const status = clean(order?.status).toLowerCase();
-  return status === "processing" || status === "in_transit";
+  return status === "processing" || status === "in_transit" || status === "shipped";
+}
+
+export function isPreorderOrder(order) {
+  return clean(order?.orderType ?? order?.order_type).toLowerCase() === "preorder";
+}
+
+export function getOrderTypeLabel(order) {
+  return isPreorderOrder(order) ? "Pre-Order" : "Ready Stock";
 }
 
 export function isOwnedOrder(order, authUser = null) {
@@ -474,8 +466,32 @@ export function isOwnedOrder(order, authUser = null) {
 export function getOrderStatusLabel(status) {
   const normalized = clean(status).toLowerCase();
 
+  if (normalized === "preorder_received") {
+    return "Pre-order Received";
+  }
+
+  if (normalized === "shipping_fee_pending") {
+    return "Shipping Fee Pending";
+  }
+
+  if (normalized === "ready_for_delivery") {
+    return "Ready for Delivery";
+  }
+
+  if (normalized === "arrived_in_ghana") {
+    return "Arrived in Ghana";
+  }
+
+  if (normalized === "shipped") {
+    return "Shipped";
+  }
+
   if (normalized === "delivered") {
     return "Delivered";
+  }
+
+  if (normalized === "completed") {
+    return "Completed";
   }
 
   if (normalized === "cancelled" || normalized === "canceled") {

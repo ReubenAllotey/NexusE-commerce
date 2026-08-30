@@ -2,9 +2,11 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import ProfileSectionShell from "./ProfileSectionShell";
 import {
+  getOrderTypeLabel,
   getOrderStatusLabel,
   isDeliveredOrder,
   isInTransitOrder,
+  isPreorderOrder,
   isOwnedOrder,
 } from "./ordersStorage";
 import {
@@ -170,6 +172,7 @@ function MyOrders({
             {visibleOrders.map((order) => {
               const isActive = activeOrderId === order.id;
               const delivered = isDeliveredOrder(order);
+              const preorder = isPreorderOrder(order);
               const items = Array.isArray(order.items) ? order.items : [];
               const orderCount = items.reduce(
                 (sum, item) => sum + (item.quantity ?? 1),
@@ -205,6 +208,9 @@ function MyOrders({
                     >
                       {formatOrderStatus(order.status)}
                     </span>
+                    <span className={`orders-card__type${preorder ? " is-preorder" : ""}`}>
+                      {getOrderTypeLabel(order)}
+                    </span>
                   </div>
 
                   <div className="orders-card__meta">
@@ -222,9 +228,11 @@ function MyOrders({
                     </div>
                     <div>
                       <span>Shipment</span>
-                      <strong>
-                        {shipment?.stepLabel ?? shipmentLabel}
-                      </strong>
+                      <strong>{shipment?.stepLabel ?? shipmentLabel}</strong>
+                    </div>
+                    <div>
+                      <span>Order type</span>
+                      <strong>{getOrderTypeLabel(order)}</strong>
                     </div>
                     <div>
                       <span>Tracking</span>
@@ -292,6 +300,9 @@ function MyOrders({
                                       .join(" / ")}
                                 </span>
                               ) : null}
+                              {preorder && item.estimatedArrival ? (
+                                <span>Estimated arrival {item.estimatedArrival}</span>
+                              ) : null}
                               <span>Qty {item.quantity}</span>
                             </div>
 
@@ -310,7 +321,11 @@ function MyOrders({
                         </div>
                         <div>
                           <span>Shipping</span>
-                          <strong>{formatMoney(order.shippingTotal ?? 0)}</strong>
+                          <strong>{preorder ? "To be confirmed" : formatMoney(order.shippingTotal ?? 0)}</strong>
+                        </div>
+                        <div>
+                          <span>Estimated arrival</span>
+                          <strong>{order.estimatedArrival || "To be confirmed"}</strong>
                         </div>
                         <div>
                           <span>Grand total</span>

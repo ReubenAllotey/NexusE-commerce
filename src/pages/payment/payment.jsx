@@ -6,6 +6,7 @@ import {
   defaultSiteBanner,
   normalizeSiteBanner,
 } from "../../shared/siteBannerStorage";
+import { normalizeAvailabilityType } from "../Products/productData";
 import {
   clearCheckoutDraft,
   clearPaymentSession,
@@ -72,23 +73,35 @@ function resolveCartRows(cartItems = []) {
             ? { ...item }
             : null;
 
-      if (!product) {
-        return null;
-      }
+        if (!product) {
+          return null;
+        }
 
-      const quantity = item.quantity ?? 1;
-      const shippingFee = typeof item.shippingFee === "number" ? item.shippingFee : 0;
+        const quantity = item.quantity ?? 1;
+        const availabilityType = normalizeAvailabilityType(
+          item.availabilityType ??
+            item.availability_type ??
+            product?.availabilityType ??
+            product?.availability_type,
+        );
+        const shippingFee =
+          availabilityType === "preorder"
+            ? 0
+            : typeof item.shippingFee === "number"
+              ? item.shippingFee
+              : 0;
 
-      return {
-        key: item.cartKey ?? item.slug ?? product.slug ?? product.name,
-        product,
-        quantity,
-        shippingFee,
-        lineSubtotal: (Number(product.price) || 0) * quantity,
-        lineShipping: shippingFee * quantity,
-        variant: item.variant ?? null,
-      };
-    })
+        return {
+          key: item.cartKey ?? item.slug ?? product.slug ?? product.name,
+          product,
+          quantity,
+          shippingFee,
+          lineSubtotal: (Number(product.price) || 0) * quantity,
+          lineShipping: shippingFee * quantity,
+          availabilityType,
+          variant: item.variant ?? null,
+        };
+      })
     .filter(Boolean);
 }
 

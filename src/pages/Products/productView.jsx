@@ -5,6 +5,7 @@ import NexusProductCard from "./ProductCard";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
+  getAvailabilityMeta,
   getShippingFee,
   useProductBySlug,
   useProducts,
@@ -190,6 +191,9 @@ function ProductView({
       : null;
   const previewTint =
     activeSelection.find((option) => option.swatchColor)?.swatchColor || selectedImage?.tint || "#dfe7f3";
+  const availabilityMeta = getAvailabilityMeta(product?.availabilityType ?? product?.availability_type);
+  const isPreorderProduct = availabilityMeta.availabilityType === "preorder";
+  const isComingSoonProduct = availabilityMeta.availabilityType === "coming_soon";
   const bannerBatchNumber = safeSiteBanner?.announcement?.batchNumber?.trim() || "Pending";
   const batchWindowStart = formatDate(safeSiteBanner?.announcement?.batchWindowStart);
   const batchWindowEnd = formatDate(safeSiteBanner?.announcement?.batchWindowEnd);
@@ -237,6 +241,7 @@ function ProductView({
     onAddToCart(product, safeQuantity, {
       selectedOptions: activeSelection,
       variantKey: buildVariantKeyFromSelectedOptions(activeSelection),
+      availabilityType: product?.availabilityType ?? product?.availability_type,
     });
   };
 
@@ -300,7 +305,14 @@ function ProductView({
           </div>
 
           <div className="product-view__content">
-            {product.badge ? <p className="product-view__series">{product.badge}</p> : null}
+            <div className="product-view__topline">
+              {product.badge ? <p className="product-view__series">{product.badge}</p> : null}
+              <span
+                className={`product-view__availability product-view__availability--${availabilityMeta.tone ?? "green"}`}
+              >
+                {availabilityMeta.badge}
+              </span>
+            </div>
             <h1>{product.name}</h1>
 
             <div className="product-view__rating" aria-label={`${product.rating} out of 5 stars`}>
@@ -316,6 +328,24 @@ function ProductView({
               <strong>{formatMoney(activePrice)}</strong>
               <span>{activeCompareAt ? formatMoney(activeCompareAt) : "-"}</span>
             </div>
+
+            {isPreorderProduct ? (
+              <div className="product-view__preorder-banner">
+                <strong>PRE-ORDER</strong>
+                <p>
+                  Estimated arrival: {product.estimatedArrival || "To be announced"}. Product payment
+                  confirms your order. Final shipping fee will be calculated separately when the item
+                  arrives in Ghana.
+                </p>
+              </div>
+            ) : null}
+
+            {isComingSoonProduct ? (
+              <div className="product-view__preorder-banner product-view__preorder-banner--coming-soon">
+                <strong>COMING SOON</strong>
+                <p>This product is coming soon and cannot be added to cart yet.</p>
+              </div>
+            ) : null}
 
             <p className="product-view__stock">{product.stockStatus}</p>
             <p className="product-view__shipping">Shipping fee {shippingFeeLabel}</p>
@@ -427,9 +457,14 @@ function ProductView({
                 </button>
               </div>
 
-              <button type="button" className="product-view__add" onClick={handleAddToCart}>
+              <button
+                type="button"
+                className={`product-view__add${availabilityMeta.disabled ? " is-disabled" : ""}`}
+                onClick={handleAddToCart}
+                disabled={availabilityMeta.disabled}
+              >
                 <CartIcon />
-                Add to Cart • {formatMoney(activePrice * safeQuantity)}
+                {availabilityMeta.buttonLabel} • {formatMoney(activePrice * safeQuantity)}
               </button>
 
               <button

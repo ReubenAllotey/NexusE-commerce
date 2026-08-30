@@ -2,6 +2,11 @@ import { supabase } from "../lib/supabaseClient";
 
 const GUEST_CART_KEY = "nexus-guest-cart";
 const GUEST_WISHLIST_KEY = "nexus-guest-wishlist";
+const AVAILABILITY_TYPE_LABELS = {
+  ready_stock: "ready_stock",
+  preorder: "preorder",
+  coming_soon: "coming_soon",
+};
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -80,6 +85,66 @@ function getProductByRef(ref = {}, products = []) {
 function normalizeOptionalText(value) {
   const text = clean(value);
   return text || null;
+}
+
+function normalizeAvailabilityType(value) {
+  const normalized = clean(value).toLowerCase().replace(/[\s-]+/g, "_");
+  return AVAILABILITY_TYPE_LABELS[normalized] ?? "ready_stock";
+}
+
+function resolveProductAvailabilityType(product = {}) {
+  return normalizeAvailabilityType(product?.availabilityType ?? product?.availability_type);
+}
+
+function getCartAvailabilityMode(items = []) {
+  const types = new Set(
+    (Array.isArray(items) ? items : [])
+      .map((item) => normalizeAvailabilityType(item?.availabilityType ?? item?.availability_type))
+      .filter(Boolean),
+  );
+
+  if (types.has("coming_soon")) {
+    return "coming_soon";
+  }
+
+  if (types.has("preorder") && types.has("ready_stock")) {
+    return "mixed";
+  }
+
+  if (types.has("preorder")) {
+    return "preorder";
+  }
+
+  return "ready_stock";
+}
+
+function getAvailabilityMeta(availabilityType) {
+  const normalized = normalizeAvailabilityType(availabilityType);
+
+  if (normalized === "preorder") {
+    return {
+      availabilityType: "preorder",
+      badge: "PRE-ORDER",
+      buttonLabel: "PRE-ORDER NOW",
+      disabled: false,
+    };
+  }
+
+  if (normalized === "coming_soon") {
+    return {
+      availabilityType: "coming_soon",
+      badge: "COMING SOON",
+      buttonLabel: "COMING SOON",
+      disabled: true,
+    };
+  }
+
+  return {
+    availabilityType: "ready_stock",
+    badge: "IN STOCK",
+    buttonLabel: "Add to Cart",
+    disabled: false,
+  };
 }
 
 function normalizeSelectedOptions(value = []) {
@@ -182,6 +247,7 @@ function normalizeGuestCartItem(item = {}) {
   const selectedColor = normalizeOptionalText(item.selectedColor ?? item.selected_color);
   const selectedSize = normalizeOptionalText(item.selectedSize ?? item.selected_size);
   const selectedOptions = normalizeSelectedOptions(item.selectedOptions ?? item.selected_options);
+  const availabilityType = normalizeAvailabilityType(item.availabilityType ?? item.availability_type);
   const variantKey = buildVariantKeyFromSelection({
     slug: slug || productId,
     selectedColor,
@@ -201,6 +267,7 @@ function normalizeGuestCartItem(item = {}) {
     selectedColor,
     selectedSize,
     selectedOptions,
+    availabilityType,
     variantKey,
     cartKey: buildCartLineKey(slug || productId, selectedColor ?? "", selectedSize ?? "", selectedOptions, variantKey),
   };
@@ -402,6 +469,8 @@ function mapCartRowsToItems(rows = [], products = []) {
       const selectedColor = normalizeOptionalText(row.selectedColor ?? row.selected_color);
       const selectedSize = normalizeOptionalText(row.selectedSize ?? row.selected_size);
       const selectedOptions = normalizeSelectedOptions(row.selectedOptions ?? row.selected_options);
+      const availabilityType = resolveProductAvailabilityType(product);
+      const availabilityMeta = getAvailabilityMeta(availabilityType);
       const variantKey = buildVariantKeyFromSelection({
         slug: product.slug ?? product.id,
         selectedColor,
@@ -434,7 +503,12 @@ function mapCartRowsToItems(rows = [], products = []) {
         price: Number(product.price) || 0,
         image: product.image ?? "",
         imageClassName: product.imageClassName ?? "",
-        shippingFee: product.shippingFee ?? null,
+        shippingFee: availabilityType === "preorder" ? 0 : product.shippingFee ?? null,
+        availabilityType,
+        availabilityBadge: availabilityMeta.badge,
+        availabilityDisabled: availabilityMeta.disabled,
+        estimatedArrival: normalizeOptionalText(product.estimatedArrival ?? product.estimated_arrival),
+        preorderTerms: normalizeOptionalText(product.preorderTerms ?? product.preorder_terms),
         quantity,
         selectedColor,
         selectedSize,
@@ -495,6 +569,11 @@ async function syncGuestCartToRemote(products = []) {
         continue;
       }
 
+      const availabilityType = resolveProductAvailabilityType(product);
+      if (availabilityType === "coming_soon") {
+        throw new Error("Coming soon products cannot be added to the cart yet.");
+      }
+
       const selectedColor = normalizeOptionalText(item.selectedColor);
       const selectedSize = normalizeOptionalText(item.selectedSize);
       const selectedOptions = normalizeSelectedOptions(item.selectedOptions);
@@ -513,6 +592,7 @@ async function syncGuestCartToRemote(products = []) {
         selectedColor,
         selectedSize,
         selectedOptions,
+        availabilityType,
         variantKey,
       });
 
@@ -724,9 +804,18 @@ export async function addCartLine({
       ? selectedOptions
       : normalizedProduct?.selectedOptions ?? normalizedProduct?.selected_options ?? [],
   );
+  const incomingAvailabilityType = resolveProductAvailabilityType(normalizedProduct);
 
   if (!normalizedProductId) {
     return { ok: false, message: "A valid product is required.", items: [] };
+  }
+
+  if (incomingAvailabilityType === "coming_soon") {
+    return {
+      ok: false,
+      message: "Coming soon products cannot be added to the cart yet.",
+      items: [],
+    };
   }
 
   const safeQuantity = normalizeQuantity(quantity);
@@ -742,6 +831,32 @@ export async function addCartLine({
   const userResult = await getSignedInUser();
 
   if (!userResult.ok) {
+    const currentGuestItems = mapCartRowsToItems(loadGuestCartDraft(), products);
+    const currentMode = getCartAvailabilityMode(currentGuestItems);
+    if (currentMode === "mixed") {
+      return {
+        ok: false,
+        message: "Pre-order and ready-stock products must be checked out separately.",
+        items: currentGuestItems,
+      };
+    }
+
+    if (currentMode === "preorder" && incomingAvailabilityType === "ready_stock") {
+      return {
+        ok: false,
+        message: "Pre-order and ready-stock products must be checked out separately.",
+        items: currentGuestItems,
+      };
+    }
+
+    if (currentMode === "ready_stock" && incomingAvailabilityType === "preorder") {
+      return {
+        ok: false,
+        message: "Pre-order and ready-stock products must be checked out separately.",
+        items: currentGuestItems,
+      };
+    }
+
     const nextItems = dedupeGuestCartItems([
       ...loadGuestCartDraft(),
       {
@@ -751,6 +866,7 @@ export async function addCartLine({
         selectedColor: safeColor,
         selectedSize: safeSize,
         selectedOptions: normalizedSelectedOptions,
+        availabilityType: incomingAvailabilityType,
         variantKey: resolvedVariantKey,
       },
     ]);
@@ -765,6 +881,33 @@ export async function addCartLine({
 
   try {
     const remoteCart = await ensureCartRow(userResult.user.id);
+    const remoteCartRows = await loadRemoteCartRows(userResult.user.id);
+    const currentMode = getCartAvailabilityMode(mapCartRowsToItems(remoteCartRows, products));
+
+    if (currentMode === "mixed") {
+      return {
+        ok: false,
+        message: "Pre-order and ready-stock products must be checked out separately.",
+        items: mapCartRowsToItems(remoteCartRows, products),
+      };
+    }
+
+    if (currentMode === "preorder" && incomingAvailabilityType === "ready_stock") {
+      return {
+        ok: false,
+        message: "Pre-order and ready-stock products must be checked out separately.",
+        items: mapCartRowsToItems(remoteCartRows, products),
+      };
+    }
+
+    if (currentMode === "ready_stock" && incomingAvailabilityType === "preorder") {
+      return {
+        ok: false,
+        message: "Pre-order and ready-stock products must be checked out separately.",
+        items: mapCartRowsToItems(remoteCartRows, products),
+      };
+    }
+
     const lineQuery = supabase
       .from("cart_items")
       .select("id, quantity")

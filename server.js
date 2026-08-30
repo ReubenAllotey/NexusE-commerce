@@ -54,6 +54,408 @@ function normalizeShipmentType(value) {
   return "air";
 }
 
+function normalizeAvailabilityType(value) {
+  const normalized = clean(value).toLowerCase().replace(/[\s-]+/g, "_");
+
+  if (normalized === "preorder" || normalized === "coming_soon" || normalized === "ready_stock") {
+    return normalized;
+  }
+
+  return "ready_stock";
+}
+
+function slugifyText(value) {
+  return clean(value)
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeGuestSelectedOption(option = {}) {
+  if (typeof option === "string" || typeof option === "number") {
+    const text = clean(option);
+    if (!text) {
+      return null;
+    }
+
+    return {
+      groupId: null,
+      groupName: "",
+      kind: "text",
+      optionId: null,
+      label: text,
+      value: text,
+      isDefault: false,
+    };
+  }
+
+  if (!option || typeof option !== "object" || Array.isArray(option)) {
+    return null;
+  }
+
+  const groupId = clean(option.groupId ?? option.group_id) || null;
+  const groupName = clean(option.groupName ?? option.group_name);
+  const optionId = clean(option.optionId ?? option.option_id) || null;
+  const label = clean(option.label ?? option.value ?? option.optionLabel ?? option.option_label);
+  const value = clean(option.value ?? option.optionValue ?? option.option_value) || label;
+
+  if (!groupId && !groupName && !optionId && !label && !value) {
+    return null;
+  }
+
+  return {
+    groupId,
+    groupName,
+    kind: clean(option.kind) || "text",
+    optionId,
+    label: label || value,
+    value,
+    isDefault: Boolean(option.isDefault ?? option.is_default),
+  };
+}
+
+function normalizeGuestSelectedOptions(value = []) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((option) => normalizeGuestSelectedOption(option)).filter(Boolean);
+}
+
+function buildGuestVariantKeyFromSelectedOptions(selectedOptions = [], slug = "", selectedColor = "", selectedSize = "") {
+  const normalizedOptions = normalizeGuestSelectedOptions(selectedOptions);
+
+  if (normalizedOptions.length > 0) {
+    return normalizedOptions
+      .map((option) => `${slugifyText(option.groupName || option.groupId || "option")}=${slugifyText(option.label || option.value || option.optionId)}`)
+      .join("::");
+  }
+
+  return [clean(slug), clean(selectedColor), clean(selectedSize)].filter(Boolean).join("::") || clean(slug);
+}
+
+function normalizeVariationGroupRecord(record = {}) {
+  return {
+    id: clean(record.id),
+    productId: clean(record.product_id),
+    groupName: clean(record.group_name),
+    displayOrder: Number(record.display_order) || 0,
+    isRequired: Boolean(record.is_required),
+  };
+}
+
+function normalizeVariationOptionRecord(record = {}) {
+  return {
+    id: clean(record.id),
+    groupId: clean(record.group_id),
+    optionLabel: clean(record.option_label),
+    optionValue: clean(record.option_value) || clean(record.option_label),
+    priceDelta: Number(record.price_delta) || 0,
+    compareAtDelta:
+      record.compare_at_delta == null ? null : Number(record.compare_at_delta) || 0,
+    swatchColor: clean(record.swatch_color) || null,
+    imageUrl: clean(record.image_url) || null,
+    displayOrder: Number(record.display_order) || 0,
+    isDefault: Boolean(record.is_default),
+  };
+}
+
+async function loadGuestVariationData(productIds = []) {
+  if (!supabaseAdmin) {
+    throw new Error("Supabase server credentials are missing.");
+  }
+
+  const uniqueProductIds = [...new Set((Array.isArray(productIds) ? productIds : []).map((value) => clean(value)).filter(Boolean))];
+  const groupsByProductId = new Map();
+  const groupsById = new Map();
+  const optionsByGroupId = new Map();
+
+  if (uniqueProductIds.length === 0) {
+    return { groupsByProductId, groupsById, optionsByGroupId };
+  }
+
+  const { data: groups, error: groupError } = await supabaseAdmin
+    .from("product_variation_groups")
+    .select("id,product_id,group_name,display_order,is_required,created_at,updated_at")
+    .in("product_id", uniqueProductIds);
+
+  if (groupError) {
+    throw groupError;
+  }
+
+  const normalizedGroups = Array.isArray(groups)
+    ? groups.map((group) => normalizeVariationGroupRecord(group)).filter((group) => group.id && group.productId)
+    : [];
+
+  normalizedGroups.sort((left, right) => {
+    if (left.displayOrder !== right.displayOrder) {
+      return left.displayOrder - right.displayOrder;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+
+  for (const group of normalizedGroups) {
+    groupsById.set(group.id, group);
+
+    if (!groupsByProductId.has(group.productId)) {
+      groupsByProductId.set(group.productId, []);
+    }
+
+    groupsByProductId.get(group.productId).push(group);
+  }
+
+  const groupIds = normalizedGroups.map((group) => group.id);
+
+  if (groupIds.length === 0) {
+    return { groupsByProductId, groupsById, optionsByGroupId };
+  }
+
+  const { data: options, error: optionError } = await supabaseAdmin
+    .from("product_variation_options")
+    .select("id,group_id,option_label,option_value,price_delta,compare_at_delta,swatch_color,image_url,display_order,is_default,created_at,updated_at")
+    .in("group_id", groupIds);
+
+  if (optionError) {
+    throw optionError;
+  }
+
+  const normalizedOptions = Array.isArray(options)
+    ? options.map((option) => normalizeVariationOptionRecord(option)).filter((option) => option.id && option.groupId)
+    : [];
+
+  normalizedOptions.sort((left, right) => {
+    if (left.displayOrder !== right.displayOrder) {
+      return left.displayOrder - right.displayOrder;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
+
+  for (const option of normalizedOptions) {
+    if (!optionsByGroupId.has(option.groupId)) {
+      optionsByGroupId.set(option.groupId, []);
+    }
+
+    optionsByGroupId.get(option.groupId).push(option);
+  }
+
+  return {
+    groupsByProductId,
+    groupsById,
+    optionsByGroupId,
+  };
+}
+
+function resolveGuestProductSelections({
+  product,
+  row,
+  variationData,
+}) {
+  const productId = clean(product.id);
+  const productGroups = variationData.groupsByProductId.get(productId) ?? [];
+  const groupsById = new Map(productGroups.map((group) => [group.id, group]));
+  const groupsByName = new Map(productGroups.map((group) => [slugifyText(group.groupName), group]));
+  const productOptionsByGroupId = variationData.optionsByGroupId;
+  const legacyColor = clean(row.selectedColor ?? row.selected_color);
+  const legacySize = clean(row.selectedSize ?? row.selected_size);
+
+  if (productGroups.length === 0) {
+    const legacySelections = normalizeGuestSelectedOptions(row.selectedOptions ?? row.selected_options);
+
+    return {
+      selectedOptions: legacySelections,
+      selectedColor: legacyColor || null,
+      selectedSize: legacySize || null,
+      priceDelta: 0,
+      variantKey: buildGuestVariantKeyFromSelectedOptions(legacySelections, clean(product.slug), legacyColor, legacySize),
+    };
+  }
+
+  const requestedSelections = [
+    ...normalizeGuestSelectedOptions(row.selectedOptions ?? row.selected_options),
+  ];
+
+  if (legacyColor) {
+    requestedSelections.push({
+      groupName: "Color",
+      kind: "color",
+      label: legacyColor,
+      value: legacyColor,
+    });
+  }
+
+  if (legacySize) {
+    requestedSelections.push({
+      groupName: "Size",
+      kind: "size",
+      label: legacySize,
+      value: legacySize,
+    });
+  }
+
+  const assignedSelections = new Map();
+  const invalidSelectionMessage = "Selected product option is no longer available. Please update your cart.";
+
+  const findGroupForCandidate = (candidate) => {
+    if (!candidate) {
+      return null;
+    }
+
+    if (candidate.groupId && groupsById.has(candidate.groupId)) {
+      return groupsById.get(candidate.groupId);
+    }
+
+    const candidateGroupName = slugifyText(candidate.groupName);
+    if (candidateGroupName && groupsByName.has(candidateGroupName)) {
+      return groupsByName.get(candidateGroupName);
+    }
+
+    if (candidate.optionId) {
+      const matches = productGroups.filter((group) =>
+        (productOptionsByGroupId.get(group.id) ?? []).some((option) => clean(option.id) === candidate.optionId),
+      );
+
+      if (matches.length === 1) {
+        return matches[0];
+      }
+
+      if (matches.length > 1) {
+        throw new Error(invalidSelectionMessage);
+      }
+    }
+
+    const candidateValue = slugifyText(candidate.label || candidate.value);
+    if (candidateValue) {
+      const matches = productGroups.filter((group) =>
+        (productOptionsByGroupId.get(group.id) ?? []).some((option) =>
+          [option.optionLabel, option.optionValue].some((optionValue) => slugifyText(optionValue) === candidateValue),
+        ),
+      );
+
+      if (matches.length === 1) {
+        return matches[0];
+      }
+
+      if (matches.length > 1) {
+        throw new Error(invalidSelectionMessage);
+      }
+    }
+
+    return null;
+  };
+
+  for (const candidate of requestedSelections) {
+    const group = findGroupForCandidate(candidate);
+
+    if (!group) {
+      throw new Error(invalidSelectionMessage);
+    }
+
+    const groupKey = clean(group.id);
+
+    if (!groupKey) {
+      throw new Error(invalidSelectionMessage);
+    }
+
+    if (assignedSelections.has(groupKey)) {
+      throw new Error(invalidSelectionMessage);
+    }
+
+    const options = productOptionsByGroupId.get(groupKey) ?? [];
+    const candidateValue = slugifyText(candidate.label || candidate.value || candidate.optionId);
+    const matchedOption = options.find((option) => {
+      if (candidate.optionId && clean(option.id) === candidate.optionId) {
+        return true;
+      }
+
+      return [option.optionLabel, option.optionValue].some((optionValue) => slugifyText(optionValue) === candidateValue);
+    });
+
+    if (!matchedOption) {
+      throw new Error(invalidSelectionMessage);
+    }
+
+    assignedSelections.set(groupKey, {
+      group,
+      option: matchedOption,
+    });
+  }
+
+  for (const group of productGroups) {
+    const groupKey = clean(group.id);
+
+    if (assignedSelections.has(groupKey)) {
+      continue;
+    }
+
+    if (!group.isRequired) {
+      continue;
+    }
+
+    const options = productOptionsByGroupId.get(groupKey) ?? [];
+    const defaultOptions = options.filter((option) => option.isDefault);
+    const fallbackOption =
+      defaultOptions.length === 1
+        ? defaultOptions[0]
+        : options.length === 1
+          ? options[0]
+          : null;
+
+    if (!fallbackOption) {
+      throw new Error(invalidSelectionMessage);
+    }
+
+    assignedSelections.set(groupKey, {
+      group,
+      option: fallbackOption,
+    });
+  }
+
+  const selectedOptions = productGroups
+    .map((group) => {
+      const selected = assignedSelections.get(clean(group.id));
+      if (!selected) {
+        return null;
+      }
+
+      const option = selected.option;
+      return {
+        groupId: clean(group.id),
+        groupName: clean(group.groupName),
+        kind: clean(option.kind) || "text",
+        optionId: clean(option.id),
+        label: clean(option.optionLabel),
+        value: clean(option.optionValue) || clean(option.optionLabel),
+        priceDelta: Number(option.priceDelta) || 0,
+        compareAtDelta: option.compareAtDelta == null ? null : Number(option.compareAtDelta) || 0,
+        swatchColor: option.swatchColor || null,
+        imageUrl: option.imageUrl || null,
+        isDefault: Boolean(option.isDefault),
+      };
+    })
+    .filter(Boolean);
+
+  const priceDelta = selectedOptions.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
+  const selectedColor =
+    selectedOptions.find((option) => slugifyText(option.groupName) === "color")?.label ||
+    legacyColor ||
+    null;
+  const selectedSize =
+    selectedOptions.find((option) => slugifyText(option.groupName) === "size")?.label ||
+    legacySize ||
+    null;
+
+  return {
+    selectedOptions,
+    selectedColor,
+    selectedSize,
+    priceDelta,
+    variantKey: buildGuestVariantKeyFromSelectedOptions(selectedOptions, clean(product.slug), selectedColor, selectedSize),
+  };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
@@ -487,6 +889,7 @@ function normalizeGuestCheckoutItem(item = {}) {
   const quantity = Math.max(Math.round(Number(item.quantity ?? 1) || 1), 1);
   const selectedColor = clean(item.selectedColor ?? item.selected_color ?? item.variant?.color);
   const selectedSize = clean(item.selectedSize ?? item.selected_size ?? item.variant?.size);
+  const selectedOptions = normalizeGuestSelectedOptions(item.selectedOptions ?? item.selected_options);
 
   if (!productId && !productSlug) {
     return null;
@@ -498,6 +901,7 @@ function normalizeGuestCheckoutItem(item = {}) {
     quantity,
     selectedColor: selectedColor || null,
     selectedSize: selectedSize || null,
+    selectedOptions,
   };
 }
 
@@ -522,7 +926,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
   if (productIds.length > 0) {
     const { data, error } = await supabaseAdmin
       .from("products")
-      .select("id, slug, name, brand, primary_image_url, price, shipping_fee, shipping_method, status, deleted_at")
+      .select("*")
       .in("id", productIds);
 
     if (error) {
@@ -537,7 +941,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
   if (productSlugs.length > 0) {
     const { data, error } = await supabaseAdmin
       .from("products")
-      .select("id, slug, name, brand, primary_image_url, price, shipping_fee, shipping_method, status, deleted_at")
+      .select("*")
       .in("slug", productSlugs);
 
     if (error) {
@@ -550,10 +954,9 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
     }
   }
 
-  const normalized = [];
-  let subtotal = 0;
-  let shippingTotal = 0;
-  const shippingMethods = new Set();
+  const resolvedEntries = [];
+  const resolvedProductIds = new Set();
+  let availabilityMode = null;
 
   for (const row of normalizedRows) {
     const product =
@@ -569,8 +972,42 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       throw new Error("Your cart contains an inactive, deleted, or invalid product.");
     }
 
-    const unitPrice = Number(product.price) || 0;
-    const shippingFee = Number(product.shipping_fee) || 0;
+    const availabilityType = normalizeAvailabilityType(product.availability_type || "ready_stock");
+
+    if (availabilityType === "coming_soon") {
+      throw new Error("Coming soon products cannot be checked out yet.");
+    }
+
+    if (!availabilityMode) {
+      availabilityMode = availabilityType;
+    } else if (availabilityMode !== availabilityType) {
+      throw new Error("Pre-order and ready-stock products must be checked out separately.");
+    }
+
+    resolvedProductIds.add(clean(product.id));
+    resolvedEntries.push({
+      row,
+      product,
+      availabilityType,
+    });
+  }
+
+  const variationData = await loadGuestVariationData([...resolvedProductIds]);
+  const normalized = [];
+  let subtotal = 0;
+  let shippingTotal = 0;
+  const shippingMethods = new Set();
+
+  for (const entry of resolvedEntries) {
+    const { row, product, availabilityType } = entry;
+    const selections = resolveGuestProductSelections({
+      product,
+      row,
+      variationData,
+    });
+    const basePrice = Number(product.price) || 0;
+    const unitPrice = basePrice + selections.priceDelta;
+    const shippingFee = availabilityType === "preorder" ? 0 : Number(product.shipping_fee) || 0;
     const lineSubtotal = unitPrice * row.quantity;
     const lineShipping = shippingFee * row.quantity;
 
@@ -586,12 +1023,17 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       imageUrl: product.primary_image_url,
       unitPrice,
       quantity: row.quantity,
-      selectedColor: row.selectedColor,
-      selectedSize: row.selectedSize,
+      selectedColor: selections.selectedColor,
+      selectedSize: selections.selectedSize,
+      variantKey: selections.variantKey,
+      selectedOptions: selections.selectedOptions,
       shippingFee,
       lineSubtotal,
       lineShipping,
       shippingMethod: normalizeShipmentType(product.shipping_method || "air"),
+      availabilityType,
+      estimatedArrival: clean(product.estimated_arrival) || null,
+      preorderTerms: clean(product.preorder_terms) || null,
     });
   }
 
@@ -600,6 +1042,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
     subtotal,
     shippingTotal,
     total: subtotal + shippingTotal,
+    availabilityType: availabilityMode || "ready_stock",
     shipmentType:
       shippingMethods.size === 0
         ? null
@@ -977,7 +1420,7 @@ async function generateProductContent(body = {}) {
 async function loadOrderBundle(orderId) {
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
-    .select("id, order_number, user_id, customer_name, customer_email, status, payment_status, shipment_type, batch_number, shipping_address_id, shipping_address_snapshot, subtotal, shipping_total, total, delivered_at, created_at, updated_at")
+    .select("*")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -991,7 +1434,7 @@ async function loadOrderBundle(orderId) {
 
   const { data: items, error: itemError } = await supabaseAdmin
     .from("order_items")
-    .select("id, order_id, product_id, product_name, product_slug, brand, image_url, unit_price, quantity, selected_color, selected_size, shipping_fee, line_subtotal, line_shipping, created_at")
+    .select("*")
     .eq("order_id", orderId)
     .order("created_at", { ascending: true })
     .order("id", { ascending: true });
@@ -1019,6 +1462,7 @@ function mapOrderBundle(order, items = []) {
       customerId: order.user_id,
       customerName: order.customer_name,
       customerEmail: order.customer_email,
+      orderType: order.order_type,
       status: order.status,
       paymentStatus: order.payment_status,
       shipmentType: order.shipment_type,
@@ -1028,6 +1472,8 @@ function mapOrderBundle(order, items = []) {
       subtotal: order.subtotal,
       shippingTotal: order.shipping_total,
       total: order.total,
+      estimatedArrival: order.estimated_arrival,
+      preorderTerms: order.preorder_terms,
       deliveredAt: order.delivered_at,
       createdAt: order.created_at,
       updatedAt: order.updated_at,
@@ -1043,7 +1489,12 @@ function mapOrderBundle(order, items = []) {
         quantity: item.quantity,
         selectedColor: item.selected_color,
         selectedSize: item.selected_size,
+        variantKey: item.variant_key,
+        selectedOptions: item.selected_options,
         shippingFee: item.shipping_fee,
+        availabilityType: item.availability_type,
+        estimatedArrival: item.estimated_arrival,
+        preorderTerms: item.preorder_terms,
         lineSubtotal: item.line_subtotal,
         lineShipping: item.line_shipping,
         createdAt: item.created_at,
@@ -1061,7 +1512,12 @@ function mapOrderBundle(order, items = []) {
       quantity: item.quantity,
       selectedColor: item.selected_color,
       selectedSize: item.selected_size,
+      variantKey: item.variant_key,
+      selectedOptions: item.selected_options,
       shippingFee: item.shipping_fee,
+      availabilityType: item.availability_type,
+      estimatedArrival: item.estimated_arrival,
+      preorderTerms: item.preorder_terms,
       lineSubtotal: item.line_subtotal,
       lineShipping: item.line_shipping,
       createdAt: item.created_at,
@@ -1310,7 +1766,7 @@ async function syncOrderPaymentStatus(orderId, status) {
   const paymentStatus = clean(status).toLowerCase() === "successful" ? "paid" : clean(status).toLowerCase();
   const { data: currentOrder, error: currentOrderError } = await supabaseAdmin
     .from("orders")
-    .select("id, status")
+    .select("id, status, order_type")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -1319,9 +1775,14 @@ async function syncOrderPaymentStatus(orderId, status) {
   }
 
   const currentStatus = clean(currentOrder?.status).toLowerCase();
+  const currentOrderType = normalizeAvailabilityType(currentOrder?.order_type || "ready_stock");
   const nextOrderStatus =
-    paymentStatus === "paid" && !["processing", "delivered", "cancelled", "canceled"].includes(currentStatus)
-      ? "processing"
+    paymentStatus === "paid"
+      ? currentOrderType === "preorder"
+        ? currentStatus || "preorder_received"
+        : !["processing", "delivered", "cancelled", "canceled"].includes(currentStatus)
+          ? "processing"
+          : currentOrder?.status
       : currentOrder?.status;
 
   const { data, error } = await supabaseAdmin
@@ -1336,7 +1797,7 @@ async function syncOrderPaymentStatus(orderId, status) {
       ),
     )
     .eq("id", orderId)
-    .select("id, order_number, user_id, customer_name, customer_email, status, payment_status, shipment_type, batch_number, shipping_address_id, shipping_address_snapshot, subtotal, shipping_total, total, delivered_at, created_at, updated_at")
+    .select("*")
     .single();
 
   if (error) {
@@ -1345,7 +1806,7 @@ async function syncOrderPaymentStatus(orderId, status) {
 
   const { data: items, error: itemError } = await supabaseAdmin
     .from("order_items")
-    .select("id, order_id, product_id, product_name, product_slug, brand, image_url, unit_price, quantity, selected_color, selected_size, shipping_fee, line_subtotal, line_shipping, created_at")
+    .select("*")
     .eq("order_id", orderId)
     .order("created_at", { ascending: true })
     .order("id", { ascending: true });
@@ -1369,7 +1830,7 @@ async function updateGuestOrderBundle(orderId, values = {}) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
-    .select("id, order_number, user_id, customer_name, customer_email, status, payment_status, shipment_type, batch_number, shipping_address_id, shipping_address_snapshot, subtotal, shipping_total, total, delivered_at, created_at, updated_at")
+    .select("*")
     .single();
 
   if (error) {
@@ -1378,7 +1839,7 @@ async function updateGuestOrderBundle(orderId, values = {}) {
 
   const { data: items, error: itemError } = await supabaseAdmin
     .from("order_items")
-    .select("id, order_id, product_id, product_name, product_slug, brand, image_url, unit_price, quantity, selected_color, selected_size, shipping_fee, line_subtotal, line_shipping, created_at")
+    .select("*")
     .eq("order_id", orderId)
     .order("created_at", { ascending: true })
     .order("id", { ascending: true });
@@ -1619,6 +2080,10 @@ function buildPaystackMetadata(body = {}) {
       : normalizePayload(metadata.totals),
     shippingBalanceDue: clean(body.shippingBalanceDue) || metadata.shippingBalanceDue || "",
     paymentPurpose: clean(body.paymentPurpose) || metadata.paymentPurpose || "",
+    orderType: clean(body.orderType) || metadata.orderType || "ready_stock",
+    availabilityType: clean(body.availabilityType) || metadata.availabilityType || "ready_stock",
+    estimatedArrival: clean(body.estimatedArrival) || metadata.estimatedArrival || "",
+    preorderTerms: clean(body.preorderTerms) || metadata.preorderTerms || "",
   };
 }
 
@@ -1662,6 +2127,7 @@ async function handleInitialize(req, res) {
 
     const checkout = await resolveGuestCheckoutProducts(cartRows);
     const amount = Number(checkout.total) || 0;
+    const orderType = checkout.availabilityType === "preorder" ? "preorder" : "ready_stock";
 
     if (amount <= 0) {
       sendJson(res, 409, {
@@ -1679,15 +2145,18 @@ async function handleInitialize(req, res) {
       user_id: null,
       customer_name: guestName,
       customer_email: guestEmail,
-      status: "pending_payment",
+      order_type: orderType,
+      status: orderType === "preorder" ? "preorder_received" : "pending_payment",
       payment_status: "pending",
       shipment_type: checkout.shipmentType ?? null,
       batch_number: clean(body.batchNumber) || null,
       shipping_address_id: null,
       shipping_address_snapshot: shippingAddress,
       subtotal: checkout.subtotal,
-      shipping_total: checkout.shippingTotal,
+      shipping_total: orderType === "preorder" ? 0 : checkout.shippingTotal,
       total: checkout.total,
+      estimated_arrival: orderType === "preorder" ? clean(checkout.items?.[0]?.estimatedArrival ?? body.estimatedArrival) || null : null,
+      preorder_terms: orderType === "preorder" ? clean(checkout.items?.[0]?.preorderTerms ?? body.preorderTerms) || null : null,
       ...(guestOrderDetailsAvailable
         ? {
             guest_email: guestEmail,
@@ -1699,7 +2168,7 @@ async function handleInitialize(req, res) {
     const { data: guestOrderRow, error: guestOrderError } = await supabaseAdmin
       .from("orders")
       .insert(guestOrderValues)
-      .select("id, order_number, user_id, customer_name, customer_email, status, payment_status, shipment_type, batch_number, shipping_address_id, shipping_address_snapshot, subtotal, shipping_total, total, delivered_at, created_at, updated_at")
+      .select("*")
       .single();
 
     if (guestOrderError) {
@@ -1721,16 +2190,21 @@ async function handleInitialize(req, res) {
       quantity: item.quantity,
       selected_color: item.selectedColor ?? null,
       selected_size: item.selectedSize ?? null,
-      shipping_fee: item.shippingFee ?? 0,
+      variant_key: clean(item.variantKey) || null,
+      selected_options: Array.isArray(item.selectedOptions) ? item.selectedOptions : [],
+      shipping_fee: item.availabilityType === "preorder" ? 0 : item.shippingFee ?? 0,
       line_subtotal: item.lineSubtotal,
       line_shipping: item.lineShipping,
+      availability_type: item.availabilityType ?? "ready_stock",
+      estimated_arrival: item.estimatedArrival ?? null,
+      preorder_terms: item.preorderTerms ?? null,
     }));
 
     const { data: insertedGuestItems, error: guestItemError } = guestItems.length
       ? await supabaseAdmin
           .from("order_items")
           .insert(guestItems)
-          .select("id, order_id, product_id, product_name, product_slug, brand, image_url, unit_price, quantity, selected_color, selected_size, shipping_fee, line_subtotal, line_shipping, created_at")
+          .select("*")
       : { data: [], error: null };
 
     if (guestItemError) {
@@ -1769,7 +2243,7 @@ async function handleInitialize(req, res) {
         cartRows: checkout.items,
         totals: {
           subtotal: checkout.subtotal,
-          shippingTotal: checkout.shippingTotal,
+          shippingTotal: orderType === "preorder" ? 0 : checkout.shippingTotal,
           totalPrice: checkout.total,
         },
         paymentPurpose,
@@ -1777,6 +2251,10 @@ async function handleInitialize(req, res) {
         paymentNetwork,
         paymentPhoneNumber,
         orderNumber: guestOrderNumber,
+        orderType,
+        availabilityType: orderType,
+        estimatedArrival: checkout.items?.[0]?.estimatedArrival ?? "",
+        preorderTerms: checkout.items?.[0]?.preorderTerms ?? "",
       }),
     };
 
@@ -2104,6 +2582,8 @@ async function handleVerify(req, res, reference) {
           quantity: item.quantity,
           selectedColor: item.selected_color,
           selectedSize: item.selected_size,
+          variantKey: item.variant_key,
+          selectedOptions: item.selected_options,
           shippingFee: item.shipping_fee,
           lineSubtotal: item.line_subtotal,
           lineShipping: item.line_shipping,
@@ -2172,6 +2652,20 @@ async function handleVerify(req, res, reference) {
       const guestCustomerEmail = clean(guestAccount.profile?.email) || guestEmail;
       const shouldLinkToAccount = Boolean(guestAccount.created || guestAccount.eligible);
       const linkedUserId = shouldLinkToAccount ? clean(guestAccount.user?.id) : "";
+      const guestOrderType = normalizeAvailabilityType(expectedCheckout.availabilityType || "ready_stock");
+      const guestOrderStatus = guestOrderType === "preorder" ? "preorder_received" : "processing";
+      const guestEstimatedArrival = clean(
+        expectedCheckout.items?.[0]?.estimatedArrival ||
+          expectedCheckout.items?.[0]?.estimated_arrival ||
+          metadata.estimatedArrival ||
+          metadata.estimated_arrival,
+      ) || null;
+      const guestPreorderTerms = clean(
+        expectedCheckout.items?.[0]?.preorderTerms ||
+          expectedCheckout.items?.[0]?.preorder_terms ||
+          metadata.preorderTerms ||
+          metadata.preorder_terms,
+      ) || null;
 
       const orderValues = {
         user_id: linkedUserId || undefined,
@@ -2179,14 +2673,20 @@ async function handleVerify(req, res, reference) {
         guest_full_name: guestName,
         customer_name: guestCustomerName,
         customer_email: guestCustomerEmail,
-        status: "processing",
+        order_type: guestOrderType,
+        status: guestOrderStatus,
         payment_status: "paid",
         shipment_type: expectedCheckout.shipmentType ?? null,
         batch_number: guestBatchNumber,
         shipping_address_snapshot: guestShippingAddress,
         subtotal: Number(guestTotals.subtotal ?? expectedCheckout.subtotal) || expectedCheckout.subtotal,
-        shipping_total: Number(guestTotals.shippingTotal ?? expectedCheckout.shippingTotal) || expectedCheckout.shippingTotal,
+        shipping_total:
+          guestOrderType === "preorder"
+            ? 0
+            : Number(guestTotals.shippingTotal ?? expectedCheckout.shippingTotal) || expectedCheckout.shippingTotal,
         total: Number(guestTotals.totalPrice ?? guestTotals.total ?? expectedCheckout.total) || expectedCheckout.total,
+        estimated_arrival: guestOrderType === "preorder" ? guestEstimatedArrival : null,
+        preorder_terms: guestOrderType === "preorder" ? guestPreorderTerms : null,
         ...(guestOrderDetailsAvailable
           ? {
               guest_email: guestEmail,
