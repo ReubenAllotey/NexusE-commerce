@@ -1,0 +1,121 @@
+.app-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: radial-gradient(circle at center, #16213a 0%, #0f172a 45%, #070b14 100%);
+  opacity: 1;
+  transition: opacity 500ms ease;
+}
+
+.app-loader--exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-loader__content {
+  display: flex;
+  width: min(100% - 2rem, 700px);
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.app-loader__logo {
+  width: min(82vw, 650px);
+  height: auto;
+  object-fit: contain;
+  opacity: 0;
+  transform: scale(0.96);
+  animation: app-loader-logo-in 650ms ease-out forwards;
+}
+
+.app-loader__tagline {
+  margin: 1.15rem 0 0;
+  color: #f8fafc;
+  font-size: clamp(0.95rem, 2vw, 1.2rem);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: app-loader-copy-in 500ms 180ms ease-out forwards;
+}
+
+.app-loader__dots {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 1.35rem;
+}
+
+.app-loader__dots span {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: #f8fafc;
+  animation: app-loader-dot-pulse 900ms ease-in-out infinite;
+}
+
+.app-loader__dots span:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.app-loader__dots span:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes app-loader-logo-in {
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes app-loader-copy-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-loader-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@media (max-width: 480px) {
+  .app-loader__logo {
+    width: min(88vw, 400px);
+  }
+
+  .app-loader__tagline {
+    letter-spacing: 0.05em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loader,
+  .app-loader__logo,
+  .app-loader__tagline {
+    transition: none;
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+
+  .app-loader__dots span {
+    animation: none;
+    opacity: 0.8;
+  }
+}

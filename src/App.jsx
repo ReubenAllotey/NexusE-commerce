@@ -1,6 +1,7 @@
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import AppLoader from "./components/AppLoader/AppLoader";
 import Header from "./assets/components/Header/header";
 import { supabase } from "./lib/supabaseClient";
 import Home from "./pages/Home/home";
@@ -1753,8 +1754,10 @@ function App() {
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <BrowserRouter>
-      <AppShell
+    <>
+      <AppLoader />
+      <BrowserRouter>
+        <AppShell
         cartCount={cartCount}
         cartItems={cartItems}
         cartLoading={cartLoading}
@@ -1797,8 +1800,9 @@ function App() {
         onCloseCartDrawer={() => setIsCartDrawerOpen(false)}
         onLogin={handleLogin}
         onSignup={handleSignup}
-      />
-    </BrowserRouter>
+        />
+      </BrowserRouter>
+    </>
   );
 }
 
