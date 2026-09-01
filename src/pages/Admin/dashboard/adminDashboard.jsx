@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import logo from "../../../assets/images/nexuslogo.png";
+import { supabase } from "../../../lib/supabaseClient";
 import { clearAdminSession, loadAdminSession } from "../Auth/adminAuthStorage";
 import {
   formatDateTime,
   formatMoney,
   formatShortDate,
-  getBestSellingProducts,
   getOrderMetrics,
   getProductMetrics,
   getRecentOrders,
@@ -38,26 +38,52 @@ function MetricCard({ title, value, subtitle, tone = "blue" }) {
   );
 }
 
-function AdminDashboard({ orders = [], onLogout = clearAdminSession }) {
+function getOrderTypeLabel(order = {}) {
+  const orderType = String(order.orderType ?? order.order_type ?? "ready_stock").toLowerCase();
+  return orderType === "preorder" ? "Pre-order" : "Ready stock";
+}
+
+function AdminDashboard({
+  orders = [],
+  siteBanner = null,
+  onLogout = clearAdminSession,
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const session = loadAdminSession();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { products: liveProducts } = useProducts();
+  const [customerCount, setCustomerCount] = useState(null);
   const productMetrics = getProductMetrics(liveProducts);
   const orderMetrics = getOrderMetrics(orders);
-  const bestSellingProducts = getBestSellingProducts(
-    orders,
-    liveProducts,
-    1,
-  );
   const recentOrders = getRecentOrders(orders, 6);
   const latestOrder = recentOrders[0] ?? null;
-  const bestSeller = bestSellingProducts[0] ?? null;
+  const currentBatch = siteBanner?.announcement?.batchNumber?.trim() || "Not set";
 
   useEffect(() => {
     setIsMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCustomerCount = async () => {
+      const { count, error } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "customer");
+
+      if (isMounted) {
+        setCustomerCount(error ? null : count ?? 0);
+      }
+    };
+
+    void loadCustomerCount();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.id]);
 
   if (!session) {
     return <Navigate to="/admin/login" replace />;
@@ -84,7 +110,7 @@ function AdminDashboard({ orders = [], onLogout = clearAdminSession }) {
             </span>
             <span className="admin-dashboard-brand__copy">
               <strong>Nexus Admin</strong>
-              <small>Store control room</small>
+              <small>Admin panel</small>
             </span>
           </Link>
 
@@ -129,7 +155,7 @@ function AdminDashboard({ orders = [], onLogout = clearAdminSession }) {
             </button>
 
             <div className="admin-dashboard-topbar__title">
-              <h1>Dashboard</h1>
+              <p>Admin overview</p>
               <span>
                 Last synced{" "}
                 {latestOrder
@@ -140,16 +166,22 @@ function AdminDashboard({ orders = [], onLogout = clearAdminSession }) {
               </span>
             </div>
 
-            <button
-              type="button"
-              className="admin-dashboard-topbar__button"
-              onClick={() => navigate("/products")}
-            >
-              View store
-            </button>
+            <div className="admin-dashboard-topbar__actions">
+              <span className="admin-dashboard-batch">
+                <small>Current Batch</small>
+                <strong>{currentBatch}</strong>
+              </span>
+              <button
+                type="button"
+                className="admin-dashboard-topbar__button"
+                onClick={() => navigate("/products")}
+              >
+                View store
+              </button>
+            </div>
           </header>
 
-          <div className="admin-dashboard-summary__label">Summary</div>
+          <div className="admin-dashboard-summary__label">Store snapshot</div>
           <div className="admin-dashboard-summary__metrics">
             <MetricCard
               title="Total Products"
@@ -158,20 +190,22 @@ function AdminDashboard({ orders = [], onLogout = clearAdminSession }) {
               tone="blue"
             />
             <MetricCard
-              title="Orders"
+              title="Total Orders"
               value={orderMetrics.totalOrders}
-              subtitle={`${orderMetrics.inTransitOrders} in transit and ${orderMetrics.deliveredOrders} delivered.`}
+              subtitle="All customer orders recorded."
               tone="green"
             />
             <MetricCard
-              title="Best Selling Products"
-              value={bestSeller ? bestSeller.name : "No sales yet"}
-              subtitle={
-                bestSeller
-                  ? `${bestSeller.quantity} sold, ${formatMoney(bestSeller.price)} each.`
-                  : "Once orders come in, the top-selling item will appear here."
-              }
+              title="Total Customers"
+              value={customerCount ?? "—"}
+              subtitle="Registered customer accounts."
               tone="amber"
+            />
+            <MetricCard
+              title="Total Categories"
+              value={productMetrics.categoryCount}
+              subtitle="Product categories in the catalog."
+              tone="slate"
             />
           </div>
 
@@ -197,6 +231,13 @@ function AdminDashboard({ orders = [], onLogout = clearAdminSession }) {
                     <div className="admin-dashboard-order-row__main">
                       <strong>{order.orderNumber}</strong>
                       <span>{order.customerName || "Guest checkout"}</span>
+                      <small
+                        className={`admin-dashboard-order-row__type${
+                          getOrderTypeLabel(order) === "Pre-order" ? " is-preorder" : ""
+                        }`}
+                      >
+                        {getOrderTypeLabel(order)}
+                      </small>
                       <small>
                         {order.customerEmail || "No email captured"}
                       </small>

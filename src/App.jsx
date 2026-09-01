@@ -513,6 +513,7 @@ function AppShell({
             element={adminGuard(
               <AdminDashboard
                 orders={orders}
+                siteBanner={siteBanner}
                 onLogout={onAdminLogout}
               />,
             )}
