@@ -6,10 +6,15 @@ const SPLASH_DURATION = 1500;
 const FADE_DURATION = 500;
 
 function AppLoader() {
+  const [logoLoaded, setLogoLoaded] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
+    if (!logoLoaded) {
+      return undefined;
+    }
+
     const fadeTimer = window.setTimeout(() => {
       setIsExiting(true);
     }, SPLASH_DURATION);
@@ -21,7 +26,7 @@ function AppLoader() {
       window.clearTimeout(fadeTimer);
       window.clearTimeout(removeTimer);
     };
-  }, []);
+  }, [logoLoaded]);
 
   if (!isVisible) {
     return null;
@@ -34,7 +39,13 @@ function AppLoader() {
       aria-label="Loading Nexus Import Hub"
     >
       <div className="app-loader__content">
-        <img className="app-loader__logo" src={logo} alt="Nexus Import Hub" />
+        <img
+          className={`app-loader__logo${logoLoaded ? " is-ready" : ""}`}
+          src={logo}
+          alt="Nexus Import Hub"
+          onLoad={() => setLogoLoaded(true)}
+          onError={() => setLogoLoaded(true)}
+        />
         <p className="app-loader__tagline">Importing Made Simple.</p>
         <div className="app-loader__dots" aria-hidden="true">
           <span />
