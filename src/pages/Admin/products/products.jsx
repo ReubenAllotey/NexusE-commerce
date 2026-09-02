@@ -25,6 +25,16 @@ function MetricCard({ title, value, note }) {
   );
 }
 
+function getFulfillmentLabel(product) {
+  const availabilityType = String(product?.availabilityType ?? product?.availability_type ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (availabilityType === "preorder") return "Pre-order";
+  if (availabilityType === "coming_soon") return "Coming Soon";
+  return "Ready Stock";
+}
+
 function ProductImage({ product }) {
   if (!product?.image) {
     return <div className="admin-products-table__image admin-products-table__image--empty" />;
@@ -214,6 +224,7 @@ function AdminProductsPage({ orders = [] }) {
                   <th>Category</th>
                   <th>Price</th>
                   <th>Availability</th>
+                  <th>Stock</th>
                   <th>Shipping Fee</th>
                   <th>Actions</th>
                 </tr>
@@ -242,16 +253,18 @@ function AdminProductsPage({ orders = [] }) {
                         <td>
                           <div className="admin-products-availability">
                             <span className={`admin-products-pill admin-products-pill--${getProductPurchaseMeta(product).tone}`}>
-                              {getProductPurchaseMeta(product).label}
-                            </span>
-                            <span
-                              className={`admin-products-pill admin-products-pill--stock${
-                                isProductOutOfStock(product) ? " is-out" : ""
-                              }`}
-                            >
-                              {isProductOutOfStock(product) ? "Out of Stock" : "In Stock"}
+                              {getFulfillmentLabel(product)}
                             </span>
                           </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`admin-products-pill admin-products-pill--stock${
+                              isProductOutOfStock(product) ? " is-out" : ""
+                            }`}
+                          >
+                            {isProductOutOfStock(product) ? "Out of Stock" : "In Stock"}
+                          </span>
                         </td>
                         <td>
                           {shippingFee == null ? (
@@ -315,7 +328,7 @@ function AdminProductsPage({ orders = [] }) {
                   })
                 ) : (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="7">
+                    <td colSpan="8">
                       <div className="admin-products-empty">
                         <h2>No products match your filters.</h2>
                         <p>Try a different search term or category, or add a new product to the catalog.</p>

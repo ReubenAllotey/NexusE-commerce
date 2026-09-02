@@ -27089,6 +27089,98 @@ body[data-theme="dark"] .admin-products-stock-modal__panel > span {
   white-space: nowrap;
 }
 
+.admin-products-page .admin-products-table {
+  min-width: 1100px;
+  table-layout: fixed;
+}
+
+.admin-products-page .admin-products-table th,
+.admin-products-page .admin-products-table td {
+  vertical-align: middle;
+}
+
+.admin-products-page .admin-products-table th:nth-child(1),
+.admin-products-page .admin-products-table td:nth-child(1) {
+  width: 70px;
+}
+
+.admin-products-page .admin-products-table th:nth-child(2),
+.admin-products-page .admin-products-table td:nth-child(2) {
+  width: 240px;
+}
+
+.admin-products-page .admin-products-table th:nth-child(3),
+.admin-products-page .admin-products-table td:nth-child(3) {
+  width: 140px;
+}
+
+.admin-products-page .admin-products-table th:nth-child(4),
+.admin-products-page .admin-products-table td:nth-child(4) {
+  width: 120px;
+  white-space: nowrap;
+}
+
+.admin-products-page .admin-products-table th:nth-child(5),
+.admin-products-page .admin-products-table td:nth-child(5) {
+  width: 140px;
+}
+
+.admin-products-page .admin-products-table th:nth-child(6),
+.admin-products-page .admin-products-table td:nth-child(6) {
+  width: 120px;
+  white-space: nowrap;
+}
+
+.admin-products-page .admin-products-table th:nth-child(7),
+.admin-products-page .admin-products-table td:nth-child(7) {
+  width: 120px;
+  white-space: nowrap;
+}
+
+.admin-products-page .admin-products-table th:nth-child(8),
+.admin-products-page .admin-products-table td:nth-child(8) {
+  width: 230px;
+  white-space: nowrap;
+}
+
+.admin-products-page .admin-products-table td:nth-child(2) strong {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: normal;
+  word-break: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.35;
+}
+
+.admin-products-page .admin-products-table td:nth-child(2) small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-products-page .admin-products-table__image-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.admin-products-page .admin-products-pill {
+  min-height: 0;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .admin-products-page .admin-products-table {
+    min-width: 1100px;
+  }
+}
+
 .admin-products-page .admin-products-table td:last-child {
   width: 12rem;
   white-space: nowrap;
