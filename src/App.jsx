@@ -16,6 +16,7 @@ import Signup from "./pages/register/signup";
 import Login from "./pages/register/login";
 import PasswordSetup from "./pages/register/PasswordSetup";
 import AdminLogin from "./pages/Admin/Auth/adminLogin";
+import AdminLayout from "./pages/Admin/AdminLayout";
 import SiteBannerStrip from "./pages/Home/siteBannerStrip";
 import { useProducts } from "./pages/Products/productData";
 import ProfileLayout from "./pages/Profile/ProfileLayout";
@@ -435,7 +436,7 @@ function AppShell({
       return <Navigate to="/admin/login" replace />;
     }
 
-    return content;
+    return <AdminLayout onLogout={onAdminLogout}>{content}</AdminLayout>;
   };
 
   if (location.pathname.startsWith("/admin")) {

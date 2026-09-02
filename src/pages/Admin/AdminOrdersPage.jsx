@@ -1,5 +1,6 @@
-import { Fragment, useMemo, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
+import electronicsImage from "../../assets/images/electronic-set.png";
 import { loadAdminSession } from "./Auth/adminAuthStorage";
 import { formatMoney, formatShortDate } from "./adminHelpers";
 import { getOrderStatusLabel } from "../Profile/ordersStorage";
@@ -187,6 +188,38 @@ function getShipmentTone(shipment) {
   }
 }
 
+function getSelectedOptionsLabel(item = {}) {
+  const options = Array.isArray(item.selectedOptions) ? item.selectedOptions : [];
+
+  if (options.length > 0) {
+    return options
+      .map((option) => {
+        const label = option?.label ?? option?.name ?? option?.group ?? "Option";
+        const value = option?.value ?? option?.selectedValue ?? option?.option ?? "";
+        return value ? `${label}: ${value}` : label;
+      })
+      .filter(Boolean)
+      .join(" • ");
+  }
+
+  return item.variant?.label || "";
+}
+
+function getItemUnitPrice(item = {}) {
+  return Number(item.price ?? item.unitPrice ?? item.unit_price ?? 0) || 0;
+}
+
+function getItemQuantity(item = {}) {
+  return Math.max(Number(item.quantity) || 1, 1);
+}
+
+function getItemSubtotal(item = {}) {
+  const storedSubtotal = Number(item.lineSubtotal ?? item.line_subtotal);
+  return Number.isFinite(storedSubtotal) && storedSubtotal > 0
+    ? storedSubtotal
+    : getItemUnitPrice(item) * getItemQuantity(item);
+}
+
 function SummaryCard({ label, value, note, tone = "blue" }) {
   return (
     <article className={`admin-orders-stat admin-orders-stat--${tone}`}>
@@ -226,11 +259,37 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     () => orders.find((order) => order.id === statusModalOrderId) ?? null,
     [orders, statusModalOrderId],
   );
+  const activeViewOrder = useMemo(
+    () => orders.find((order) => order.id === openOrderId) ?? null,
+    [orders, openOrderId],
+  );
   const {
     shipmentsByOrderId,
     loading: shipmentsLoading,
     error: shipmentsError,
   } = useShipmentBatches({ orders });
+
+  useEffect(() => {
+    if (!activeViewOrder) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setOpenOrderId(null);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeViewOrder]);
 
   const summary = useMemo(() => {
     const totalOrders = orders.length;
@@ -335,11 +394,6 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
             <span>Search, filter, and manage customer orders from one place.</span>
           </div>
 
-          <div className="admin-orders-header__actions">
-            <Link to="/admin/dashboard" className="admin-orders-header__button">
-              Go back to dashboard
-            </Link>
-          </div>
         </header>
 
         <section className="admin-orders-panel">
@@ -527,12 +581,9 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                     const summaryStatus = getOrderSummaryStatus(order);
                     const shipmentType = getShipmentType(order);
                     const shipment = shipmentsByOrderId.get(order.id) ?? null;
-                    const isExpanded = openOrderId === order.id;
                     const orderCount = getOrderItemCount(order);
-                    const items = Array.isArray(order.items) ? order.items : [];
 
                     return (
-                      <Fragment key={order.id}>
                         <tr key={order.id} className="admin-orders-row">
                           <td>
                             <strong>{order.orderNumber ?? order.id}</strong>
@@ -559,16 +610,13 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                               <Pill tone={getShipmentTone(shipmentType)}>
                                 {formatShipmentLabel(shipmentType)}
                               </Pill>
-                              <small>
-                                {shipment?.stepLabel ?? "No live shipment row yet"}
-                            </small>
                             <small>
                               {shipment
                                 ? `${shipment.currentStatusLabel} • ${getShipmentProgressPercent(
                                     shipment.currentStep,
                                     shipment.currentStatus,
                                   )}%`
-                                : "No live shipment row yet"}
+                                : "No shipment yet"}
                             </small>
                           </td>
                           <td>
@@ -582,11 +630,9 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                               <button
                                 type="button"
                                 className="admin-orders-action-button"
-                                onClick={() =>
-                                  setOpenOrderId(isExpanded ? null : order.id)
-                                }
+                                onClick={() => setOpenOrderId(order.id)}
                               >
-                                {isExpanded ? "Hide" : "View"}
+                                View
                               </button>
 
                               <button
@@ -600,104 +646,6 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                           </td>
                         </tr>
 
-                        {isExpanded ? (
-                          <tr className="admin-orders-details-row">
-                            <td colSpan={11}>
-                              <div className="admin-orders-details">
-                                <div className="admin-orders-details__summary">
-                                  <div>
-                                    <span>Batch number</span>
-                                    <strong>{order.batchNumber ?? "N/A"}</strong>
-                                  </div>
-                                  <div>
-                                    <span>Status</span>
-                                    <strong>
-                                      <Pill tone={getStatusTone(summaryStatus)}>
-                                        {getOrderStatusLabel(summaryStatus)}
-                                      </Pill>
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <span>Shipment</span>
-                                    <strong>
-                                      <Pill tone={getShipmentTone(shipmentType)}>
-                                        {formatShipmentLabel(shipmentType)}
-                                      </Pill>
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <span>Order type</span>
-                                    <strong>
-                                      <Pill tone={getOrderTypeValue(order) === "preorder" ? "amber" : "blue"}>
-                                        {getOrderTypeLabel(order)}
-                                      </Pill>
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <span>Tracking step</span>
-                                    <strong>
-                                      {shipment?.stepLabel ?? "No live shipment row yet"}
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <span>Shipment progress</span>
-                                    <strong>
-                                      {shipment
-                                        ? `${getShipmentProgressPercent(
-                                            shipment.currentStep,
-                                            shipment.currentStatus,
-                                          )}%`
-                                        : "0%"}
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <span>Payment</span>
-                                    <strong>{getPaymentStatusLabel(order)}</strong>
-                                  </div>
-                                  <div>
-                                    <span>Updated</span>
-                                    <strong>{formatShortDate(order.updatedAt ?? order.createdAt)}</strong>
-                                  </div>
-                                </div>
-
-                                {shipment?.latestEvent ? (
-                                  <div className="admin-orders-details__items">
-                                    <article className="admin-orders-item">
-                                      <div>
-                                        <strong>Latest shipment update</strong>
-                                        <span>{shipment.latestEvent.title}</span>
-                                      </div>
-                                      <div>
-                                        <strong>{formatShortDate(shipment.latestEvent.eventAt)}</strong>
-                                        <span>{shipment.latestEvent.message || shipment.latestEvent.location}</span>
-                                      </div>
-                                    </article>
-                                  </div>
-                                ) : null}
-
-                                <div className="admin-orders-details__items">
-                                  {items.length > 0 ? (
-                                    items.map((item) => (
-                                      <article key={item.key} className="admin-orders-item">
-                                        <div>
-                                          <strong>{item.name}</strong>
-                                          <span>{item.brand || "Store item"}</span>
-                                        </div>
-                                        <div>
-                                          <strong>Qty {item.quantity}</strong>
-                                          <span>{formatMoney(item.lineSubtotal ?? 0)}</span>
-                                        </div>
-                                      </article>
-                                    ))
-                                  ) : (
-                                    <p>No line items available for this order.</p>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -714,6 +662,124 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
           </div>
         </section>
       </section>
+
+      {activeViewOrder ? (
+        <div
+          className="admin-orders-view-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-orders-view-modal-title"
+        >
+          <button
+            type="button"
+            className="admin-orders-view-modal__scrim"
+            aria-label="Close order details"
+            onClick={() => setOpenOrderId(null)}
+          />
+
+          <section className="admin-orders-view-modal__panel">
+            <header className="admin-orders-view-modal__header">
+              <div>
+                <p>Order Details</p>
+                <h2 id="admin-orders-view-modal-title">
+                  {activeViewOrder.orderNumber ?? activeViewOrder.id}
+                </h2>
+                <div className="admin-orders-view-modal__badges">
+                  <Pill tone={getOrderTypeValue(activeViewOrder) === "preorder" ? "amber" : "blue"}>
+                    {getOrderTypeLabel(activeViewOrder)}
+                  </Pill>
+                  <span>Batch {activeViewOrder.batchNumber ?? "N/A"}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="admin-orders-view-modal__close"
+                aria-label="Close order details"
+                onClick={() => setOpenOrderId(null)}
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="admin-orders-view-modal__body">
+              <section className="admin-orders-view-modal__section">
+                <h3>Items</h3>
+                <div className="admin-orders-view-modal__items">
+                  {Array.isArray(activeViewOrder.items) && activeViewOrder.items.length > 0 ? (
+                    activeViewOrder.items.map((item, index) => (
+                      <article className="admin-orders-view-modal__item" key={item.key ?? `${item.name}-${index}`}>
+                        <div className="admin-orders-view-modal__image-wrap">
+                          <img
+                            src={item.image || electronicsImage}
+                            alt={item.name || "Ordered product"}
+                            onError={(event) => {
+                              event.currentTarget.onerror = null;
+                              event.currentTarget.src = electronicsImage;
+                            }}
+                          />
+                        </div>
+                        <div className="admin-orders-view-modal__item-copy">
+                          <strong>{item.name || "Unnamed product"}</strong>
+                          {getSelectedOptionsLabel(item) ? (
+                            <span>{getSelectedOptionsLabel(item)}</span>
+                          ) : null}
+                          <small>Quantity: {getItemQuantity(item)}</small>
+                        </div>
+                        <div className="admin-orders-view-modal__item-prices">
+                          <span>Unit Price: {formatMoney(getItemUnitPrice(item))}</span>
+                          <strong>Subtotal: {formatMoney(getItemSubtotal(item))}</strong>
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="admin-orders-view-modal__empty">No line items available for this order.</p>
+                  )}
+                </div>
+              </section>
+
+              <div className="admin-orders-view-modal__columns">
+                <section className="admin-orders-view-modal__section">
+                  <h3>Customer</h3>
+                  <dl className="admin-orders-view-modal__facts">
+                    <div><dt>Name</dt><dd>{activeViewOrder.customerName || "Guest checkout"}</dd></div>
+                    <div><dt>Email</dt><dd>{activeViewOrder.customerEmail || "No email captured"}</dd></div>
+                    {activeViewOrder.shippingAddress?.phone ? (
+                      <div><dt>Phone</dt><dd>{activeViewOrder.shippingAddress.phone}</dd></div>
+                    ) : null}
+                  </dl>
+                </section>
+
+                <section className="admin-orders-view-modal__section">
+                  <h3>Order Information</h3>
+                  <dl className="admin-orders-view-modal__facts">
+                    <div><dt>Type</dt><dd>{getOrderTypeLabel(activeViewOrder)}</dd></div>
+                    <div><dt>Status</dt><dd>{getOrderStatusLabel(getOrderSummaryStatus(activeViewOrder))}</dd></div>
+                    <div><dt>Payment</dt><dd>{getPaymentStatusLabel(activeViewOrder)}</dd></div>
+                    <div><dt>Shipment</dt><dd>{formatShipmentLabel(getShipmentType(activeViewOrder))}</dd></div>
+                    <div><dt>Date</dt><dd>{formatShortDate(activeViewOrder.createdAt)}</dd></div>
+                  </dl>
+                </section>
+              </div>
+
+              <section className="admin-orders-view-modal__total">
+                <div><span>Items subtotal</span><strong>{formatMoney(activeViewOrder.subtotal ?? 0)}</strong></div>
+                <div><span>Shipping</span><strong>{formatMoney(activeViewOrder.shippingTotal ?? 0)}</strong></div>
+                <div className="admin-orders-view-modal__grand-total"><span>Total</span><strong>{formatMoney(activeViewOrder.total ?? 0)}</strong></div>
+              </section>
+            </div>
+
+            <footer className="admin-orders-view-modal__footer">
+              <button
+                type="button"
+                className="admin-orders-modal__button admin-orders-modal__button--ghost"
+                onClick={() => setOpenOrderId(null)}
+              >
+                Close
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {activeStatusOrder ? (
         <div
@@ -758,6 +824,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
 
               {statusError ? <p className="admin-orders-modal__error">{statusError}</p> : null}
 
+              <p className="admin-orders-modal__section-label">Select new status</p>
               <div className="admin-orders-modal__choices" role="radiogroup" aria-label="Order status options">
                 {ORDER_STATUS_OPTIONS.map((option) => {
                   const isActive = statusDraft === option.value;

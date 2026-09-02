@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import logo from "../../../assets/images/nexuslogo.png";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "../../../lib/supabaseClient";
-import { clearAdminSession, loadAdminSession } from "../Auth/adminAuthStorage";
+import { loadAdminSession } from "../Auth/adminAuthStorage";
 import {
   formatDateTime,
   formatMoney,
@@ -14,18 +13,6 @@ import {
 import { getOrderStatusLabel } from "../../Profile/ordersStorage";
 import { useProducts } from "../../Products/productData";
 import { getCategoryMetrics, useCategoryRecords } from "../../../shared/categoryStorage";
-import MobileDrawer from "../../../shared/mobileDrawer";
-import { adminNavItems } from "../adminNavigation";
-
-function MenuIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 7h16" />
-      <path d="M4 12h16" />
-      <path d="M4 17h16" />
-    </svg>
-  );
-}
 
 function MetricCard({ title, value, subtitle, tone = "blue", to, ariaLabel }) {
   return (
@@ -116,12 +103,9 @@ const QUICK_ACTIONS = [
 function AdminDashboard({
   orders = [],
   siteBanner = null,
-  onLogout = clearAdminSession,
 }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const session = loadAdminSession();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { products: liveProducts } = useProducts();
   const { records: categoryRecords } = useCategoryRecords();
   const [customerCount, setCustomerCount] = useState(null);
@@ -132,10 +116,6 @@ function AdminDashboard({
   const attentionItems = getAttentionItems(orders);
   const latestOrder = recentOrders[0] ?? null;
   const currentBatch = siteBanner?.announcement?.batchNumber?.trim() || "Not set";
-
-  useEffect(() => {
-    setIsMenuOpen(false);
-  }, [location.pathname]);
 
   useEffect(() => {
     let isMounted = true;
@@ -172,71 +152,9 @@ function AdminDashboard({
     return <Navigate to="/admin/login" replace />;
   }
 
-  const handleLogout = () => {
-    onLogout();
-    navigate("/admin/login", { replace: true });
-  };
-
-  const closeMenu = () => setIsMenuOpen(false);
-
   return (
-    <main className="admin-dashboard-page">
-      <section className="admin-dashboard-shell">
-        <aside className="admin-dashboard-sidebar">
-          <Link
-            to="/"
-            className="admin-dashboard-brand"
-            aria-label="Nexus home"
-          >
-            <span className="admin-dashboard-brand__mark">
-              <img src={logo} alt="" className="admin-dashboard-brand__logo" />
-            </span>
-            <span className="admin-dashboard-brand__copy">
-              <strong>Nexus Admin</strong>
-              <small>Admin panel</small>
-            </span>
-          </Link>
-
-          <nav className="admin-dashboard-nav" aria-label="Admin sections">
-            {adminNavItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`admin-dashboard-nav__link${
-                  location.pathname === item.to ? " is-active" : ""
-                }`}
-                aria-current={
-                  location.pathname === item.to ? "page" : undefined
-                }
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-
-          <button
-            type="button"
-            className="admin-dashboard-sidebar__logout"
-            onClick={handleLogout}
-          >
-            Sign out
-          </button>
-        </aside>
-
-        <div className="admin-dashboard-main">
+    <div className="admin-dashboard-main">
           <header className="admin-dashboard-topbar">
-            <button
-              type="button"
-              className="admin-dashboard-menu-button"
-              aria-label="Open admin navigation"
-              aria-expanded={isMenuOpen}
-              aria-controls="admin-mobile-menu"
-              onClick={() => setIsMenuOpen((current) => !current)}
-            >
-              <MenuIcon />
-              <span>Menu</span>
-            </button>
-
             <div className="admin-dashboard-topbar__title">
               <p>Admin overview</p>
               <span>
@@ -413,44 +331,7 @@ function AdminDashboard({
               ))}
             </div>
           </section>
-        </div>
-      </section>
-
-      <MobileDrawer
-        open={isMenuOpen}
-        onClose={closeMenu}
-        title="Admin navigation"
-        className="admin-mobile-drawer"
-        maxWidth="min(82vw, 320px)"
-      >
-        <nav className="admin-mobile-menu" id="admin-mobile-menu" aria-label="Admin sections">
-          {adminNavItems.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={`admin-mobile-menu__link${
-                location.pathname === item.to ? " is-active" : ""
-              }`}
-              aria-current={location.pathname === item.to ? "page" : undefined}
-              onClick={closeMenu}
-            >
-              {item.label}
-            </Link>
-          ))}
-
-          <button
-            type="button"
-            className="admin-mobile-menu__logout"
-            onClick={() => {
-              closeMenu();
-              handleLogout();
-            }}
-          >
-            Sign out
-          </button>
-        </nav>
-      </MobileDrawer>
-    </main>
+    </div>
   );
 }
 

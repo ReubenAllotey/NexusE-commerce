@@ -24829,6 +24829,429 @@ body[data-theme="dark"] .admin-dashboard-metric:hover {
   }
 }
 
+/* Shared shell for every protected admin route. */
+.admin-layout-page {
+  min-height: 100vh;
+  padding: clamp(1rem, 2.2vw, 2rem);
+  background: #f3f6fa;
+  color: #0f172a;
+}
+
+.admin-layout-shell {
+  width: min(100%, 1440px);
+  min-height: calc(100vh - clamp(2rem, 4.4vw, 4rem));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(250px, 280px) minmax(0, 1fr);
+  gap: clamp(1rem, 2vw, 1.75rem);
+  align-items: start;
+}
+
+.admin-layout-content {
+  min-width: 0;
+}
+
+.admin-layout-menu-button {
+  margin-bottom: 0.75rem;
+}
+
+body[data-theme="dark"] .admin-layout-page {
+  background: #0b1220;
+  color: #f8fafc;
+}
+
+@media (max-width: 1180px) {
+  .admin-layout-shell {
+    grid-template-columns: minmax(220px, 250px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-layout-page {
+    padding: 0.75rem;
+  }
+
+  .admin-layout-shell {
+    display: block;
+    min-height: auto;
+  }
+
+  .admin-layout-content {
+    min-height: calc(100vh - 1.5rem);
+  }
+
+  .admin-layout-menu-button {
+    display: inline-flex;
+    background: #f4f7ff;
+    color: #1c3fb7;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-layout-page {
+    padding: 0.5rem;
+  }
+}
+
+body[data-theme="dark"] .admin-layout-menu-button {
+  border-color: #2b3648;
+  background: #182235;
+  color: #dbeafe;
+}
+
+.admin-orders-stat {
+  cursor: default;
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.admin-orders-stat:hover {
+  border-color: rgba(28, 63, 183, 0.28);
+  transform: translateY(-5px) scale(1.015);
+  box-shadow: 0 16px 35px rgba(15, 23, 42, 0.1);
+}
+
+.admin-orders-stat:active {
+  transform: translateY(-1px) scale(0.995);
+}
+
+body[data-theme="dark"] .admin-orders-stat:hover {
+  border-color: rgba(100, 130, 230, 0.55);
+  box-shadow: 0 18px 38px rgba(2, 6, 23, 0.38);
+}
+
+.admin-orders-view-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.admin-orders-view-modal__scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.48);
+  cursor: pointer;
+}
+
+.admin-orders-view-modal__panel {
+  position: relative;
+  z-index: 1;
+  width: min(920px, 100%);
+  max-height: min(88vh, 820px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid #e3e8f0;
+  border-radius: 1.5rem;
+  background: #ffffff;
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.24);
+}
+
+.admin-orders-view-modal__header,
+.admin-orders-view-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.35rem 1.5rem;
+}
+
+.admin-orders-view-modal__header {
+  border-bottom: 1px solid #e3e8f0;
+}
+
+.admin-orders-view-modal__header p {
+  margin: 0;
+  color: #1c3fb7;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.admin-orders-view-modal__header h2 {
+  margin: 0.35rem 0 0;
+  color: #0f172a;
+  font-size: clamp(1.35rem, 3vw, 1.9rem);
+  overflow-wrap: anywhere;
+}
+
+.admin-orders-view-modal__badges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.admin-orders-view-modal__close {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  flex: 0 0 auto;
+  border: 1px solid #e3e8f0;
+  border-radius: 0.8rem;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-orders-view-modal__close:focus-visible,
+.admin-orders-view-modal__scrim:focus-visible {
+  outline: 2px solid rgba(28, 63, 183, 0.55);
+  outline-offset: 2px;
+}
+
+.admin-orders-view-modal__body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.35rem 1.5rem;
+}
+
+.admin-orders-view-modal__section h3 {
+  margin: 0 0 0.75rem;
+  color: #0f172a;
+  font-size: 1.05rem;
+}
+
+.admin-orders-view-modal__items {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.admin-orders-view-modal__item {
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.8rem;
+  border: 1px solid #e3e8f0;
+  border-radius: 1rem;
+  background: #f8fafc;
+}
+
+.admin-orders-view-modal__image-wrap {
+  width: 4.25rem;
+  height: 4.25rem;
+  overflow: hidden;
+  border-radius: 0.8rem;
+  background: #e8edf4;
+}
+
+.admin-orders-view-modal__image-wrap img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.admin-orders-view-modal__item-copy,
+.admin-orders-view-modal__item-prices {
+  min-width: 0;
+}
+
+.admin-orders-view-modal__item-copy strong,
+.admin-orders-view-modal__item-copy span,
+.admin-orders-view-modal__item-copy small,
+.admin-orders-view-modal__item-prices span,
+.admin-orders-view-modal__item-prices strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.admin-orders-view-modal__item-copy strong,
+.admin-orders-view-modal__item-prices strong {
+  color: #0f172a;
+}
+
+.admin-orders-view-modal__item-copy span,
+.admin-orders-view-modal__item-copy small,
+.admin-orders-view-modal__item-prices span {
+  margin-top: 0.25rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.admin-orders-view-modal__item-prices {
+  text-align: right;
+}
+
+.admin-orders-view-modal__columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.35rem;
+}
+
+.admin-orders-view-modal__columns .admin-orders-view-modal__section {
+  padding: 1rem;
+  border: 1px solid #e3e8f0;
+  border-radius: 1rem;
+  background: #f8fafc;
+}
+
+.admin-orders-view-modal__facts {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.admin-orders-view-modal__facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-orders-view-modal__facts dt {
+  color: #64748b;
+}
+
+.admin-orders-view-modal__facts dd {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 700;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.admin-orders-view-modal__total {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1.35rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e3e8f0;
+}
+
+.admin-orders-view-modal__total div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #64748b;
+}
+
+.admin-orders-view-modal__total strong {
+  color: #0f172a;
+}
+
+.admin-orders-view-modal__total .admin-orders-view-modal__grand-total {
+  margin-top: 0.35rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e3e8f0;
+  color: #0f172a;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.admin-orders-view-modal__empty {
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 1rem;
+  color: #64748b;
+}
+
+.admin-orders-view-modal__footer {
+  justify-content: flex-end;
+  border-top: 1px solid #e3e8f0;
+}
+
+body[data-theme="dark"] .admin-orders-view-modal__panel {
+  border-color: #2b3648;
+  background: #111827;
+  box-shadow: 0 28px 70px rgba(2, 6, 23, 0.5);
+}
+
+body[data-theme="dark"] .admin-orders-view-modal__header,
+body[data-theme="dark"] .admin-orders-view-modal__footer,
+body[data-theme="dark"] .admin-orders-view-modal__total,
+body[data-theme="dark"] .admin-orders-view-modal__total .admin-orders-view-modal__grand-total {
+  border-color: #2b3648;
+}
+
+body[data-theme="dark"] .admin-orders-view-modal__header h2,
+body[data-theme="dark"] .admin-orders-view-modal__section h3,
+body[data-theme="dark"] .admin-orders-view-modal__item-copy strong,
+body[data-theme="dark"] .admin-orders-view-modal__item-prices strong,
+body[data-theme="dark"] .admin-orders-view-modal__facts dd,
+body[data-theme="dark"] .admin-orders-view-modal__total strong,
+body[data-theme="dark"] .admin-orders-view-modal__total .admin-orders-view-modal__grand-total {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-view-modal__badges,
+body[data-theme="dark"] .admin-orders-view-modal__item-copy span,
+body[data-theme="dark"] .admin-orders-view-modal__item-copy small,
+body[data-theme="dark"] .admin-orders-view-modal__item-prices span,
+body[data-theme="dark"] .admin-orders-view-modal__facts dt,
+body[data-theme="dark"] .admin-orders-view-modal__total div,
+body[data-theme="dark"] .admin-orders-view-modal__empty {
+  color: #aeb8c7;
+}
+
+body[data-theme="dark"] .admin-orders-view-modal__item,
+body[data-theme="dark"] .admin-orders-view-modal__columns .admin-orders-view-modal__section,
+body[data-theme="dark"] .admin-orders-view-modal__empty {
+  border-color: #2b3648;
+  background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-view-modal__image-wrap,
+body[data-theme="dark"] .admin-orders-view-modal__close {
+  border-color: #2b3648;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+@media (max-width: 640px) {
+  .admin-orders-view-modal {
+    padding: 0.75rem;
+  }
+
+  .admin-orders-view-modal__header,
+  .admin-orders-view-modal__footer,
+  .admin-orders-view-modal__body {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .admin-orders-view-modal__item {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+  }
+
+  .admin-orders-view-modal__image-wrap {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+
+  .admin-orders-view-modal__item-prices {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .admin-orders-view-modal__columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-orders-stat {
+    transition: none;
+  }
+
+  .admin-orders-stat:hover,
+  .admin-orders-stat:active {
+    transform: none;
+  }
+}
+
 body[data-theme="dark"] .shipping-panel,
 body[data-theme="dark"] .shipping-summary,
 body[data-theme="dark"] .shipping-empty {
@@ -25503,6 +25926,217 @@ body[data-theme="dark"] .orders-card__type.is-preorder {
   color: #fed7aa;
 }
 
+/* Keep Orders aligned with the shared admin shell without changing order behavior. */
+.admin-orders-page {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  color: #0f172a;
+}
+
+.admin-orders-shell {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  gap: 1.5rem;
+}
+
+.admin-orders-header {
+  align-items: flex-start;
+  padding: 0;
+}
+
+.admin-orders-header h1 {
+  color: #0f172a;
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+}
+
+.admin-orders-header span,
+.admin-orders-stat small,
+.admin-orders-toolbar__note {
+  color: #64748b;
+}
+
+.admin-orders-panel {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.admin-orders-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.admin-orders-stat {
+  min-width: 0;
+  min-height: 10.5rem;
+  padding: 1.35rem;
+  border: 1px solid #e3e8f0;
+  border-radius: 1.35rem;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045);
+}
+
+.admin-orders-stat::before {
+  display: none;
+}
+
+.admin-orders-stat span {
+  color: #64748b;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+}
+
+.admin-orders-stat strong {
+  margin-top: 1rem;
+  color: #0f172a;
+  font-size: clamp(1.7rem, 2.8vw, 2.45rem);
+  letter-spacing: -0.06em;
+}
+
+.admin-orders-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1.35rem;
+  border: 1px solid #e3e8f0;
+  border-radius: 1.35rem;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045);
+}
+
+.admin-orders-toolbar__search {
+  min-width: 0;
+}
+
+.admin-orders-search input {
+  max-width: none;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.admin-orders-table-wrap {
+  max-width: 100%;
+  margin-top: 1rem;
+  padding: 1rem;
+  overflow-x: auto;
+  border: 1px solid #e3e8f0;
+  border-radius: 1.35rem;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045);
+}
+
+.admin-orders-table {
+  min-width: 980px;
+  table-layout: auto;
+}
+
+.admin-orders-table th,
+.admin-orders-table td {
+  white-space: nowrap;
+}
+
+.admin-orders-table td:first-child,
+.admin-orders-table td:nth-child(3) {
+  max-width: 13rem;
+}
+
+.admin-orders-table td:first-child strong,
+.admin-orders-table td:first-child small,
+.admin-orders-table td:nth-child(3) strong,
+.admin-orders-table td:nth-child(3) small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-orders-table td:first-child small,
+.admin-orders-table td:nth-child(3) small {
+  max-width: 13rem;
+}
+
+.admin-orders-pill {
+  white-space: nowrap;
+}
+
+.admin-orders-actions {
+  min-width: 8.5rem;
+}
+
+body[data-theme="dark"] .admin-orders-page {
+  background: transparent;
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-header h1,
+body[data-theme="dark"] .admin-orders-stat strong,
+body[data-theme="dark"] .admin-orders-table td strong {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-header span,
+body[data-theme="dark"] .admin-orders-stat span,
+body[data-theme="dark"] .admin-orders-stat small,
+body[data-theme="dark"] .admin-orders-table td small {
+  color: #aeb8c7;
+}
+
+body[data-theme="dark"] .admin-orders-stat,
+body[data-theme="dark"] .admin-orders-toolbar,
+body[data-theme="dark"] .admin-orders-table-wrap {
+  border-color: #2b3648;
+  background: #111827;
+  box-shadow: 0 18px 45px rgba(2, 6, 23, 0.2);
+}
+
+body[data-theme="dark"] .admin-orders-search input {
+  border-color: #2b3648;
+  background: #182235;
+  color: #f8fafc;
+}
+
+@media (max-width: 1180px) {
+  .admin-orders-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-orders-header {
+    padding: 0;
+  }
+
+  .admin-orders-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-orders-toolbar {
+    grid-template-columns: 1fr;
+    padding: 1rem;
+  }
+
+  .admin-orders-filter-menu__trigger {
+    width: 100%;
+  }
+
+  .admin-orders-filter-menu {
+    right: auto;
+    left: 0;
+  }
+
+  .admin-orders-table-wrap {
+    padding: 0.7rem;
+  }
+}
+
 .admin-dashboard-lower-grid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
@@ -25727,6 +26361,237 @@ body[data-theme="dark"] .admin-dashboard-attention__item--green .admin-dashboard
 
   .admin-dashboard-attention__item:hover,
   .admin-dashboard-quick-action:hover {
+    transform: none;
+  }
+}
+
+/* Compact, high-contrast status picker for the admin order modal. */
+.admin-orders-modal__panel {
+  width: min(900px, calc(100vw - 40px));
+  max-height: 90vh;
+  overflow: hidden;
+  padding: 1.25rem;
+  background: #ffffff;
+}
+
+.admin-orders-modal__body {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.15rem;
+}
+
+.admin-orders-modal__current {
+  min-height: 0;
+  padding: 0.75rem 0.95rem;
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.admin-orders-modal__section-label {
+  margin: 0;
+  color: #1c3fb7;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.admin-orders-modal__choices {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.admin-orders-status-option {
+  min-height: 4.75rem;
+  display: flex;
+  align-items: center;
+  padding: 0.85rem 1rem 0.85rem 1.1rem;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.95rem;
+  background: #f8fafc;
+  color: #1e293b;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.admin-orders-status-option::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.22rem;
+  content: "";
+  background: #94a3b8;
+}
+
+.admin-orders-status-option strong {
+  color: #1e293b;
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.admin-orders-status-option:hover {
+  transform: translateY(-2px);
+  border-color: rgba(28, 63, 183, 0.38);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
+}
+
+.admin-orders-status-option:focus-within {
+  outline: 2px solid rgba(28, 63, 183, 0.45);
+  outline-offset: 3px;
+}
+
+.admin-orders-status-option.is-active {
+  transform: none;
+  border-color: #1c3fb7;
+  background: #1c3fb7;
+  color: #ffffff;
+  outline: none;
+  box-shadow: 0 12px 24px rgba(28, 63, 183, 0.2);
+}
+
+.admin-orders-status-option.is-active::before {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.admin-orders-status-option.is-active strong {
+  color: #ffffff;
+}
+
+.admin-orders-status-option--preorder_received::before,
+.admin-orders-status-option--shipping_fee_pending::before {
+  background: #d97706;
+}
+
+.admin-orders-status-option--processing::before {
+  background: #1c3fb7;
+}
+
+.admin-orders-status-option--shipped::before,
+.admin-orders-status-option--in_transit::before {
+  background: #6366f1;
+}
+
+.admin-orders-status-option--arrived_in_ghana::before,
+.admin-orders-status-option--ready_for_delivery::before {
+  background: #0f766e;
+}
+
+.admin-orders-status-option--completed::before,
+.admin-orders-status-option--delivered::before {
+  background: #16a34a;
+}
+
+.admin-orders-status-option--cancelled::before {
+  background: #dc2626;
+}
+
+.admin-orders-status-option:disabled,
+.admin-orders-status-option.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: #e2e8f0;
+  color: #475569;
+  box-shadow: none;
+}
+
+.admin-orders-status-option:disabled strong,
+.admin-orders-status-option.is-disabled strong {
+  color: #475569;
+}
+
+.admin-orders-modal__actions {
+  padding-top: 0.15rem;
+}
+
+@media (max-width: 900px) {
+  .admin-orders-modal__choices {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-orders-modal {
+    padding: 0.75rem;
+  }
+
+  .admin-orders-modal__panel {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    padding: 1rem;
+  }
+
+  .admin-orders-modal__choices {
+    grid-template-columns: 1fr;
+  }
+}
+
+body[data-theme="dark"] .admin-orders-modal__panel {
+  background: #111827;
+  border-color: #2b3648;
+}
+
+body[data-theme="dark"] .admin-orders-modal__header h2 {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-modal__header span {
+  color: #98a2b3;
+}
+
+body[data-theme="dark"] .admin-orders-modal__close {
+  background: #182235;
+  border-color: #2b3648;
+  color: #dbeafe;
+}
+
+body[data-theme="dark"] .admin-orders-modal__current {
+  background: rgba(28, 63, 183, 0.18);
+  border-color: rgba(100, 130, 230, 0.25);
+}
+
+body[data-theme="dark"] .admin-orders-status-option {
+  border-color: #2b3648;
+  background: #182235;
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-status-option strong {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-status-option:hover {
+  border-color: rgba(100, 130, 230, 0.6);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
+}
+
+body[data-theme="dark"] .admin-orders-status-option.is-active {
+  background: #1c3fb7;
+  border-color: #5b7ce5;
+}
+
+body[data-theme="dark"] .admin-orders-status-option:disabled,
+body[data-theme="dark"] .admin-orders-status-option.is-disabled {
+  background: #0f172a;
+  color: #98a2b3;
+}
+
+body[data-theme="dark"] .admin-orders-status-option:disabled strong,
+body[data-theme="dark"] .admin-orders-status-option.is-disabled strong {
+  color: #98a2b3;
+}
+
+body[data-theme="dark"] .admin-orders-modal__button--ghost {
+  background: #182235;
+  color: #dbeafe;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-orders-status-option {
+    transition: none;
+  }
+
+  .admin-orders-status-option:hover,
+  .admin-orders-status-option.is-active {
     transform: none;
   }
 }
