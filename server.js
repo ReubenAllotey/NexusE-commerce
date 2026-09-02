@@ -972,6 +972,10 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       throw new Error("Your cart contains an inactive, deleted, or invalid product.");
     }
 
+    if (clean(product.stock_status).toLowerCase() === "out of stock" || clean(product.stock_status).toLowerCase() === "out_of_stock") {
+      throw new Error("One or more products in your cart are out of stock.");
+    }
+
     const availabilityType = normalizeAvailabilityType(product.availability_type || "ready_stock");
 
     if (availabilityType === "coming_soon") {
@@ -2125,7 +2129,16 @@ async function handleInitialize(req, res) {
       return;
     }
 
-    const checkout = await resolveGuestCheckoutProducts(cartRows);
+    let checkout;
+    try {
+      checkout = await resolveGuestCheckoutProducts(cartRows);
+    } catch (checkoutError) {
+      sendJson(res, 409, {
+        ok: false,
+        message: checkoutError?.message || "Unable to validate the products in your cart.",
+      });
+      return;
+    }
     const amount = Number(checkout.total) || 0;
     const orderType = checkout.availabilityType === "preorder" ? "preorder" : "ready_stock";
 

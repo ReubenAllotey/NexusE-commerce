@@ -140,6 +140,30 @@ export function getAvailabilityMeta(value) {
   };
 }
 
+export function isProductOutOfStock(product = {}) {
+  const stockStatus = cleanText(product?.stockStatus ?? product?.stock_status).toLowerCase();
+  return stockStatus === "out of stock" || stockStatus === "out_of_stock";
+}
+
+export function getProductPurchaseMeta(product = {}) {
+  const availabilityMeta = getAvailabilityMeta(product?.availabilityType ?? product?.availability_type);
+
+  if (isProductOutOfStock(product)) {
+    return {
+      ...availabilityMeta,
+      badge: "OUT OF STOCK",
+      buttonLabel: "Out of Stock",
+      disabled: true,
+      outOfStock: true,
+    };
+  }
+
+  return {
+    ...availabilityMeta,
+    outOfStock: false,
+  };
+}
+
 function normalizeNumber(value) {
   if (value === "" || value == null) {
     return null;
@@ -1568,6 +1592,30 @@ export async function restoreProductRecord(productId) {
   }
 
   return queryRpc("restore_product", { product_id });
+}
+
+export async function setProductStockStatus(productId, stockStatus) {
+  const product_id = cleanText(productId);
+  const stock_status = cleanText(stockStatus);
+
+  if (!product_id) {
+    return createResult(false, { message: "Product id is required." });
+  }
+
+  if (!['In Stock & Ready to Ship', 'Out of Stock'].includes(stock_status)) {
+    return createResult(false, { message: "Unsupported stock status." });
+  }
+
+  const { data, error } = await supabase.rpc("set_product_stock_status", {
+    p_product_id: product_id,
+    p_stock_status: stock_status,
+  });
+
+  if (error) {
+    return mapDbError(error, "Unable to update the product stock status.");
+  }
+
+  return createResult(true, { data });
 }
 
 export function useProducts(options = {}) {

@@ -6,11 +6,12 @@ import { getCategoryProductsPath } from "./catalogData";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
-  getAvailabilityMeta,
+  getProductPurchaseMeta,
   getProductPath,
   slugify,
 } from "../Products/productData";
 import NexusProductCard from "../Products/ProductCard";
+import UnavailableStockButton from "../Products/UnavailableStockButton";
 import {
   getDiscoverCategoryCards,
   useCategoryRecords,
@@ -416,7 +417,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
   const activeImage =
     activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
-  const availabilityMeta = getAvailabilityMeta(item.availabilityType ?? item.availability_type);
+  const availabilityMeta = getProductPurchaseMeta(item);
 
   return (
     <article className="product-card">
@@ -452,6 +453,9 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
             className={item.imageClassName ?? ""}
           />
         </Link>
+        {availabilityMeta.outOfStock ? (
+          <span className="product-card__out-of-stock-badge">OUT OF STOCK</span>
+        ) : null}
       </div>
 
       <div className="product-card__body">
@@ -502,26 +506,36 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
             <span>{formatMoney(activeCompareAt)}</span>
           ) : null}
         </div>
-        <button
-          type="button"
-          className={`product-card__button nexus-product-card__cart-button${
-            availabilityMeta.disabled ? " is-disabled" : ""
-          }`}
-          disabled={availabilityMeta.disabled}
-          onClick={() =>
-            onAddToCart({
-              ...item,
-              price: activePrice,
-              compareAt: activeCompareAt,
-              selectedOptions: activeSelection,
-              variantKey: activeVariantKey,
-              availabilityType: item.availabilityType ?? item.availability_type,
-            })
-          }
-        >
-          <CartIcon className="nexus-product-card__cart-icon" />
-          {availabilityMeta.buttonLabel}
-        </button>
+        {availabilityMeta.outOfStock ? (
+          <UnavailableStockButton
+            className="product-card__button nexus-product-card__cart-button is-disabled"
+            aria-label={`${item.name} is out of stock`}
+          >
+            <CartIcon className="nexus-product-card__cart-icon" />
+            {availabilityMeta.buttonLabel}
+          </UnavailableStockButton>
+        ) : (
+          <button
+            type="button"
+            className={`product-card__button nexus-product-card__cart-button${
+              availabilityMeta.disabled ? " is-disabled" : ""
+            }`}
+            disabled={availabilityMeta.disabled}
+            onClick={() =>
+              onAddToCart({
+                ...item,
+                price: activePrice,
+                compareAt: activeCompareAt,
+                selectedOptions: activeSelection,
+                variantKey: activeVariantKey,
+                availabilityType: item.availabilityType ?? item.availability_type,
+              })
+            }
+          >
+            <CartIcon className="nexus-product-card__cart-icon" />
+            {availabilityMeta.buttonLabel}
+          </button>
+        )}
       </div>
     </article>
   );

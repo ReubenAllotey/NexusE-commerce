@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
-  getAvailabilityMeta,
+  getProductPurchaseMeta,
   getProductPath,
   slugify,
 } from "./productData";
+import UnavailableStockButton from "./UnavailableStockButton";
 
 const FALLBACK_IMAGE =
   "data:image/svg+xml;charset=UTF-8," +
@@ -153,7 +154,7 @@ function ProductCard({
     FALLBACK_IMAGE;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
   const detailHref = getProductPath(item.slug ?? slugify(item.name));
-  const availabilityMeta = getAvailabilityMeta(item.availabilityType ?? item.availability_type);
+  const availabilityMeta = getProductPurchaseMeta(item);
 
   const handleSelectOption = (group, option) => {
     setSelectedOptions((current) => {
@@ -198,6 +199,9 @@ function ProductCard({
             loading="lazy"
           />
         </Link>
+        {availabilityMeta.outOfStock ? (
+          <span className="product-card__out-of-stock-badge">OUT OF STOCK</span>
+        ) : null}
       </div>
 
       <div className={`${prefix}__body`}>
@@ -281,26 +285,36 @@ function ProductCard({
           ) : null}
         </div>
 
-        <button
-          type="button"
-          className={`${prefix}__button nexus-product-card__cart-button${
-            availabilityMeta.disabled ? " is-disabled" : ""
-          }`}
-          disabled={availabilityMeta.disabled}
-          onClick={() =>
-            onAddToCart({
-              ...item,
-              price: activePrice,
-              compareAt: activeCompareAt,
-              selectedOptions: activeSelection,
-              variantKey: activeVariantKey,
-              availabilityType: item.availabilityType ?? item.availability_type,
-            })
-          }
-        >
-          <CartIcon className="nexus-product-card__cart-icon" />
-          {availabilityMeta.buttonLabel}
-        </button>
+        {availabilityMeta.outOfStock ? (
+          <UnavailableStockButton
+            className={`${prefix}__button nexus-product-card__cart-button is-disabled`}
+            aria-label={`${item.name} is out of stock`}
+          >
+            <CartIcon className="nexus-product-card__cart-icon" />
+            {availabilityMeta.buttonLabel}
+          </UnavailableStockButton>
+        ) : (
+          <button
+            type="button"
+            className={`${prefix}__button nexus-product-card__cart-button${
+              availabilityMeta.disabled ? " is-disabled" : ""
+            }`}
+            disabled={availabilityMeta.disabled}
+            onClick={() =>
+              onAddToCart({
+                ...item,
+                price: activePrice,
+                compareAt: activeCompareAt,
+                selectedOptions: activeSelection,
+                variantKey: activeVariantKey,
+                availabilityType: item.availabilityType ?? item.availability_type,
+              })
+            }
+          >
+            <CartIcon className="nexus-product-card__cart-icon" />
+            {availabilityMeta.buttonLabel}
+          </button>
+        )}
       </div>
     </article>
   );

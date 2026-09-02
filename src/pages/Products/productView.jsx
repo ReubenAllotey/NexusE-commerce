@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
 import NexusProductCard from "./ProductCard";
+import UnavailableStockButton from "./UnavailableStockButton";
 import {
   buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
-  getAvailabilityMeta,
+  getProductPurchaseMeta,
   getShippingFee,
   useProductBySlug,
   useProducts,
@@ -191,7 +192,7 @@ function ProductView({
       : null;
   const previewTint =
     activeSelection.find((option) => option.swatchColor)?.swatchColor || selectedImage?.tint || "#dfe7f3";
-  const availabilityMeta = getAvailabilityMeta(product?.availabilityType ?? product?.availability_type);
+  const availabilityMeta = getProductPurchaseMeta(product);
   const isPreorderProduct = availabilityMeta.availabilityType === "preorder";
   const isComingSoonProduct = availabilityMeta.availabilityType === "coming_soon";
   const bannerBatchNumber = safeSiteBanner?.announcement?.batchNumber?.trim() || "Pending";
@@ -283,6 +284,9 @@ function ProductView({
                 alt={product.name}
                 className={product.imageClassName ?? ""}
               />
+              {availabilityMeta.outOfStock ? (
+                <span className="product-view__out-of-stock-badge">OUT OF STOCK</span>
+              ) : null}
             </div>
 
             {gallery.length > 0 ? (
@@ -457,15 +461,25 @@ function ProductView({
                 </button>
               </div>
 
-              <button
-                type="button"
-                className={`product-view__add${availabilityMeta.disabled ? " is-disabled" : ""}`}
-                onClick={handleAddToCart}
-                disabled={availabilityMeta.disabled}
-              >
-                <CartIcon />
-                {availabilityMeta.buttonLabel} • {formatMoney(activePrice * safeQuantity)}
-              </button>
+              {availabilityMeta.outOfStock ? (
+                <UnavailableStockButton
+                  className="product-view__add is-disabled"
+                  aria-label={`${product.name} is out of stock`}
+                >
+                  <CartIcon />
+                  {availabilityMeta.buttonLabel}
+                </UnavailableStockButton>
+              ) : (
+                <button
+                  type="button"
+                  className={`product-view__add${availabilityMeta.disabled ? " is-disabled" : ""}`}
+                  onClick={handleAddToCart}
+                  disabled={availabilityMeta.disabled}
+                >
+                  <CartIcon />
+                  {availabilityMeta.buttonLabel} • {formatMoney(activePrice * safeQuantity)}
+                </button>
+              )}
 
               <button
                 type="button"

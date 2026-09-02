@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { getShippingFee, useProducts } from "../Products/productData";
+import { getShippingFee, isProductOutOfStock, useProducts } from "../Products/productData";
 
 function formatMoney(value) {
   const safeValue = Number(value) || 0;
@@ -87,6 +87,7 @@ function Cart({
       const effectiveShippingFee = typeof shippingFee === "number" ? shippingFee : 0;
       const lineSubtotal = product.price * quantity;
       const lineShipping = effectiveShippingFee * quantity;
+      const outOfStock = isProductOutOfStock(product);
 
       return {
         key: item.cartKey ?? item.slug ?? product.slug ?? product.name,
@@ -97,6 +98,7 @@ function Cart({
         lineSubtotal,
         lineShipping,
         variant: item.variant ?? null,
+        outOfStock,
       };
     })
     .filter(Boolean);
@@ -107,6 +109,7 @@ function Cart({
   const shippingTotal = rows.reduce((sum, row) => sum + row.lineShipping, 0);
   const taxEstimate = 0;
   const totalPrice = subtotal + shippingTotal + taxEstimate;
+  const hasOutOfStock = rows.some((row) => row.outOfStock);
 
   if (loading) {
     return (
@@ -221,6 +224,7 @@ function Cart({
                       effectiveShippingFee,
                       lineSubtotal,
                       variant,
+                      outOfStock,
                     }) => (
                       <tr key={key}>
                         <td className="cart-table__product">
@@ -231,6 +235,11 @@ function Cart({
                             {variant?.label || variant?.color || variant?.size ? (
                               <span>
                                 {variant.label || [variant.color, variant.size].filter(Boolean).join(" / ")}
+                              </span>
+                            ) : null}
+                            {outOfStock ? (
+                              <span className="cart-table__out-of-stock">
+                                OUT OF STOCK. Remove it before checkout.
                               </span>
                             ) : null}
                           </div>
@@ -323,9 +332,16 @@ function Cart({
                 type="button"
                 className="cart-checkout"
                 onClick={handleCheckout}
+                disabled={hasOutOfStock}
               >
-                Proceed to Payment
+                {hasOutOfStock ? "Remove out-of-stock items" : "Proceed to Payment"}
               </button>
+
+              {hasOutOfStock ? (
+                <p className="cart-summary__stock-warning">
+                  This item is currently out of stock. Remove it from your cart before continuing.
+                </p>
+              ) : null}
 
               <ul className="cart-summary__notes" aria-label="Checkout notes">
                 <li className="cart-summary__note">

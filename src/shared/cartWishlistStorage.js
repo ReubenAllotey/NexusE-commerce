@@ -21,6 +21,11 @@ function normalizeQuantity(value) {
   return Math.max(Math.round(normalizeNumber(value, 0)), 1);
 }
 
+function isProductOutOfStock(product = {}) {
+  const stockStatus = clean(product?.stockStatus ?? product?.stock_status).toLowerCase();
+  return stockStatus === "out of stock" || stockStatus === "out_of_stock";
+}
+
 function readSessionJson(key, fallback) {
   if (typeof window === "undefined") {
     return fallback;
@@ -503,10 +508,12 @@ function mapCartRowsToItems(rows = [], products = []) {
         price: Number(product.price) || 0,
         image: product.image ?? "",
         imageClassName: product.imageClassName ?? "",
+        stockStatus: product.stockStatus ?? product.stock_status ?? "",
         shippingFee: availabilityType === "preorder" ? 0 : product.shippingFee ?? null,
         availabilityType,
         availabilityBadge: availabilityMeta.badge,
-        availabilityDisabled: availabilityMeta.disabled,
+        availabilityDisabled: availabilityMeta.disabled || isProductOutOfStock(product),
+        outOfStock: isProductOutOfStock(product),
         estimatedArrival: normalizeOptionalText(product.estimatedArrival ?? product.estimated_arrival),
         preorderTerms: normalizeOptionalText(product.preorderTerms ?? product.preorder_terms),
         quantity,
@@ -808,6 +815,14 @@ export async function addCartLine({
 
   if (!normalizedProductId) {
     return { ok: false, message: "A valid product is required.", items: [] };
+  }
+
+  if (isProductOutOfStock(normalizedProduct)) {
+    return {
+      ok: false,
+      message: "This item is currently out of stock.",
+      items: [],
+    };
   }
 
   if (incomingAvailabilityType === "coming_soon") {

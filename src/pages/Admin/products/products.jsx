@@ -3,7 +3,10 @@ import { Link, Navigate } from "react-router-dom";
 import { loadAdminSession } from "../Auth/adminAuthStorage";
 import {
   getShippingFee,
+  getProductPurchaseMeta,
+  isProductOutOfStock,
   setProductDeletedAt,
+  setProductStockStatus,
   restoreProductRecord,
   useProducts,
 } from "../../Products/productData";
@@ -41,6 +44,9 @@ function AdminProductsPage({ orders = [] }) {
   const { products, loading: productsLoading, error: productsError, refresh } = useProducts({ includeDeleted: true });
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [stockConfirmProduct, setStockConfirmProduct] = useState(null);
+  const [stockUpdatingId, setStockUpdatingId] = useState("");
+  const [stockError, setStockError] = useState("");
 
   const categories = useMemo(
     () =>
@@ -98,6 +104,25 @@ function AdminProductsPage({ orders = [] }) {
     await refresh();
   };
 
+  const handleStockUpdate = async (product) => {
+    const nextStockStatus = isProductOutOfStock(product)
+      ? "In Stock & Ready to Ship"
+      : "Out of Stock";
+
+    setStockUpdatingId(product.id);
+    setStockError("");
+    const result = await setProductStockStatus(product.id, nextStockStatus);
+    setStockUpdatingId("");
+
+    if (!result.ok) {
+      setStockError(result.message || "Unable to update the product stock status.");
+      return;
+    }
+
+    setStockConfirmProduct(null);
+    await refresh();
+  };
+
   return (
     <main className="admin-products-page">
       <section className="admin-products-shell">
@@ -109,14 +134,17 @@ function AdminProductsPage({ orders = [] }) {
           </div>
 
           <div className="admin-products-header__actions">
-            <Link to="/admin/dashboard" className="admin-products-header__button admin-products-header__button--ghost">
-              Back to dashboard
-            </Link>
             <Link to="/admin/products/add" className="admin-products-header__button">
               Add Product
             </Link>
           </div>
         </header>
+
+        {stockError && !stockConfirmProduct ? (
+          <p className="admin-products-stock-error" role="alert">
+            {stockError}
+          </p>
+        ) : null}
 
         <section className="admin-products-summary">
           <MetricCard
@@ -184,6 +212,8 @@ function AdminProductsPage({ orders = [] }) {
                   <th>Image</th>
                   <th>Product Name</th>
                   <th>Category</th>
+                  <th>Price</th>
+                  <th>Availability</th>
                   <th>Shipping Fee</th>
                   <th>Actions</th>
                 </tr>
@@ -208,6 +238,21 @@ function AdminProductsPage({ orders = [] }) {
                           ) : null}
                         </td>
                         <td>{product.category || "Uncategorized"}</td>
+                        <td>{formatMoney(product.price)}</td>
+                        <td>
+                          <div className="admin-products-availability">
+                            <span className={`admin-products-pill admin-products-pill--${getProductPurchaseMeta(product).tone}`}>
+                              {getProductPurchaseMeta(product).label}
+                            </span>
+                            <span
+                              className={`admin-products-pill admin-products-pill--stock${
+                                isProductOutOfStock(product) ? " is-out" : ""
+                              }`}
+                            >
+                              {isProductOutOfStock(product) ? "Out of Stock" : "In Stock"}
+                            </span>
+                          </div>
+                        </td>
                         <td>
                           {shippingFee == null ? (
                             <span className="admin-products-pill admin-products-pill--pending">Pending</span>
@@ -227,6 +272,27 @@ function AdminProductsPage({ orders = [] }) {
                               </button>
                             ) : (
                               <>
+                                <button
+                                  type="button"
+                                  className={`admin-products-action admin-products-action--stock${
+                                    isProductOutOfStock(product) ? " is-in-stock" : ""
+                                  }`}
+                                  disabled={stockUpdatingId === product.id}
+                                  onClick={() => {
+                                    setStockError("");
+                                    if (isProductOutOfStock(product)) {
+                                      void handleStockUpdate(product);
+                                    } else {
+                                      setStockConfirmProduct(product);
+                                    }
+                                  }}
+                                >
+                                  {stockUpdatingId === product.id
+                                    ? "Updating..."
+                                    : isProductOutOfStock(product)
+                                      ? "In Stock"
+                                      : "Out of Stock"}
+                                </button>
                                 <Link
                                   to={`/admin/products/${product.slug}/edit`}
                                   className="admin-products-action admin-products-action--edit"
@@ -249,7 +315,7 @@ function AdminProductsPage({ orders = [] }) {
                   })
                 ) : (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="5">
+                    <td colSpan="7">
                       <div className="admin-products-empty">
                         <h2>No products match your filters.</h2>
                         <p>Try a different search term or category, or add a new product to the catalog.</p>
@@ -262,6 +328,38 @@ function AdminProductsPage({ orders = [] }) {
           </div>
         </section>
       </section>
+
+      {stockConfirmProduct ? (
+        <div className="admin-products-stock-modal" role="dialog" aria-modal="true" aria-labelledby="admin-products-stock-title">
+          <button
+            type="button"
+            className="admin-products-stock-modal__scrim"
+            aria-label="Close stock confirmation"
+            onClick={() => setStockConfirmProduct(null)}
+          />
+          <section className="admin-products-stock-modal__panel">
+            <p>Inventory update</p>
+            <h2 id="admin-products-stock-title">Mark product out of stock?</h2>
+            <span>
+              {stockConfirmProduct.name} will remain visible but customers will not be able to add it to cart.
+            </span>
+            {stockError ? <strong className="admin-products-stock-modal__error">{stockError}</strong> : null}
+            <div className="admin-products-stock-modal__actions">
+              <button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setStockConfirmProduct(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="admin-products-action admin-products-action--stock"
+                disabled={stockUpdatingId === stockConfirmProduct.id}
+                onClick={() => void handleStockUpdate(stockConfirmProduct)}
+              >
+                {stockUpdatingId === stockConfirmProduct.id ? "Updating..." : "Mark Out of Stock"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
