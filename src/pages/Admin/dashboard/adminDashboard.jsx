@@ -13,6 +13,7 @@ import {
 } from "../adminHelpers";
 import { getOrderStatusLabel } from "../../Profile/ordersStorage";
 import { useProducts } from "../../Products/productData";
+import { getCategoryMetrics, useCategoryRecords } from "../../../shared/categoryStorage";
 import MobileDrawer from "../../../shared/mobileDrawer";
 import { adminNavItems } from "../adminNavigation";
 
@@ -26,15 +27,17 @@ function MenuIcon() {
   );
 }
 
-function MetricCard({ title, value, subtitle, tone = "blue" }) {
+function MetricCard({ title, value, subtitle, tone = "blue", to, ariaLabel }) {
   return (
-    <article
+    <Link
+      to={to}
+      aria-label={ariaLabel}
       className={`admin-dashboard-metric admin-dashboard-metric--${tone}`}
     >
       <span>{title}</span>
       <strong>{value}</strong>
       <p>{subtitle}</p>
-    </article>
+    </Link>
   );
 }
 
@@ -53,8 +56,10 @@ function AdminDashboard({
   const session = loadAdminSession();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { products: liveProducts } = useProducts();
+  const { records: categoryRecords } = useCategoryRecords();
   const [customerCount, setCustomerCount] = useState(null);
   const productMetrics = getProductMetrics(liveProducts);
+  const categoryMetrics = getCategoryMetrics(categoryRecords);
   const orderMetrics = getOrderMetrics(orders);
   const recentOrders = getRecentOrders(orders, 6);
   const latestOrder = recentOrders[0] ?? null;
@@ -186,26 +191,34 @@ function AdminDashboard({
             <MetricCard
               title="Total Products"
               value={productMetrics.totalProducts}
-              subtitle={`${productMetrics.categoryCount} categories tracked from the storefront.`}
+              subtitle="Products currently listed in the storefront."
               tone="blue"
+              to="/admin/products"
+              ariaLabel="View products"
             />
             <MetricCard
               title="Total Orders"
               value={orderMetrics.totalOrders}
               subtitle="All customer orders recorded."
               tone="green"
+              to="/admin/orders"
+              ariaLabel="View orders"
             />
             <MetricCard
               title="Total Customers"
               value={customerCount ?? "—"}
               subtitle="Registered customer accounts."
               tone="amber"
+              to="/admin/customers"
+              ariaLabel="View customers"
             />
             <MetricCard
               title="Total Categories"
-              value={productMetrics.categoryCount}
+              value={categoryMetrics.totalCategories}
               subtitle="Product categories in the catalog."
               tone="slate"
+              to="/admin/categories"
+              ariaLabel="View categories"
             />
           </div>
 

@@ -759,7 +759,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     return picked.slice(0, 8);
   }, [liveBestSellingProducts, liveCatalogProducts]);
-  const loopingCategoryCards = useMemo(() => [...categoryCards, ...categoryCards], [categoryCards]);
+  const loopingCategoryCards = categoryCards;
   const loopingTestimonialCards = useMemo(
     () => [...testimonialItems, ...testimonialItems],
     [],

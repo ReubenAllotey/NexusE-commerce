@@ -161,18 +161,6 @@ export function getCategoryImageSource(row = {}) {
   return match?.src ?? electronicsImage;
 }
 
-const FEATURED_CATEGORY_PRESETS = [
-  { name: "Smartwatches & Wearables", slug: slugify("Smartwatches & Wearables"), order: 9001 },
-  { name: "Cameras & Photography", slug: slugify("Cameras & Photography"), order: 9002 },
-  { name: "Kitchen Appliances", slug: slugify("Kitchen Appliances"), order: 9003 },
-  { name: "Shoes & Footwear", slug: slugify("Shoes & Footwear"), order: 9004 },
-  { name: "Bags & Luggage", slug: slugify("Bags & Luggage"), order: 9005 },
-  { name: "Office & Stationery", slug: slugify("Office & Stationery"), order: 9006 },
-  { name: "Automotive Accessories", slug: slugify("Automotive Accessories"), order: 9007 },
-  { name: "Kids & Toys", slug: slugify("Kids & Toys"), order: 9008 },
-  { name: "Gaming", slug: slugify("Gaming"), order: 9009 },
-];
-
 function normalizeCategoryKey(record = {}) {
   return slugify(record.slug ?? record.name ?? "");
 }
@@ -563,30 +551,7 @@ export function getDiscoverCategoryCards(records = [], products = []) {
       (record) => isVisibleCategory(record) && !record.parentId,
     ),
   );
-  const existingKeys = new Set(rootCategories.map((record) => normalizeCategoryKey(record)));
-  const featuredCategories = FEATURED_CATEGORY_PRESETS.filter(
-    (preset) => !existingKeys.has(preset.slug),
-  ).map((preset) => ({
-    id: `featured-${preset.slug}`,
-    name: preset.name,
-    slug: preset.slug,
-    description: "",
-    icon: "",
-    image: getCategoryImageSource(preset),
-    status: "active",
-    parentId: null,
-    parentSlug: "",
-    order: preset.order,
-    displayOrder: preset.order,
-    showOnHomepage: true,
-    createdAt: null,
-    updatedAt: null,
-    deletedAt: null,
-    deleted: false,
-    featured: true,
-  }));
-
-  return sortCategoryRecords([...rootCategories, ...featuredCategories]).map((category) => ({
+  return rootCategories.map((category) => ({
     ...category,
     productCount: getCategoryProductCount(category, products),
   }));
@@ -596,31 +561,7 @@ export function getCategoryTree(records = []) {
   const activeRecords = (Array.isArray(records) ? records : []).filter(isVisibleCategory);
   const recordIndex = new Map(activeRecords.map((record) => [record.id, record]));
   const childRecords = activeRecords.filter((record) => record.parentId);
-  const existingKeys = new Set(activeRecords.map((record) => normalizeCategoryKey(record)));
-  const featuredRoots = FEATURED_CATEGORY_PRESETS.filter(
-    (preset) => !existingKeys.has(preset.slug),
-  ).map((preset) => ({
-    id: `featured-${preset.slug}`,
-    name: preset.name,
-    slug: preset.slug,
-    description: "",
-    icon: "",
-    image: getCategoryImageSource(preset),
-    status: "active",
-    parentId: null,
-    parentSlug: "",
-    order: preset.order,
-    displayOrder: preset.order,
-    showOnHomepage: true,
-    createdAt: null,
-    updatedAt: null,
-    deletedAt: null,
-    deleted: false,
-    children: [],
-    featured: true,
-  }));
-
-  return sortCategoryRecords([...activeRecords, ...featuredRoots])
+  return sortCategoryRecords(activeRecords)
     .filter((record) => !record.parentId)
     .map((record) => ({
       ...record,
@@ -637,7 +578,9 @@ export function getCategoryMetrics(records = []) {
   const safeRecords = Array.isArray(records) ? records : [];
 
   return {
-    totalCategories: safeRecords.filter((record) => !record.parentId).length,
+    totalCategories: safeRecords.filter(
+      (record) => isVisibleCategory(record) && !record.parentId,
+    ).length,
     activeCategories: safeRecords.filter(
       (record) => record.status === "active" && record.deletedAt == null && !record.parentId,
     ).length,
