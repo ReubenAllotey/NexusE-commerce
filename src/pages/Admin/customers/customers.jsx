@@ -32,6 +32,8 @@ function mapSupabaseProfile(profile = {}) {
     deliveryPhoneNumber: "",
     createdAt: profile.created_at,
     updatedAt: profile.updated_at,
+    role: profile.role || "customer",
+    accountType: profile.account_type || "member",
     source: "profile",
   };
 }
@@ -192,9 +194,10 @@ function getCustomerSearchBlob(customer) {
     .toLowerCase();
 }
 
-function getCustomerRows({ users = [], orders = [], addresses = [], overrides = [] }) {
+function getCustomerRows({ users = [], orders = [], addresses = [], overrides = [], adminKeys = [] }) {
   const customers = new Map();
   const aliasMap = new Map();
+  const adminKeySet = new Set(adminKeys.map(normalizeKey).filter(Boolean));
 
   const findExisting = (keys) => {
     for (const key of keys) {
@@ -211,6 +214,13 @@ function getCustomerRows({ users = [], orders = [], addresses = [], overrides = 
     const keys = [candidate.customerId, candidate.email, candidate.id]
       .map(normalizeKey)
       .filter(Boolean);
+
+    const isAdminProfile = normalizeKey(candidate.role) === "admin";
+    const matchesAdminProfile = keys.some((key) => adminKeySet.has(key));
+
+    if (isAdminProfile || matchesAdminProfile) {
+      return null;
+    }
 
     if (keys.length === 0 && !candidate.name) {
       return null;
@@ -344,6 +354,7 @@ function getCustomerRows({ users = [], orders = [], addresses = [], overrides = 
         addressIndex.get(`${normalizedUserEmail}::delivery`) ||
         "",
       createdAt: user.createdAt,
+      role: user.role,
       source: "user",
     });
   }
@@ -374,6 +385,7 @@ function getCustomerRows({ users = [], orders = [], addresses = [], overrides = 
       name: override.name,
       email: override.email,
       phoneNumber: override.phoneNumber,
+      role: override.role,
       blocked: override.blocked,
       deleted: override.deleted,
       source: override.source || "admin",
@@ -553,6 +565,9 @@ function CustomersPage({ orders = [] }) {
         orders: liveOrders,
         addresses: supabaseAddresses,
         overrides: customerOverrides,
+        adminKeys: supabaseProfiles
+          .filter((profile) => normalizeKey(profile.role) === "admin")
+          .flatMap((profile) => [profile.id, profile.customerId, profile.email]),
       }),
     [liveOrders, customerOverrides, supabaseAddresses, supabaseProfiles],
   );

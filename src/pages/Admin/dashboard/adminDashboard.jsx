@@ -73,13 +73,23 @@ function AdminDashboard({
     let isMounted = true;
 
     const loadCustomerCount = async () => {
-      const { count, error } = await supabase
+      const { data: profiles, error } = await supabase
         .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("role", "customer");
+        .select("id, role, account_type");
 
       if (isMounted) {
-        setCustomerCount(error ? null : count ?? 0);
+        const registeredCustomers = (profiles ?? []).filter((profile) => {
+          const role = String(profile.role ?? "").trim().toLowerCase();
+          const accountType = String(profile.account_type ?? "").trim().toLowerCase();
+
+          // Treat legacy null values as customer/member defaults, but never count admins or guests.
+          return (
+            (role === "customer" || role === "") &&
+            (accountType === "member" || accountType === "")
+          );
+        });
+
+        setCustomerCount(error ? null : registeredCustomers.length);
       }
     };
 
