@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
   getProductPath,
@@ -82,15 +81,11 @@ function ProductCard({
     () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
   );
-  const defaultSelectedOptions = useMemo(
-    () => buildDefaultSelectedOptions(safeVariationGroups),
-    [safeVariationGroups],
-  );
   const [selectedOptions, setSelectedOptions] = useState([]);
 
   useEffect(() => {
-    setSelectedOptions(defaultSelectedOptions);
-  }, [defaultSelectedOptions, item.id, item.slug]);
+    setSelectedOptions([]);
+  }, [item.id, item.slug]);
 
   const selectionLookup = useMemo(
     () => new Map(selectedOptions.map((option) => [option.groupId, option])),
@@ -101,11 +96,7 @@ function ProductCard({
     () =>
       safeVariationGroups
         .map((group) => {
-          const selectedOption =
-            selectionLookup.get(group.id) ??
-            group.options?.find((option) => option.isDefault) ??
-            group.options?.[0] ??
-            null;
+          const selectedOption = selectionLookup.get(group.id) ?? null;
 
           if (!selectedOption) {
             return null;
@@ -215,11 +206,7 @@ function ProductCard({
           <div className={`${prefix}__variation-stack`}>
             {visibleGroups.map((group) => {
               const groupOptions = Array.isArray(group.options) ? group.options : [];
-              const activeGroupOption =
-                activeSelection.find((option) => option.groupId === group.id) ??
-                groupOptions.find((option) => option.isDefault) ??
-                groupOptions[0] ??
-                null;
+              const activeGroupOption = activeSelection.find((option) => option.groupId === group.id) ?? null;
               const visibleOptions = groupOptions.slice(0, 4);
               const hiddenCount = Math.max(groupOptions.length - visibleOptions.length, 0);
 

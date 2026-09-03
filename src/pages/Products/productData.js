@@ -613,33 +613,6 @@ function normalizeVariationGroups(groups = [], basePrice = 0, baseCompareAt = nu
     );
 }
 
-function buildDefaultSelectedOptions(variationGroups = []) {
-  return [...(Array.isArray(variationGroups) ? variationGroups : [])]
-    .filter(Boolean)
-    .map((group) => {
-      const option = group.options?.find((entry) => entry.isDefault) ?? group.options?.[0] ?? null;
-
-      if (!option) {
-        return null;
-      }
-
-      return {
-        groupId: group.id,
-        groupName: group.groupName,
-        kind: group.kind,
-        optionId: option.id,
-        label: option.label,
-        value: option.value ?? slugify(option.label),
-        priceDelta: normalizeNumber(option.priceDelta) ?? 0,
-        compareAtDelta: option.compareAtDelta ?? null,
-        swatchColor: option.swatchColor ?? "",
-        imageUrl: option.imageUrl ?? "",
-        isDefault: Boolean(option.isDefault),
-      };
-    })
-    .filter(Boolean);
-}
-
 function buildVariantKeyFromSelectedOptions(selectedOptions = [], legacyColor = "", legacySize = "") {
   if (Array.isArray(selectedOptions) && selectedOptions.length > 0) {
     return selectedOptions
@@ -1498,7 +1471,6 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
 }
 
 export {
-  buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
   buildVariantLabelFromSelectedOptions,
   buildVariationGroupsFromEditorValues,

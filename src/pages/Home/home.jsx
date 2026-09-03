@@ -4,7 +4,6 @@ import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/nexuslogo.png";
 import { getCategoryProductsPath } from "./catalogData";
 import {
-  buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
   getProductPath,
@@ -359,22 +358,16 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
     () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
   );
-  const defaultSelectedOptions = useMemo(
-    () => buildDefaultSelectedOptions(variationGroups),
-    [variationGroups],
-  );
   const primaryGroup = variationGroups.find(Boolean) ?? null;
   const primaryGroupOptions = Array.isArray(primaryGroup?.options) ? primaryGroup.options : [];
-  const defaultOption = primaryGroup?.options?.find((option) => option.isDefault) ?? primaryGroup?.options?.[0] ?? null;
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
 
   useEffect(() => {
-    setSelectedOptionKey(defaultOption?.id ?? defaultOption?.value ?? "");
-  }, [detailHref, defaultOption?.id, defaultOption?.value]);
+    setSelectedOptionKey("");
+  }, [detailHref]);
 
   const activeOption =
-    primaryGroup?.options?.find((option) => (option.id ?? option.value) === selectedOptionKey) ??
-    defaultOption;
+    primaryGroup?.options?.find((option) => (option.id ?? option.value) === selectedOptionKey) ?? null;
   const activeSelection = useMemo(
     () =>
       variationGroups
@@ -382,10 +375,7 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
           const groupOption =
             group.id === primaryGroup?.id
               ? activeOption
-              : defaultSelectedOptions.find((entry) => entry.groupId === group.id) ??
-                group.options?.find((option) => option.isDefault) ??
-                group.options?.[0] ??
-                null;
+              : null;
 
           if (!groupOption) {
             return null;
@@ -406,12 +396,12 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
           };
         })
         .filter(Boolean),
-    [activeOption, defaultSelectedOptions, primaryGroup?.id, variationGroups],
+    [activeOption, primaryGroup?.id, variationGroups],
   );
   const activePrice = resolveProductPrice(item, activeSelection);
   const activeCompareAt = resolveProductCompareAt(item, activeSelection);
   const activeImage =
-    activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
+    activeSelection.find((option) => option.imageUrl)?.imageUrl || item.image;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
   const availabilityMeta = getProductPurchaseMeta(item);
 

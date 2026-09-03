@@ -4,7 +4,6 @@ import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerS
 import NexusProductCard from "./ProductCard";
 import UnavailableStockButton from "./UnavailableStockButton";
 import {
-  buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
   getShippingFee,
@@ -119,6 +118,7 @@ function ProductView({
     [siteBanner],
   );
   const [activeImage, setActiveImage] = useState(null);
+  const [selectedVariationImage, setSelectedVariationImage] = useState("");
   const [selectedOptions, setSelectedOptions] = useState([]);
   const [quantity, setQuantity] = useState(1);
 
@@ -133,27 +133,19 @@ function ProductView({
   const categoryTrail = Array.isArray(product?.categoryTrail) ? product.categoryTrail : [];
   const features = Array.isArray(product?.features) ? product.features : [];
 
-  const defaultSelectedOptions = useMemo(
-    () => buildDefaultSelectedOptions(variationGroups),
-    [variationGroups],
-  );
-
   useEffect(() => {
     setActiveImage(null);
-    setSelectedOptions(defaultSelectedOptions);
+    setSelectedVariationImage("");
+    setSelectedOptions([]);
     setQuantity(1);
-  }, [defaultSelectedOptions, productSlug]);
+  }, [productSlug]);
 
   const stars = renderStars(product?.rating ?? 0);
   const reviewCount = Number(product?.reviews) || 0;
   const selectionLookup = new Map(selectedOptions.map((option) => [option.groupId, option]));
   const activeSelection = variationGroups
     .map((group) => {
-      const selectedOption =
-        selectionLookup.get(group.id) ??
-        group.options?.find((option) => option.isDefault) ??
-        group.options?.[0] ??
-        null;
+      const selectedOption = selectionLookup.get(group.id) ?? null;
 
       if (!selectedOption) {
         return null;
@@ -175,10 +167,9 @@ function ProductView({
     })
     .filter(Boolean);
 
-  const selectedImageOption = activeSelection.find((option) => option.imageUrl);
   const selectedImage = activeImage == null ? null : gallery[activeImage] ?? null;
   const selectedImageSrc =
-    selectedImage?.src || selectedImageOption?.imageUrl || product?.image || gallery[0]?.src || FALLBACK_IMAGE;
+    selectedImage?.src || selectedVariationImage || product?.primaryImageUrl || product?.image || gallery[0]?.src || FALLBACK_IMAGE;
   const isWishlisted = wishlistItems.includes(product?.name);
   const categoryHref = product?.categorySlug ? `/products?category=${product.categorySlug}` : "/products";
   const shippingFee = getShippingFee(product);
@@ -362,10 +353,7 @@ function ProductView({
                 {variationGroups.map((group) => {
                   const groupOptions = Array.isArray(group.options) ? group.options : [];
                   const activeGroupOption =
-                    activeSelection.find((option) => option.groupId === group.id) ??
-                    groupOptions.find((option) => option.isDefault) ??
-                    groupOptions[0] ??
-                    null;
+                    activeSelection.find((option) => option.groupId === group.id) ?? null;
 
                   return (
                     <div key={group.id ?? group.groupName} className="product-view__sizes">
@@ -394,6 +382,21 @@ function ProductView({
                               key={option.id ?? option.value ?? option.label}
                               className={buttonClass}
                               onClick={() => {
+                                const isDeselecting = activeGroupOption?.id === option.id;
+
+                                if (isDeselecting) {
+                                  setSelectedOptions((current) => current.filter((entry) => entry.groupId !== group.id));
+                                  if (selectedOptions.length <= 1) {
+                                    setSelectedVariationImage("");
+                                    setActiveImage(null);
+                                  }
+                                  return;
+                                }
+
+                                if (option.imageUrl) {
+                                  setSelectedVariationImage(option.imageUrl);
+                                  setActiveImage(null);
+                                }
                                 setSelectedOptions((current) => {
                                   const next = current.filter((entry) => entry.groupId !== group.id);
                                   return [

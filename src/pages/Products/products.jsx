@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useCategoryRecords } from "../../shared/categoryStorage";
 import {
-  buildDefaultSelectedOptions,
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
   getProductPath,
@@ -184,22 +183,16 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
     () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
   );
-  const defaultSelectedOptions = useMemo(
-    () => buildDefaultSelectedOptions(variationGroups),
-    [variationGroups],
-  );
   const primaryGroup = variationGroups.find(Boolean) ?? null;
   const primaryGroupOptions = Array.isArray(primaryGroup?.options) ? primaryGroup.options : [];
-  const defaultOption = primaryGroup?.options?.find((option) => option.isDefault) ?? primaryGroup?.options?.[0] ?? null;
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
 
   useEffect(() => {
-    setSelectedOptionKey(defaultOption?.id ?? defaultOption?.value ?? "");
-  }, [item.slug, defaultOption?.id, defaultOption?.value]);
+    setSelectedOptionKey("");
+  }, [item.slug]);
 
   const activeOption =
-    primaryGroup?.options?.find((option) => (option.id ?? option.value) === selectedOptionKey) ??
-    defaultOption;
+    primaryGroup?.options?.find((option) => (option.id ?? option.value) === selectedOptionKey) ?? null;
   const activeSelection = useMemo(
     () =>
       variationGroups
@@ -207,10 +200,7 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
           const groupOption =
             group.id === primaryGroup?.id
               ? activeOption
-              : defaultSelectedOptions.find((entry) => entry.groupId === group.id) ??
-                group.options?.find((option) => option.isDefault) ??
-                group.options?.[0] ??
-                null;
+              : null;
 
           if (!groupOption) {
             return null;
@@ -231,12 +221,12 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
           };
         })
         .filter(Boolean),
-    [activeOption, defaultSelectedOptions, primaryGroup?.id, variationGroups],
+    [activeOption, primaryGroup?.id, variationGroups],
   );
   const activePrice = resolveProductPrice(item, activeSelection);
   const activeCompareAt = resolveProductCompareAt(item, activeSelection);
   const activeImage =
-    activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
+    activeSelection.find((option) => option.imageUrl)?.imageUrl || item.image;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
   const availabilityMeta = getProductPurchaseMeta(item);
 
