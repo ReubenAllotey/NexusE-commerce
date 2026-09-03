@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabaseClient";
+import { getProductPurchaseMeta } from "../pages/Products/productData";
 
 const GUEST_CART_KEY = "nexus-guest-cart";
 const GUEST_WISHLIST_KEY = "nexus-guest-wishlist";
@@ -577,8 +578,13 @@ async function syncGuestCartToRemote(products = []) {
       }
 
       const availabilityType = resolveProductAvailabilityType(product);
-      if (availabilityType === "coming_soon") {
-        throw new Error("Coming soon products cannot be added to the cart yet.");
+      const purchaseMeta = getProductPurchaseMeta(product);
+      if (purchaseMeta.disabled) {
+        throw new Error(
+          purchaseMeta.outOfStock
+            ? "This item is currently out of stock."
+            : "Coming soon products cannot be added to the cart yet.",
+        );
       }
 
       const selectedColor = normalizeOptionalText(item.selectedColor);
@@ -812,12 +818,13 @@ export async function addCartLine({
       : normalizedProduct?.selectedOptions ?? normalizedProduct?.selected_options ?? [],
   );
   const incomingAvailabilityType = resolveProductAvailabilityType(normalizedProduct);
+  const purchaseMeta = getProductPurchaseMeta(normalizedProduct);
 
   if (!normalizedProductId) {
     return { ok: false, message: "A valid product is required.", items: [] };
   }
 
-  if (isProductOutOfStock(normalizedProduct)) {
+  if (purchaseMeta.outOfStock) {
     return {
       ok: false,
       message: "This item is currently out of stock.",
@@ -825,7 +832,7 @@ export async function addCartLine({
     };
   }
 
-  if (incomingAvailabilityType === "coming_soon") {
+  if (purchaseMeta.availabilityType === "coming_soon") {
     return {
       ok: false,
       message: "Coming soon products cannot be added to the cart yet.",
