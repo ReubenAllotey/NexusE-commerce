@@ -1581,7 +1581,10 @@ export async function setProductDeletedAt(productId, deletedAt = new Date().toIS
     return createResult(false, { message: "Product id is required." });
   }
 
-  return queryRpc("set_product_deleted_at", { product_id, deleted_at: deletedAt });
+  return queryRpc("set_product_deleted_at", {
+    p_product_id: product_id,
+    p_deleted_at: deletedAt,
+  });
 }
 
 export async function restoreProductRecord(productId) {
@@ -1591,7 +1594,7 @@ export async function restoreProductRecord(productId) {
     return createResult(false, { message: "Product id is required." });
   }
 
-  return queryRpc("restore_product", { product_id });
+  return queryRpc("restore_product", { p_product_id: product_id });
 }
 
 export async function setProductStockStatus(productId, stockStatus) {

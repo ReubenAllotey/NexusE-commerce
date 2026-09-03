@@ -15031,6 +15031,23 @@ body[data-theme="dark"] .site-footer__inner {
   gap: 0.9rem;
 }
 
+.admin-products-archive-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.8rem;
+  color: #5d6c83;
+  font-size: 0.84rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-products-archive-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #1c3fb7;
+}
+
 .admin-product-form__section {
   display: grid;
   grid-template-columns: 1fr;

@@ -51,12 +51,16 @@ function ProductImage({ product }) {
 
 function AdminProductsPage({ orders = [] }) {
   const session = loadAdminSession();
-  const { products, loading: productsLoading, error: productsError, refresh } = useProducts({ includeDeleted: true });
+  const [showDeletedProducts, setShowDeletedProducts] = useState(false);
+  const { products, loading: productsLoading, error: productsError, refresh } = useProducts({ includeDeleted: showDeletedProducts });
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [stockConfirmProduct, setStockConfirmProduct] = useState(null);
   const [stockUpdatingId, setStockUpdatingId] = useState("");
   const [stockError, setStockError] = useState("");
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
+  const [deleteUpdatingId, setDeleteUpdatingId] = useState("");
+  const [deleteError, setDeleteError] = useState("");
 
   const categories = useMemo(
     () =>
@@ -90,16 +94,28 @@ function AdminProductsPage({ orders = [] }) {
   }
 
 
-  const handleDelete = async (product) => {
-    const confirmDelete = window.confirm(
-      `Delete ${product.name}? This will remove it from the storefront and admin table.`,
-    );
+  const handleDelete = (product) => {
+    setDeleteError("");
+    setDeleteConfirmProduct(product);
+  };
 
-    if (!confirmDelete) {
+  const confirmDelete = async () => {
+    if (!deleteConfirmProduct) {
       return;
     }
 
-    await setProductDeletedAt(product.id);
+    setDeleteUpdatingId(deleteConfirmProduct.id);
+    setDeleteError("");
+    const result = await setProductDeletedAt(deleteConfirmProduct.id);
+
+    if (!result.ok) {
+      setDeleteError(result.message || "Unable to delete this product.");
+      setDeleteUpdatingId("");
+      return;
+    }
+
+    setDeleteUpdatingId("");
+    setDeleteConfirmProduct(null);
     await refresh();
   };
 
@@ -200,6 +216,16 @@ function AdminProductsPage({ orders = [] }) {
                   </option>
                 ))}
               </select>
+            </label>
+
+            <label className="admin-products-archive-toggle" htmlFor="admin-products-show-deleted">
+              <input
+                id="admin-products-show-deleted"
+                type="checkbox"
+                checked={showDeletedProducts}
+                onChange={(event) => setShowDeletedProducts(event.target.checked)}
+              />
+              Show deleted
             </label>
           </div>
 
@@ -341,6 +367,38 @@ function AdminProductsPage({ orders = [] }) {
           </div>
         </section>
       </section>
+
+      {deleteConfirmProduct ? (
+        <div className="admin-products-stock-modal" role="dialog" aria-modal="true" aria-labelledby="admin-products-delete-title">
+          <button
+            type="button"
+            className="admin-products-stock-modal__scrim"
+            aria-label="Close delete confirmation"
+            onClick={() => setDeleteConfirmProduct(null)}
+          />
+          <section className="admin-products-stock-modal__panel">
+            <p>Product visibility</p>
+            <h2 id="admin-products-delete-title">Delete product?</h2>
+            <span>
+              {deleteConfirmProduct.name} will be removed from the storefront while historical order records are preserved.
+            </span>
+            {deleteError ? <strong className="admin-products-stock-modal__error">{deleteError}</strong> : null}
+            <div className="admin-products-stock-modal__actions">
+              <button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setDeleteConfirmProduct(null)} disabled={Boolean(deleteUpdatingId)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="admin-products-action admin-products-action--delete"
+                disabled={deleteUpdatingId === deleteConfirmProduct.id}
+                onClick={() => void confirmDelete()}
+              >
+                {deleteUpdatingId === deleteConfirmProduct.id ? "Deleting..." : "Delete Product"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {stockConfirmProduct ? (
         <div className="admin-products-stock-modal" role="dialog" aria-modal="true" aria-labelledby="admin-products-stock-title">
