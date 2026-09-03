@@ -164,6 +164,32 @@ export function getProductPurchaseMeta(product = {}) {
   };
 }
 
+function getSelectedAbsoluteVariationValue(selectedOptions = [], field) {
+  for (const option of Array.isArray(selectedOptions) ? selectedOptions : []) {
+    const value = normalizeNumber(option?.[field]);
+
+    if (value != null && value > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+export function resolveProductPrice(product = {}, selectedOptions = []) {
+  return (
+    getSelectedAbsoluteVariationValue(selectedOptions, "priceDelta") ??
+    normalizeNumber(product?.price) ??
+    0
+  );
+}
+
+export function resolveProductCompareAt(product = {}, selectedOptions = []) {
+  const selectedCompareAt = getSelectedAbsoluteVariationValue(selectedOptions, "compareAtDelta");
+
+  return selectedCompareAt ?? normalizeNumber(product?.compareAt ?? product?.compare_at);
+}
+
 function normalizeNumber(value) {
   if (value === "" || value == null) {
     return null;
@@ -446,11 +472,11 @@ function normalizeVariationOptionRow(row = {}, basePrice = 0, baseCompareAt = nu
     isDefault: Boolean(row?.isDefault ?? row?.is_default),
     createdAt: row?.createdAt ?? row?.created_at ?? "",
     updatedAt: row?.updatedAt ?? row?.updated_at ?? "",
-    price: normalizeNumber(basePrice) + priceDelta,
+    price: priceDelta > 0 ? priceDelta : normalizeNumber(basePrice) ?? 0,
     compareAt:
       compareAtDelta == null
         ? null
-        : (normalizeNumber(baseCompareAt) ?? 0) + compareAtDelta,
+        : compareAtDelta > 0 ? compareAtDelta : normalizeNumber(baseCompareAt),
   };
 }
 
@@ -516,11 +542,11 @@ function buildFallbackVariationGroups(row = {}, bundle = {}) {
     groupId: "",
     label: option.label,
     value: option.key,
-    priceDelta: (normalizeNumber(option.price) ?? 0) - (normalizeNumber(row.price) ?? 0),
+    priceDelta: normalizeNumber(option.price) ?? normalizeNumber(row.price) ?? 0,
     compareAtDelta:
       option.compareAt == null
         ? null
-        : option.compareAt - (normalizeNumber(row.compare_at) ?? 0),
+        : option.compareAt,
     swatchColor: "",
     imageUrl: "",
     displayOrder: index + 1,
@@ -1199,11 +1225,11 @@ function buildVariationGroupsFromEditorValues(values = {}, existingProduct = nul
       options: seriesOptions.map((option, index) => ({
         label: option.label,
         value: option.key,
-        priceDelta: (normalizeNumber(option.price) ?? 0) - basePrice,
+        priceDelta: normalizeNumber(option.price) ?? basePrice,
         compareAtDelta:
           option.compareAt == null
             ? null
-            : option.compareAt - (baseCompareAt ?? 0),
+            : option.compareAt,
         displayOrder: index + 1,
         isDefault: index === 0,
       })),

@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { getShippingFee, normalizeAvailabilityType, useProducts } from "../Products/productData";
+import {
+  getShippingFee,
+  normalizeAvailabilityType,
+  resolveProductPrice,
+  useProducts,
+} from "../Products/productData";
 import {
   loadCheckoutDraft as loadPaymentCheckoutDraft,
   saveCheckoutDraft as savePaymentCheckoutDraft,
@@ -86,7 +91,10 @@ function resolveCartRows(cartItems = [], productLookup = new Map()) {
         quantity,
         shippingFee,
         effectiveShippingFee,
-        lineSubtotal: product.price * quantity,
+        lineSubtotal: resolveProductPrice(
+          product,
+          item.selectedOptions ?? item.selected_options ?? item.variant?.options ?? [],
+        ) * quantity,
         lineShipping: effectiveShippingFee * quantity,
         availabilityType,
         variant: item.variant ?? null,

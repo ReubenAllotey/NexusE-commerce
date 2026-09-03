@@ -5,6 +5,8 @@ import {
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
   getProductPath,
+  resolveProductCompareAt,
+  resolveProductPrice,
   slugify,
 } from "./productData";
 import UnavailableStockButton from "./UnavailableStockButton";
@@ -139,14 +141,8 @@ function ProductCard({
     });
   }, [safeVariationGroups]);
 
-  const activePrice =
-    (Number(item.price) || 0) +
-    activeSelection.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
-  const activeCompareAt =
-    item.compareAt != null
-      ? (Number(item.compareAt) || 0) +
-        activeSelection.reduce((sum, option) => sum + (Number(option.compareAtDelta) || 0), 0)
-      : null;
+  const activePrice = resolveProductPrice(item, activeSelection);
+  const activeCompareAt = resolveProductCompareAt(item, activeSelection);
   const activeImage =
     activeSelection.find((option) => option.imageUrl)?.imageUrl ||
     item.image ||

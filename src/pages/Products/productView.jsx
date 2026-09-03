@@ -8,6 +8,8 @@ import {
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
   getShippingFee,
+  resolveProductCompareAt,
+  resolveProductPrice,
   useProductBySlug,
   useProducts,
 } from "./productData";
@@ -182,14 +184,8 @@ function ProductView({
   const shippingFee = getShippingFee(product);
   const shippingFeeLabel = shippingFee == null ? "Pending" : formatMoney(shippingFee);
   const shippingMethodLabel = formatShippingMethod(product?.shippingMethod);
-  const activePrice =
-    (Number(product?.price) || 0) +
-    activeSelection.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
-  const activeCompareAt =
-    product?.compareAt != null
-      ? (Number(product.compareAt) || 0) +
-        activeSelection.reduce((sum, option) => sum + (Number(option.compareAtDelta) || 0), 0)
-      : null;
+  const activePrice = resolveProductPrice(product, activeSelection);
+  const activeCompareAt = resolveProductCompareAt(product, activeSelection);
   const previewTint =
     activeSelection.find((option) => option.swatchColor)?.swatchColor || selectedImage?.tint || "#dfe7f3";
   const availabilityMeta = getProductPurchaseMeta(product);

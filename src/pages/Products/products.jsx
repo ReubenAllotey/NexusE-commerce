@@ -6,6 +6,8 @@ import {
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
   getProductPath,
+  resolveProductCompareAt,
+  resolveProductPrice,
   slugify,
   useProducts,
 } from "./productData";
@@ -231,14 +233,8 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
         .filter(Boolean),
     [activeOption, defaultSelectedOptions, primaryGroup?.id, variationGroups],
   );
-  const activePrice =
-    (Number(item.price) || 0) +
-    activeSelection.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
-  const activeCompareAt =
-    item.compareAt != null
-      ? Number(item.compareAt) +
-        activeSelection.reduce((sum, option) => sum + (Number(option.compareAtDelta) || 0), 0)
-      : null;
+  const activePrice = resolveProductPrice(item, activeSelection);
+  const activeCompareAt = resolveProductCompareAt(item, activeSelection);
   const activeImage =
     activeSelection.find((option) => option.imageUrl)?.imageUrl || activeOption?.imageUrl || item.image;
   const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);

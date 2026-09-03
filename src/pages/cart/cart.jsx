@@ -1,5 +1,10 @@
 import { Link, useNavigate } from "react-router-dom";
-import { getShippingFee, isProductOutOfStock, useProducts } from "../Products/productData";
+import {
+  getShippingFee,
+  isProductOutOfStock,
+  resolveProductPrice,
+  useProducts,
+} from "../Products/productData";
 
 function formatMoney(value) {
   const safeValue = Number(value) || 0;
@@ -85,7 +90,10 @@ function Cart({
           ? item.shippingFee
           : getShippingFee(product);
       const effectiveShippingFee = typeof shippingFee === "number" ? shippingFee : 0;
-      const lineSubtotal = product.price * quantity;
+      const lineSubtotal = resolveProductPrice(
+        product,
+        item.selectedOptions ?? item.selected_options ?? item.variant?.options ?? [],
+      ) * quantity;
       const lineShipping = effectiveShippingFee * quantity;
       const outOfStock = isProductOutOfStock(product);
 

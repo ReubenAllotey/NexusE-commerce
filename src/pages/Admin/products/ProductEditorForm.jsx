@@ -164,11 +164,11 @@ function buildInitialVariationGroups(value = {}) {
             id: String(option?.id ?? "").trim() || createEditorId("variation-option"),
             label: String(option?.label ?? "").trim(),
             value: String(option?.key ?? option?.value ?? "").trim() || slugify(option?.label ?? ""),
-            priceDelta: Number.isFinite(optionPrice) && Number.isFinite(basePrice) ? optionPrice - basePrice : 0,
+            priceDelta: Number.isFinite(optionPrice) ? optionPrice : basePrice,
             compareAtDelta:
-              optionCompareAt == null || baseCompareAt == null || Number.isNaN(optionCompareAt) || Number.isNaN(baseCompareAt)
+              optionCompareAt == null || Number.isNaN(optionCompareAt)
                 ? null
-                : optionCompareAt - baseCompareAt,
+                : optionCompareAt,
             swatchColor: "",
             imageUrl: "",
             displayOrder: optionIndex + 1,
@@ -287,16 +287,16 @@ function summarizeVariationGroups(groups = []) {
           }
 
           const parts = [label];
-          const priceDelta = Number(option?.priceDelta ?? 0);
-          if (Number.isFinite(priceDelta) && priceDelta !== 0) {
-            parts.push(`${priceDelta > 0 ? "+" : ""}GH₵${Math.abs(priceDelta).toFixed(2)}`);
+          const variationPrice = Number(option?.priceDelta ?? 0);
+          if (Number.isFinite(variationPrice) && variationPrice > 0) {
+            parts.push(`Variation Price GH₵${variationPrice.toFixed(2)}`);
           }
 
-          const compareAtDelta = option?.compareAtDelta;
-          if (compareAtDelta != null && compareAtDelta !== "") {
-            const numeric = Number(compareAtDelta);
-            if (Number.isFinite(numeric) && numeric !== 0) {
-              parts.push(`compare-at ${numeric > 0 ? "+" : ""}GH₵${Math.abs(numeric).toFixed(2)}`);
+          const variationCompareAtPrice = option?.compareAtDelta;
+          if (variationCompareAtPrice != null && variationCompareAtPrice !== "") {
+            const numeric = Number(variationCompareAtPrice);
+            if (Number.isFinite(numeric) && numeric > 0) {
+              parts.push(`Variation Compare-at Price GH₵${numeric.toFixed(2)}`);
             }
           }
 
@@ -1372,7 +1372,7 @@ function ProductEditorForm({
                           </label>
 
                           <label className="admin-product-form__variation-inline-field">
-                            <span>Price adjustment (GH₵)</span>
+                            <span>Variation Price (GH₵)</span>
                             <input
                               type="number"
                               min="0"
@@ -1391,7 +1391,7 @@ function ProductEditorForm({
                           </label>
 
                           <label className="admin-product-form__variation-inline-field">
-                            <span>Compare-at adjustment (GH₵)</span>
+                            <span>Variation Compare-at Price (GH₵)</span>
                             <input
                               type="number"
                               min="0"
@@ -1666,7 +1666,7 @@ function ProductEditorForm({
                           />
                         </label>
                         <label className="admin-product-form__variation-inline-field">
-                          <span>Price adjustment (GHS)</span>
+                          <span>Variation Price (GHS)</span>
                           <input
                             type="number"
                             min="0"
@@ -1677,7 +1677,7 @@ function ProductEditorForm({
                           />
                         </label>
                         <label className="admin-product-form__variation-inline-field">
-                          <span>Compare-at adjustment</span>
+                          <span>Variation Compare-at Price</span>
                           <input
                             type="number"
                             min="0"

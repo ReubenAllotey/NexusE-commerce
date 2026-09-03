@@ -6,7 +6,7 @@ import {
   defaultSiteBanner,
   normalizeSiteBanner,
 } from "../../shared/siteBannerStorage";
-import { normalizeAvailabilityType } from "../Products/productData";
+import { normalizeAvailabilityType, resolveProductPrice } from "../Products/productData";
 import {
   clearCheckoutDraft,
   clearPaymentSession,
@@ -96,7 +96,10 @@ function resolveCartRows(cartItems = []) {
           product,
           quantity,
           shippingFee,
-          lineSubtotal: (Number(product.price) || 0) * quantity,
+          lineSubtotal: resolveProductPrice(
+            product,
+            item.selectedOptions ?? item.selected_options ?? item.variant?.options ?? [],
+          ) * quantity,
           lineShipping: shippingFee * quantity,
           availabilityType,
           variant: item.variant ?? null,

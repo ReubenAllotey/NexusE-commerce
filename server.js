@@ -437,7 +437,7 @@ function resolveGuestProductSelections({
     })
     .filter(Boolean);
 
-  const priceDelta = selectedOptions.reduce((sum, option) => sum + (Number(option.priceDelta) || 0), 0);
+  const selectedPrice = selectedOptions.find((option) => Number(option.priceDelta) > 0)?.priceDelta ?? 0;
   const selectedColor =
     selectedOptions.find((option) => slugifyText(option.groupName) === "color")?.label ||
     legacyColor ||
@@ -451,7 +451,7 @@ function resolveGuestProductSelections({
     selectedOptions,
     selectedColor,
     selectedSize,
-    priceDelta,
+    priceDelta: selectedPrice,
     variantKey: buildGuestVariantKeyFromSelectedOptions(selectedOptions, clean(product.slug), selectedColor, selectedSize),
   };
 }
@@ -1010,7 +1010,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       variationData,
     });
     const basePrice = Number(product.price) || 0;
-    const unitPrice = basePrice + selections.priceDelta;
+    const unitPrice = selections.priceDelta > 0 ? selections.priceDelta : basePrice;
     const shippingFee = availabilityType === "preorder" ? 0 : Number(product.shipping_fee) || 0;
     const lineSubtotal = unitPrice * row.quantity;
     const lineShipping = shippingFee * row.quantity;

@@ -1,5 +1,8 @@
 import { supabase } from "../lib/supabaseClient";
-import { getProductPurchaseMeta } from "../pages/Products/productData";
+import {
+  getProductPurchaseMeta,
+  resolveProductPrice,
+} from "../pages/Products/productData";
 
 const GUEST_CART_KEY = "nexus-guest-cart";
 const GUEST_WISHLIST_KEY = "nexus-guest-wishlist";
@@ -506,7 +509,7 @@ function mapCartRowsToItems(rows = [], products = []) {
         slug: product.slug ?? "",
         name: product.name ?? "Unnamed product",
         brand: product.brand ?? "",
-        price: Number(product.price) || 0,
+        price: resolveProductPrice(product, selectedOptions),
         image: product.image ?? "",
         imageClassName: product.imageClassName ?? "",
         stockStatus: product.stockStatus ?? product.stock_status ?? "",
