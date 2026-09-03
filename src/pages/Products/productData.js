@@ -1507,11 +1507,68 @@ async function queryRpc(functionName, args = {}) {
   return createResult(true, { data });
 }
 
+async function resolveUniqueProductSlug(product = {}) {
+  const productId = cleanText(product.id);
+  const baseSlug = slugify(product.slug || product.name);
+
+  if (!baseSlug) {
+    throw new Error("Product slug cannot be empty after normalization.");
+  }
+
+  // Existing product URLs are permanent. Only new products need collision resolution.
+  if (productId) {
+    return product.slug || baseSlug;
+  }
+
+  const { data, error } = await supabase.from("products").select("id, slug");
+
+  if (error) {
+    throw error;
+  }
+
+  const usedSlugs = new Set(
+    (Array.isArray(data) ? data : [])
+      .map((row) => cleanText(row.slug).toLowerCase())
+      .filter(Boolean),
+  );
+
+  if (!usedSlugs.has(baseSlug.toLowerCase())) {
+    return baseSlug;
+  }
+
+  let suffix = 2;
+  let candidate = `${baseSlug}-${suffix}`;
+
+  while (usedSlugs.has(candidate.toLowerCase())) {
+    suffix += 1;
+    candidate = `${baseSlug}-${suffix}`;
+  }
+
+  return candidate;
+}
+
 export async function saveProductBundle(payload = {}) {
   const normalizedPayload = ensureProductBundleRows(payload);
+
+  try {
+    normalizedPayload.product = {
+      ...normalizedPayload.product,
+      slug: await resolveUniqueProductSlug(normalizedPayload.product),
+    };
+  } catch (error) {
+    return mapDbError(error, "Unable to generate a unique product URL.");
+  }
+
   const result = await queryRpc("save_product_bundle", { payload: normalizedPayload });
 
   if (!result.ok) {
+    if (/product slug must be unique/i.test(String(result.message ?? ""))) {
+      return {
+        ...result,
+        message: "A product with this URL was created at the same time. Please try saving again.",
+      };
+    }
+
     return result;
   }
 
