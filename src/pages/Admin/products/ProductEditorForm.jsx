@@ -8,6 +8,11 @@ import {
   normalizeVariationGroups,
   slugify,
 } from "../../Products/productData";
+import {
+  getVariationOptionPreset,
+  getVariationPreset,
+  variationNames,
+} from "./variationPresets";
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -426,6 +431,12 @@ function ProductEditorForm({
   const [generateError, setGenerateError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [variationModal, setVariationModal] = useState(null);
+  const [variationDeleteTarget, setVariationDeleteTarget] = useState(null);
+  const [quickOptionValue, setQuickOptionValue] = useState("");
+  const [quickCustomValue, setQuickCustomValue] = useState("");
+  const [quickCustomHex, setQuickCustomHex] = useState("#1C3FB7");
+  const [variationNameChoice, setVariationNameChoice] = useState("");
   const {
     records: categoryRecords,
     loading: categoriesLoading,
@@ -435,6 +446,28 @@ function ProductEditorForm({
   useEffect(() => {
     setFormData(buildImageEntries(initialProduct));
   }, [initialProduct]);
+
+  useEffect(() => {
+    if (!variationModal && !variationDeleteTarget) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setVariationModal(null);
+        setVariationDeleteTarget(null);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [variationModal, variationDeleteTarget]);
 
   const variationSummary = useMemo(
     () => summarizeVariationGroups(formData.variationGroups),
@@ -495,24 +528,186 @@ function ProductEditorForm({
   };
 
   const handleAddVariationGroup = () => {
-    updateVariationGroups((groups) => [...groups, createBlankVariationGroup(groups.length)]);
+    setQuickOptionValue("");
+    setQuickCustomValue("");
+    setQuickCustomHex("#1C3FB7");
+    setVariationNameChoice("");
+    setVariationModal({
+      mode: "add",
+      draft: createBlankVariationGroup(formData.variationGroups.length),
+    });
   };
 
   const handleRemoveVariationGroup = (groupId) => {
-    updateVariationGroups((groups) => groups.filter((group) => group.id !== groupId));
+    setVariationDeleteTarget(groupId);
   };
 
-  const handleVariationGroupChange = (groupId, field, value) => {
-    updateVariationGroups((groups) =>
-      groups.map((group) =>
-        group.id === groupId
-          ? {
-              ...group,
-              [field]: field === "isRequired" ? Boolean(value) : value,
-            }
-          : group,
-      ),
+  const openVariationEditor = (group, mode = "edit") => {
+    setQuickOptionValue("");
+    setQuickCustomValue("");
+    setQuickCustomHex("#1C3FB7");
+    setVariationNameChoice(getVariationPreset(group.groupName)?.name ?? "__custom__");
+    setVariationModal({
+      mode,
+      draft: normalizeEditorVariationGroup(group, formData.variationGroups.indexOf(group)),
+    });
+  };
+
+  const handleQuickAddOption = () => {
+    if (!variationModal || !quickOptionValue) {
+      return;
+    }
+
+    const presetOption = getVariationOptionPreset(variationModal.draft.groupName, quickOptionValue);
+    const isCustom = quickOptionValue === "__custom__" || quickOptionValue === "__custom_color__";
+    const label = isCustom ? quickCustomValue.trim() : quickOptionValue;
+    if (!label) {
+      return;
+    }
+
+    if (quickOptionValue === "__custom_color__" && !/^#[0-9A-Fa-f]{6}$/.test(quickCustomHex)) {
+      setSubmitError("Enter a valid six-digit HEX color before adding this option.");
+      return;
+    }
+
+    const duplicate = (variationModal.draft.options ?? []).some(
+      (option) => String(option.label ?? "").trim().toLowerCase() === label.toLowerCase(),
     );
+    if (duplicate) {
+      setSubmitError(`${label} has already been added.`);
+      return;
+    }
+
+    const swatchColor = variationModal.draft.groupName.trim().toLowerCase() === "color"
+      ? isCustom
+        ? quickCustomHex
+        : presetOption?.swatchColor ?? ""
+      : "";
+
+    updateVariationDraft((draft) => ({
+      ...draft,
+      options: [
+        ...(draft.options ?? []),
+        {
+          ...createBlankVariationOption(draft.options?.length ?? 0, (draft.options ?? []).length === 0),
+          label,
+          value: slugify(label),
+          swatchColor,
+        },
+      ],
+    }));
+    setQuickOptionValue("");
+    setQuickCustomValue("");
+    setSubmitError("");
+  };
+
+  const updateVariationDraft = (updater) => {
+    setVariationModal((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextDraft = typeof updater === "function" ? updater(current.draft) : updater;
+      return { ...current, draft: normalizeEditorVariationGroup(nextDraft) };
+    });
+  };
+
+  const handleVariationDraftGroupChange = (field, value) => {
+    updateVariationDraft((draft) => ({
+      ...draft,
+      [field]: field === "isRequired" ? Boolean(value) : value,
+    }));
+  };
+
+  const handleVariationDraftOptionChange = (optionId, field, value) => {
+    updateVariationDraft((draft) => {
+      const nextOptions = (draft.options ?? []).map((option) => {
+        if (option.id !== optionId) {
+          return option;
+        }
+
+        const nextOption = {
+          ...option,
+          [field]:
+            field === "isDefault"
+              ? Boolean(value)
+              : field === "priceDelta" || field === "compareAtDelta"
+                ? value === "" || value == null
+                  ? ""
+                  : Number(value)
+                : value,
+        };
+
+        if (field === "label") {
+          const existingValue = String(option.value ?? "").trim();
+          if (!existingValue || existingValue === slugify(option.label)) {
+            nextOption.value = slugify(value);
+          }
+        }
+
+        return nextOption;
+      });
+
+      return {
+        ...draft,
+        options:
+          field === "isDefault" && value
+            ? nextOptions.map((option) => ({ ...option, isDefault: option.id === optionId }))
+            : nextOptions,
+      };
+    });
+  };
+
+  const handleVariationDraftOptionImageChange = async (optionId, event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const src = await compressImageFile(file);
+      handleVariationDraftOptionChange(optionId, "imageUrl", src);
+    } catch {
+      // Keep the current option image intact if the upload cannot be processed.
+    }
+
+    event.target.value = "";
+  };
+
+  const saveVariationDraft = () => {
+    const draft = variationModal?.draft;
+    const groupName = String(draft?.groupName ?? "").trim();
+    const options = (Array.isArray(draft?.options) ? draft.options : [])
+      .map((option) => normalizeEditorVariationOption(option))
+      .filter((option) => option.label || option.value || option.imageUrl || option.swatchColor);
+
+    if (draft?.groupName.trim().toLowerCase() === "color" && options.some((option) => option.swatchColor && !/^#[0-9A-Fa-f]{6}$/.test(option.swatchColor))) {
+      setSubmitError("Use a valid six-digit HEX color for each color option.");
+      return;
+    }
+
+    if (!groupName || options.length === 0 || options.some((option) => !option.label || !option.value)) {
+      setSubmitError("Each variation needs a name and at least one option with a label and value.");
+      return;
+    }
+
+    const nextGroup = normalizeEditorVariationGroup({ ...draft, groupName, options });
+    updateVariationGroups((groups) =>
+      variationModal.mode === "add"
+        ? [...groups, nextGroup]
+        : groups.map((group) => (group.id === nextGroup.id ? nextGroup : group)),
+    );
+    setVariationModal(null);
+    setSubmitError("");
+  };
+
+  const confirmRemoveVariationGroup = () => {
+    if (!variationDeleteTarget) {
+      return;
+    }
+
+    updateVariationGroups((groups) => groups.filter((group) => group.id !== variationDeleteTarget));
+    setVariationDeleteTarget(null);
   };
 
   const handleAddVariationOption = (groupId) => {
@@ -830,6 +1025,14 @@ function ProductEditorForm({
       </div>
 
       <div className="admin-product-form__grid">
+        <section className="admin-product-form__section admin-product-form__section--full">
+          <div className="admin-product-form__section-heading">
+            <p>01</p>
+            <div>
+              <h3>Basic information</h3>
+              <span>Set the product identity and catalog placement.</span>
+            </div>
+          </div>
         <Field>
           <span>Product Name</span>
           <input
@@ -876,6 +1079,17 @@ function ProductEditorForm({
             Display only. This does not create a real category relation.
           </small>
         </Field>
+
+        </section>
+
+        <section className="admin-product-form__section admin-product-form__section--full">
+          <div className="admin-product-form__section-heading">
+            <p>02</p>
+            <div>
+              <h3>Pricing and fulfillment</h3>
+              <span>Set the customer price, shipping details and availability.</span>
+            </div>
+          </div>
 
         <Field>
           <span>Price</span>
@@ -993,6 +1207,17 @@ function ProductEditorForm({
           </>
         ) : null}
 
+        </section>
+
+        <section className="admin-product-form__section admin-product-form__section--full">
+          <div className="admin-product-form__section-heading">
+            <p>03</p>
+            <div>
+              <h3>Product images</h3>
+              <span>Choose a primary image and add supporting gallery images.</span>
+            </div>
+          </div>
+
         <Field fullWidth>
           <span>Main Image</span>
           <input type="file" accept="image/*" onChange={handleMainImageChange} />
@@ -1049,7 +1274,16 @@ function ProductEditorForm({
           </div>
         </Field>
 
-        <div className="admin-product-form__field admin-product-form__field--full">
+        </section>
+
+        <section className="admin-product-form__section admin-product-form__section--full">
+          <div className="admin-product-form__section-heading">
+            <p>04</p>
+            <div>
+              <h3>Product variations</h3>
+              <span>Configure option groups in a focused editor and review them at a glance.</span>
+            </div>
+          </div>
           <div className="admin-product-form__variation-heading">
             <div>
               <span>Product Variations</span>
@@ -1073,30 +1307,28 @@ function ProductEditorForm({
                   <div className="admin-product-form__variation-card-header">
                     <div className="admin-product-form__variation-card-headline">
                       <strong>Variation {groupIndex + 1}</strong>
-                      <label className="admin-product-form__variation-inline-field">
-                        <span>Variation name</span>
-                        <input
-                          type="text"
-                          value={group.groupName}
-                          onChange={(event) =>
-                            handleVariationGroupChange(group.id, "groupName", event.target.value)
-                          }
-                          placeholder="Color, Size, Storage, RAM..."
-                        />
-                      </label>
+                      <div className="admin-product-form__variation-summary-name">
+                        {group.groupName || "Unnamed variation"}
+                      </div>
+                      <div className="admin-product-form__variation-summary-options">
+                        {(group.options ?? []).map((option) => (
+                          <span key={option.id}>{option.label || option.value || "Unnamed option"}</span>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="admin-product-form__variation-card-actions">
-                      <label className="admin-product-form__variation-toggle">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(group.isRequired)}
-                          onChange={(event) =>
-                            handleVariationGroupChange(group.id, "isRequired", event.target.checked)
-                          }
-                        />
-                        Required
-                      </label>
+                      <span className="admin-product-form__variation-required">
+                        {group.isRequired ? "Required" : "Optional"}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="admin-product-form__button admin-product-form__button--ghost"
+                        onClick={() => openVariationEditor(group)}
+                      >
+                        Edit
+                      </button>
 
                       <button
                         type="button"
@@ -1263,7 +1495,319 @@ function ProductEditorForm({
               No variations added yet. Click Add variation to start.
             </div>
           )}
-        </div>
+        </section>
+
+        {variationModal ? (
+          <div
+            className="admin-product-form__modal-backdrop"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                setVariationModal(null);
+              }
+            }}
+          >
+            <section
+              className="admin-product-form__modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="variation-modal-title"
+            >
+              <div className="admin-product-form__modal-header">
+                <div>
+                  <p>Product variations</p>
+                  <h3 id="variation-modal-title">
+                    {variationModal.mode === "add" ? "Add variation" : "Edit variation"}
+                  </h3>
+                  <span>Create a variation group and its available options.</span>
+                </div>
+                <button
+                  type="button"
+                  className="admin-product-form__modal-close"
+                  aria-label="Close variation dialog"
+                  onClick={() => setVariationModal(null)}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="admin-product-form__modal-body">
+                <div className="admin-product-form__modal-group-fields">
+                  <label className="admin-product-form__variation-inline-field">
+                    <span>Variation name *</span>
+                    <select
+                      value={variationNameChoice}
+                      onChange={(event) => {
+                        const choice = event.target.value;
+                        setVariationNameChoice(choice);
+                        if (choice !== "__custom__") {
+                          handleVariationDraftGroupChange("groupName", choice);
+                        }
+                      }}
+                      autoFocus
+                    >
+                      <option value="">Select variation type</option>
+                      {variationNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                      <option value="__custom__">Custom Variation</option>
+                    </select>
+                    {variationNameChoice === "__custom__" ? (
+                      <input
+                        type="text"
+                        value={variationModal.draft.groupName}
+                        onChange={(event) => handleVariationDraftGroupChange("groupName", event.target.value)}
+                        placeholder="Processor, Lens Type..."
+                      />
+                    ) : null}
+                  </label>
+                  <label className="admin-product-form__variation-toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(variationModal.draft.isRequired)}
+                      onChange={(event) => handleVariationDraftGroupChange("isRequired", event.target.checked)}
+                    />
+                    Customer must select an option
+                  </label>
+                </div>
+
+                <div className="admin-product-form__modal-section-heading">
+                  <div>
+                    <strong>Options</strong>
+                    <span>Set labels, price adjustments, swatches and option images.</span>
+                  </div>
+                </div>
+
+                <div className="admin-product-form__quick-add">
+                  <label className="admin-product-form__variation-inline-field">
+                    <span>Quick add option</span>
+                    <select value={quickOptionValue} onChange={(event) => setQuickOptionValue(event.target.value)}>
+                      <option value="">Select an option...</option>
+                      {(getVariationPreset(variationModal.draft.groupName)?.options ?? []).map((option) => {
+                        const alreadyAdded = (variationModal.draft.options ?? []).some(
+                          (item) => item.label.trim().toLowerCase() === option.label.toLowerCase(),
+                        );
+                        return <option key={option.label} value={option.label} disabled={alreadyAdded}>{alreadyAdded ? `${option.label} (already added)` : option.label}</option>;
+                      })}
+                      <option value={variationModal.draft.groupName.trim().toLowerCase() === "color" ? "__custom_color__" : "__custom__"}>
+                        {variationModal.draft.groupName.trim().toLowerCase() === "color" ? "Custom Color" : "Custom Option"}
+                      </option>
+                    </select>
+                  </label>
+                  {quickOptionValue === "__custom_color__" || quickOptionValue === "__custom__" ? (
+                    <label className="admin-product-form__variation-inline-field">
+                      <span>{quickOptionValue === "__custom_color__" ? "Color name *" : "Custom option *"}</span>
+                      <input value={quickCustomValue} onChange={(event) => setQuickCustomValue(event.target.value)} placeholder="Enter a custom value" />
+                    </label>
+                  ) : null}
+                  {quickOptionValue === "__custom_color__" ? (
+                    <label className="admin-product-form__variation-inline-field admin-product-form__color-field">
+                      <span>HEX color *</span>
+                      <div className="admin-product-form__color-input">
+                        <input type="color" value={/^#[0-9A-Fa-f]{6}$/.test(quickCustomHex) ? quickCustomHex : "#1C3FB7"} onChange={(event) => setQuickCustomHex(event.target.value.toUpperCase())} />
+                        <input value={quickCustomHex} onChange={(event) => setQuickCustomHex(event.target.value.toUpperCase())} placeholder="#1C3FB7" />
+                      </div>
+                    </label>
+                  ) : null}
+                  <button type="button" className="admin-product-form__button admin-product-form__button--ghost" onClick={handleQuickAddOption} disabled={!quickOptionValue}>+ Add</button>
+                </div>
+
+                <button
+                  type="button"
+                  className="admin-product-form__button admin-product-form__button--ghost admin-product-form__modal-add-empty"
+                  onClick={() => updateVariationDraft((draft) => ({
+                    ...draft,
+                    options: [...(draft.options ?? []), createBlankVariationOption(draft.options?.length ?? 0)],
+                  }))}
+                >
+                  + Add custom option row
+                </button>
+
+                <div className="admin-product-form__modal-options">
+                  {(variationModal.draft.options ?? []).map((option) => (
+                    <article className="admin-product-form__modal-option" key={option.id}>
+                      <div className="admin-product-form__modal-option-fields">
+                        <label className="admin-product-form__variation-inline-field">
+                          <span>Option label *</span>
+                          <select
+                            value={getVariationOptionPreset(variationModal.draft.groupName, option.label)?.label ?? "__custom__"}
+                            onChange={(event) => {
+                              const preset = getVariationOptionPreset(variationModal.draft.groupName, event.target.value);
+                              if (event.target.value !== "__custom__") {
+                                handleVariationDraftOptionChange(option.id, "label", event.target.value);
+                                if (preset?.swatchColor) {
+                                  handleVariationDraftOptionChange(option.id, "swatchColor", preset.swatchColor);
+                                }
+                              }
+                            }}
+                          >
+                            <option value="__custom__">Custom Option</option>
+                            {(getVariationPreset(variationModal.draft.groupName)?.options ?? []).map((presetOption) => {
+                              const alreadyAdded = (variationModal.draft.options ?? []).some(
+                                (item) => item.id !== option.id && item.label.trim().toLowerCase() === presetOption.label.toLowerCase(),
+                              );
+                              return <option key={presetOption.label} value={presetOption.label} disabled={alreadyAdded}>{alreadyAdded ? `${presetOption.label} (already added)` : presetOption.label}</option>;
+                            })}
+                          </select>
+                          {!getVariationOptionPreset(variationModal.draft.groupName, option.label) ? (
+                            <input
+                              type="text"
+                              value={option.label}
+                              onChange={(event) => handleVariationDraftOptionChange(option.id, "label", event.target.value)}
+                              placeholder="Enter a custom option"
+                            />
+                          ) : null}
+                        </label>
+                        <label className="admin-product-form__variation-inline-field">
+                          <span>Option value *</span>
+                          <input
+                            type="text"
+                            value={option.value}
+                            onChange={(event) => handleVariationDraftOptionChange(option.id, "value", event.target.value)}
+                            placeholder="black"
+                          />
+                        </label>
+                        <label className="admin-product-form__variation-inline-field">
+                          <span>Price adjustment (GHS)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={option.priceDelta}
+                            onChange={(event) => handleVariationDraftOptionChange(option.id, "priceDelta", event.target.value)}
+                            placeholder="0.00"
+                          />
+                        </label>
+                        <label className="admin-product-form__variation-inline-field">
+                          <span>Compare-at adjustment</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={option.compareAtDelta ?? ""}
+                            onChange={(event) => handleVariationDraftOptionChange(option.id, "compareAtDelta", event.target.value)}
+                            placeholder="Optional"
+                          />
+                        </label>
+                        <label className="admin-product-form__variation-inline-field">
+                          <span>Swatch color</span>
+                          {variationModal.draft.groupName.trim().toLowerCase() === "color" ? (
+                            <div className="admin-product-form__color-input">
+                              <input
+                                type="color"
+                                value={/^#[0-9A-Fa-f]{6}$/.test(option.swatchColor) ? option.swatchColor : "#1C3FB7"}
+                                onChange={(event) => handleVariationDraftOptionChange(option.id, "swatchColor", event.target.value.toUpperCase())}
+                                aria-label={`Choose swatch for ${option.label || "option"}`}
+                              />
+                              <input
+                                type="text"
+                                value={option.swatchColor}
+                                onChange={(event) => handleVariationDraftOptionChange(option.id, "swatchColor", event.target.value.toUpperCase())}
+                                placeholder="#000000"
+                              />
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={option.swatchColor}
+                              onChange={(event) => handleVariationDraftOptionChange(option.id, "swatchColor", event.target.value)}
+                              placeholder="Optional"
+                            />
+                          )}
+                        </label>
+                        <label className="admin-product-form__variation-inline-field">
+                          <span>Option image</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => handleVariationDraftOptionImageChange(option.id, event)}
+                          />
+                        </label>
+                      </div>
+                      <div className="admin-product-form__modal-option-footer">
+                        <label className="admin-product-form__variation-toggle">
+                          <input
+                            type="radio"
+                            name={`modal-variation-default-${variationModal.draft.id}`}
+                            checked={Boolean(option.isDefault)}
+                            onChange={() => handleVariationDraftOptionChange(option.id, "isDefault", true)}
+                          />
+                          Default option
+                        </label>
+                        {option.imageUrl ? (
+                          <div className="admin-product-form__modal-option-image">
+                            <img src={option.imageUrl} alt={`${option.label || "Option"} preview`} />
+                            <button
+                              type="button"
+                              className="admin-product-form__button admin-product-form__button--ghost"
+                              onClick={() => handleVariationDraftOptionChange(option.id, "imageUrl", "")}
+                            >
+                              Remove image
+                            </button>
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="admin-product-form__button admin-product-form__button--danger"
+                          onClick={() => updateVariationDraft((draft) => ({
+                            ...draft,
+                            options: (draft.options ?? []).filter((item) => item.id !== option.id),
+                          }))}
+                          disabled={(variationModal.draft.options ?? []).length <= 1}
+                        >
+                          Remove option
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+
+              <div className="admin-product-form__modal-actions">
+                <button
+                  type="button"
+                  className="admin-product-form__button admin-product-form__button--ghost"
+                  onClick={() => setVariationModal(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="admin-product-form__button admin-product-form__button--primary"
+                  onClick={saveVariationDraft}
+                >
+                  Save variation
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {variationDeleteTarget ? (
+          <div className="admin-product-form__modal-backdrop" role="presentation">
+            <section className="admin-product-form__modal admin-product-form__modal--confirm" role="dialog" aria-modal="true" aria-labelledby="delete-variation-title">
+              <div className="admin-product-form__modal-header">
+                <div>
+                  <p>Product variations</p>
+                  <h3 id="delete-variation-title">Delete variation?</h3>
+                  <span>This will remove the variation group and its options from this product.</span>
+                </div>
+                <button type="button" className="admin-product-form__modal-close" aria-label="Close delete dialog" onClick={() => setVariationDeleteTarget(null)}>×</button>
+              </div>
+              <div className="admin-product-form__modal-actions">
+                <button type="button" className="admin-product-form__button admin-product-form__button--ghost" onClick={() => setVariationDeleteTarget(null)}>Cancel</button>
+                <button type="button" className="admin-product-form__button admin-product-form__button--danger" onClick={confirmRemoveVariationGroup}>Delete variation</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        <section className="admin-product-form__section admin-product-form__section--full">
+          <div className="admin-product-form__section-heading">
+            <p>05</p>
+            <div>
+              <h3>Additional information</h3>
+              <span>Describe the product and highlight the details customers need.</span>
+            </div>
+          </div>
 
         <Field fullWidth>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem" }}>
@@ -1322,6 +1866,7 @@ function ProductEditorForm({
             placeholder="One perk per line"
           />
         </Field>
+        </section>
       </div>
 
       <p className="admin-product-form__note">
