@@ -463,7 +463,7 @@ function getEmptyDraft() {
 
 function SummaryCard({ title, value, note, tone = "blue" }) {
   return (
-    <article className={`admin-customers-metric admin-customers-metric--${tone}`}>
+    <article className={`admin-orders-stat admin-orders-stat--${tone}`}>
       <span>{title}</span>
       <strong>{value}</strong>
       <small>{note}</small>
@@ -759,12 +759,6 @@ function CustomersPage({ orders = [] }) {
           </div>
 
           <div className="admin-products-header__actions">
-            <Link
-              to="/admin/dashboard"
-              className="admin-products-header__button admin-products-header__button--ghost"
-            >
-              Back to dashboard
-            </Link>
             <button type="button" className="admin-products-header__button" onClick={openAddCustomer}>
               Add Customers
             </button>
@@ -778,7 +772,7 @@ function CustomersPage({ orders = [] }) {
           </div>
         </header>
 
-        <section className="admin-products-summary">
+        <section className="admin-orders-summary">
           <SummaryCard
             title="Total Customers"
             value={summary.totalCustomers}
@@ -836,15 +830,14 @@ function CustomersPage({ orders = [] }) {
           </div>
 
           <div className="admin-products-table-wrap">
-            <table className="admin-products-table admin-customers-table">
+            <table className="admin-products-table admin-customers-main-table">
               <thead>
                 <tr>
-                  <th>Customer ID</th>
-                  <th>Customer Name</th>
+                  <th>Customer</th>
                   <th>Email</th>
-                  <th>Phone Number</th>
+                  <th>Phone</th>
                   <th>Orders</th>
-                  <th>Total Amount Spent</th>
+                  <th>Total Spent</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -852,7 +845,7 @@ function CustomersPage({ orders = [] }) {
               <tbody>
                 {isTableLoading ? (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="8">
+                    <td colSpan="7">
                       <div className="admin-products-empty">
                         <h2>Loading customers...</h2>
                         <p>We are loading customer profiles and delivery addresses from Supabase.</p>
@@ -867,33 +860,31 @@ function CustomersPage({ orders = [] }) {
                     return (
                       <tr key={getCustomerKey(customer)} className="admin-products-row">
                         <td>
-                          <strong>{customer.customerId || "N/A"}</strong>
-                        </td>
-                        <td>
                           <strong>{customer.name}</strong>
-                          <small>{customer.orderCount} order{customer.orderCount === 1 ? "" : "s"}</small>
+                          <small title={customer.customerId || "N/A"}>
+                            ID: {customer.customerId ? `${customer.customerId.slice(0, 8)}...${customer.customerId.slice(-4)}` : "N/A"}
+                          </small>
                         </td>
-                        <td>{customer.email || "Not added"}</td>
+                        <td title={customer.email || "Not added"}>{customer.email || "Not added"}</td>
                         <td>
-                          <strong>{formatPhoneNumber(customer.phoneNumber)}</strong>
+                          <span className="admin-customers-muted-value">{formatPhoneNumber(customer.phoneNumber)}</span>
                           {customer.deliveryContactNumber ? (
                             <small>Delivery: {formatPhoneNumber(customer.deliveryContactNumber)}</small>
                           ) : null}
                         </td>
                         <td>
                           <strong>{customer.orderCount}</strong>
-                          <small>{customer.orderCount === 1 ? "Order" : "Orders"}</small>
                         </td>
                         <td>{formatMoney(customer.totalAmountSpent)}</td>
                         <td>
                           <StatusPill status={status} />
                         </td>
                         <td>
-                          <div className="admin-customers-action-group">
+                          <div className="admin-products-actions admin-customers-action-group">
                             <div className="admin-customers-action-menu">
                               <button
                                 type="button"
-                                className="admin-customers-action-button admin-customers-action-button--view"
+                                className="admin-products-action admin-customers-action-button admin-customers-action-button--view"
                                 onClick={() =>
                                   setOpenMenuKey(isMenuOpen ? "" : getCustomerKey(customer))
                                 }
@@ -918,7 +909,7 @@ function CustomersPage({ orders = [] }) {
 
                             <button
                               type="button"
-                              className={`admin-customers-action-button ${
+                              className={`admin-products-action admin-customers-action-button ${
                                 status === "blocked"
                                   ? "admin-customers-action-button--activate"
                                   : "admin-customers-action-button--block"
@@ -929,7 +920,7 @@ function CustomersPage({ orders = [] }) {
                             </button>
                             <button
                               type="button"
-                              className="admin-customers-action-button admin-customers-action-button--delete"
+                              className="admin-products-action admin-customers-action-button admin-customers-action-button--delete"
                               onClick={() => handleDeleteCustomer(customer)}
                             >
                               Delete
@@ -941,7 +932,7 @@ function CustomersPage({ orders = [] }) {
                   })
                 ) : (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="8">
+                    <td colSpan="7">
                       <div className="admin-products-empty">
                         <h2>No customers found.</h2>
                         <p>Try a different search term or change the status filter.</p>
