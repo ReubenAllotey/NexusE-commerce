@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { loadAdminSession } from "../Auth/adminAuthStorage";
 import { formatDateTime } from "../adminHelpers";
 import {
@@ -21,7 +21,7 @@ import {
 
 function StatCard({ label, value, note, tone = "blue" }) {
   return (
-    <article className={`admin-announcement-stat admin-announcement-stat--${tone}`}>
+    <article className={`admin-orders-stat admin-orders-stat--${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{note}</small>
@@ -359,9 +359,9 @@ function AnnouncementPage({
   };
 
   return (
-    <main className="admin-announcement-page">
-      <section className="admin-announcement-shell">
-        <header className="admin-announcement-header">
+    <main className="admin-orders-page admin-announcement-page">
+      <section className="admin-orders-shell admin-announcement-shell">
+        <header className="admin-orders-header admin-announcement-header">
           <div className="admin-announcement-header__copy">
             <p>Admin section</p>
             <h1>Announcements</h1>
@@ -369,9 +369,6 @@ function AnnouncementPage({
           </div>
 
           <div className="admin-announcement-header__actions">
-            <Link to="/admin/dashboard" className="admin-announcement-header__button admin-announcement-header__button--ghost">
-              Back to dashboard
-            </Link>
             <button type="button" className="admin-announcement-header__button" onClick={openAddModal}>
               Add New Announcement
             </button>
@@ -392,7 +389,7 @@ function AnnouncementPage({
           </div>
         </header>
 
-        <section className="admin-announcement-summary">
+        <section className="admin-orders-summary admin-announcement-summary">
           <StatCard
             label="Total Announcements"
             value={metrics.totalAnnouncements}
@@ -419,7 +416,7 @@ function AnnouncementPage({
           />
         </section>
 
-        <section className="admin-announcement-panel">
+        <section className="admin-orders-panel admin-announcement-panel">
           <div className="admin-announcement-toolbar">
             <label className="admin-announcement-search" htmlFor="announcement-search">
               <span>Search by Announcement Title</span>
