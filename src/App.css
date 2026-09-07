@@ -15773,6 +15773,555 @@ body[data-theme="dark"] .admin-flashy-modal__suggestions-empty {
   }
 }
 
+.admin-batch-management-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-batch-management-shell {
+  min-width: 0;
+}
+
+.admin-batch-management-cards {
+  margin-bottom: 1.25rem;
+}
+
+.admin-batch-management-message {
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--nexus-border);
+  font-size: 0.88rem;
+}
+
+.admin-batch-management-message--success {
+  color: #166534;
+  background: #f0fdf4;
+}
+
+.admin-batch-management-message--error {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.admin-batch-management-current,
+.admin-batch-management-editor,
+.admin-batch-management-table-panel {
+  min-width: 0;
+  margin-bottom: 1.25rem;
+}
+
+.admin-batch-management-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-batch-management-eyebrow,
+.admin-batch-management-section-heading p {
+  margin: 0 0 0.3rem;
+  color: var(--nexus-primary, #1c3fb7);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-batch-management-current h2,
+.admin-batch-management-section-heading h2 {
+  margin: 0;
+}
+
+.admin-batch-management-current__details,
+.admin-batch-management-section-heading,
+.admin-batch-management-form__actions,
+.admin-batch-management-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.admin-batch-management-current__details {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: var(--nexus-muted, #64748b);
+  font-size: 0.86rem;
+}
+
+.admin-batch-management-section-heading {
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.admin-batch-management-section-heading > small {
+  color: var(--nexus-muted, #64748b);
+}
+
+.admin-batch-management-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.admin-batch-management-field {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.admin-batch-management-field > span {
+  color: var(--nexus-muted, #64748b);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.admin-batch-management-field input,
+.admin-batch-management-field select,
+.admin-batch-management-field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--nexus-border);
+  border-radius: 0.7rem;
+  padding: 0.72rem 0.8rem;
+  color: var(--nexus-text, #0f172a);
+  background: var(--nexus-surface, #fff);
+  font: inherit;
+}
+
+.admin-batch-management-field textarea,
+.admin-batch-management-form__actions {
+  grid-column: span 2;
+}
+
+.admin-batch-management-form__actions {
+  justify-content: flex-end;
+  align-self: end;
+}
+
+.admin-batch-management-table-wrap {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.admin-batch-management-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+}
+
+.admin-batch-management-table th,
+.admin-batch-management-table td {
+  padding: 0.85rem 0.8rem;
+  border-bottom: 1px solid var(--nexus-border);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.admin-batch-management-table th {
+  color: var(--nexus-muted, #64748b);
+  background: color-mix(in srgb, var(--nexus-surface, #fff) 88%, #1c3fb7 12%);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-batch-management-table td:first-child {
+  white-space: normal;
+}
+
+.admin-batch-management-table td:first-child strong,
+.admin-batch-management-table td:first-child small {
+  display: block;
+}
+
+.admin-batch-management-table td:first-child small {
+  margin-top: 0.2rem;
+  color: var(--nexus-muted, #64748b);
+  font-size: 0.75rem;
+}
+
+.admin-batch-management-actions button,
+.admin-batch-management-action {
+  border: 1px solid var(--nexus-border);
+  border-radius: 0.55rem;
+  padding: 0.48rem 0.7rem;
+  color: var(--nexus-primary, #1c3fb7);
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-batch-management-action--danger {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.admin-batch-management-empty {
+  padding: 2rem 1rem;
+  color: var(--nexus-muted, #64748b);
+  text-align: center;
+}
+
+.admin-announcement-managed-batch,
+.admin-banner-editor__managed-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--nexus-border);
+  border-radius: 0.7rem;
+  color: var(--nexus-muted, #64748b);
+  background: color-mix(in srgb, var(--nexus-surface, #fff) 92%, #1c3fb7 8%);
+  font-size: 0.82rem;
+}
+
+.admin-announcement-managed-batch a {
+  color: var(--nexus-primary, #1c3fb7);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+body[data-theme="dark"] .admin-batch-management-message--success {
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.22);
+}
+
+body[data-theme="dark"] .admin-batch-management-message--error {
+  color: #fecaca;
+  background: rgba(185, 28, 28, 0.2);
+}
+
+body[data-theme="dark"] .admin-batch-management-field input,
+body[data-theme="dark"] .admin-batch-management-field select,
+body[data-theme="dark"] .admin-batch-management-field textarea {
+  color: var(--nexus-text);
+  background: var(--nexus-surface);
+}
+
+@media (max-width: 900px) {
+  .admin-batch-management-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-batch-management-current,
+  .admin-batch-management-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-batch-management-current__details {
+    justify-content: flex-start;
+  }
+
+  .admin-batch-management-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-batch-management-field textarea,
+  .admin-batch-management-form__actions {
+    grid-column: auto;
+  }
+
+  .admin-batch-management-form__actions {
+    justify-content: flex-start;
+  }
+
+  .admin-announcement-managed-batch,
+  .admin-banner-editor__managed-note {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.admin-batch-summary-page {
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.admin-batch-summary-shell {
+  min-width: 0;
+}
+
+.admin-batch-summary-panel {
+  padding: 1rem;
+}
+
+.admin-batch-summary-toolbar {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.8fr) minmax(0, 1.4fr) minmax(10rem, 0.8fr);
+  gap: 0.85rem;
+}
+
+.admin-batch-summary-toolbar label {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.admin-batch-summary-toolbar span,
+.admin-batch-summary-section-heading p,
+.admin-batch-summary-modal header p {
+  margin: 0;
+  color: #17377a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.admin-batch-summary-toolbar input,
+.admin-batch-summary-toolbar select {
+  width: 100%;
+  min-height: 2.8rem;
+  min-width: 0;
+  padding: 0 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 0.85rem;
+  background: #ffffff;
+  color: #13244c;
+}
+
+.admin-batch-summary-table-panel {
+  min-width: 0;
+}
+
+.admin-batch-summary-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.admin-batch-summary-section-heading h2 {
+  margin: 0.25rem 0 0;
+  color: #13244c;
+  font-size: 1.35rem;
+}
+
+.admin-batch-summary-section-heading > small {
+  color: #5d6c83;
+}
+
+.admin-batch-summary-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.admin-batch-summary-table {
+  width: 100%;
+  min-width: 1080px;
+  border-collapse: collapse;
+}
+
+.admin-batch-summary-table th,
+.admin-batch-summary-table td {
+  padding: 0.85rem 0.7rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-batch-summary-table th {
+  color: #5d6c83;
+  font-size: 0.73rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-batch-summary-table td {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  color: #233354;
+}
+
+.admin-batch-summary-table td strong,
+.admin-batch-summary-table td small {
+  display: block;
+}
+
+.admin-batch-summary-table td small {
+  margin-top: 0.25rem;
+  color: #6b7a91;
+  white-space: nowrap;
+}
+
+.admin-batch-summary-image {
+  display: block;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.65rem;
+  object-fit: cover;
+  background: #eef2f7;
+}
+
+.admin-batch-summary-image--empty {
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+}
+
+.admin-batch-summary-orders-button {
+  min-height: 2rem;
+  padding: 0 0.65rem;
+  border: 1px solid rgba(28, 63, 183, 0.2);
+  border-radius: 0.65rem;
+  background: rgba(28, 63, 183, 0.08);
+  color: #1c3fb7;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.admin-batch-summary-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.admin-batch-summary-empty h2 {
+  margin: 0;
+  color: #13244c;
+}
+
+.admin-batch-summary-empty p {
+  margin: 0.45rem 0 0;
+  color: #5d6c83;
+}
+
+.admin-batch-summary-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.admin-batch-summary-modal__scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.admin-batch-summary-modal__panel {
+  position: relative;
+  width: min(38rem, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  padding: 1.2rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1.25rem;
+  background: #ffffff;
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.22);
+}
+
+.admin-batch-summary-modal__panel header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-batch-summary-modal__panel h2 {
+  margin: 0.3rem 0 0;
+  color: #13244c;
+}
+
+.admin-batch-summary-modal__panel header span {
+  display: block;
+  margin-top: 0.35rem;
+  color: #5d6c83;
+}
+
+.admin-batch-summary-modal__panel header button {
+  min-height: 2.25rem;
+  padding: 0 0.7rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: rgba(23, 55, 122, 0.08);
+  color: #17377a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-batch-summary-trace-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.admin-batch-summary-trace-list article {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.8rem;
+  background: #f8fbff;
+}
+
+.admin-batch-summary-trace-list span,
+.admin-batch-summary-trace-list small {
+  color: #5d6c83;
+}
+
+body[data-theme="dark"] .admin-batch-summary-toolbar input,
+body[data-theme="dark"] .admin-batch-summary-toolbar select,
+body[data-theme="dark"] .admin-batch-summary-modal__panel,
+body[data-theme="dark"] .admin-batch-summary-trace-list article {
+  background: var(--nexus-surface);
+  border-color: var(--nexus-border);
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .admin-batch-summary-table td,
+body[data-theme="dark"] .admin-batch-summary-section-heading h2,
+body[data-theme="dark"] .admin-batch-summary-empty h2,
+body[data-theme="dark"] .admin-batch-summary-modal__panel h2 {
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .admin-batch-summary-table td small,
+body[data-theme="dark"] .admin-batch-summary-section-heading > small,
+body[data-theme="dark"] .admin-batch-summary-empty p,
+body[data-theme="dark"] .admin-batch-summary-modal__panel header span,
+body[data-theme="dark"] .admin-batch-summary-trace-list span,
+body[data-theme="dark"] .admin-batch-summary-trace-list small {
+  color: var(--nexus-muted);
+}
+
+@media (max-width: 900px) {
+  .admin-batch-summary-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-batch-summary-page {
+    padding: 0.75rem;
+  }
+
+  .admin-batch-summary-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-batch-summary-section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .admin-batch-summary-table {
+    min-width: 980px;
+  }
+}
+
 body[data-theme="dark"] .admin-product-form__variation-table,
 body[data-theme="dark"] .admin-product-form__variation-table th,
 body[data-theme="dark"] .admin-product-form__variation-option-summary span,

@@ -19,14 +19,8 @@ function createDraft(banner) {
   return {
     announcement: {
       label: safe.announcement.label,
-      batchNumber: safe.announcement.batchNumber,
       headline: safe.announcement.headline,
       body: safe.announcement.body,
-      batchWindowStart: safe.announcement.batchWindowStart,
-      batchWindowEnd: safe.announcement.batchWindowEnd,
-      shippingMode: safe.announcement.shippingMode,
-      airTransitDays: String(safe.announcement.airTransitDays),
-      seaTransitDays: String(safe.announcement.seaTransitDays),
       ctaLabel: safe.announcement.ctaLabel,
       ctaHref: safe.announcement.ctaHref,
     },
@@ -84,8 +78,6 @@ function BannerEditor({ banner, onSave = () => {} }) {
       const result = await onSave({
         announcement: {
           ...draft.announcement,
-          airTransitDays: Number(draft.announcement.airTransitDays) || 16,
-          seaTransitDays: Number(draft.announcement.seaTransitDays) || 30,
         },
         reflection: draft.reflection,
       });
@@ -124,15 +116,6 @@ function BannerEditor({ banner, onSave = () => {} }) {
               />
             </Field>
 
-            <Field label="Batch number">
-              <input
-                type="text"
-                value={draft.announcement.batchNumber}
-                onChange={(event) => updateAnnouncement("batchNumber", event.target.value)}
-                placeholder="SEA-08"
-              />
-            </Field>
-
             <Field label="Headline">
               <input
                 type="text"
@@ -149,62 +132,9 @@ function BannerEditor({ banner, onSave = () => {} }) {
               />
             </Field>
 
-            <div className="admin-banner-editor__grid">
-              <Field label="Batch start">
-                <input
-                  type="date"
-                  value={draft.announcement.batchWindowStart}
-                  onChange={(event) =>
-                    updateAnnouncement("batchWindowStart", event.target.value)
-                  }
-                />
-              </Field>
-
-              <Field label="Batch end">
-                <input
-                  type="date"
-                  value={draft.announcement.batchWindowEnd}
-                  onChange={(event) =>
-                    updateAnnouncement("batchWindowEnd", event.target.value)
-                  }
-                />
-              </Field>
-            </div>
-
-            <Field label="Shipment type">
-              <select
-                value={draft.announcement.shippingMode}
-                onChange={(event) => updateAnnouncement("shippingMode", event.target.value)}
-              >
-                <option value="sea">Sea freight</option>
-                <option value="air">Air freight</option>
-                <option value="both">Both</option>
-              </select>
-            </Field>
-
-            <div className="admin-banner-editor__grid">
-              <Field label="Air freight days">
-                <input
-                  type="number"
-                  min="1"
-                  value={draft.announcement.airTransitDays}
-                  onChange={(event) =>
-                    updateAnnouncement("airTransitDays", event.target.value)
-                  }
-                />
-              </Field>
-
-              <Field label="Sea freight days">
-                <input
-                  type="number"
-                  min="1"
-                  value={draft.announcement.seaTransitDays}
-                  onChange={(event) =>
-                    updateAnnouncement("seaTransitDays", event.target.value)
-                  }
-                />
-              </Field>
-            </div>
+            <p className="admin-banner-editor__managed-note">
+              Batch number, dates, shipment type, and freight timing are managed in Batch Management.
+            </p>
 
             <div className="admin-banner-editor__grid">
               <Field label="Button label">

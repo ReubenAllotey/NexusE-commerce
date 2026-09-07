@@ -1,6 +1,8 @@
 export const adminNavItems = [
   { to: "/admin/dashboard", label: "Dashboard" },
   { to: "/admin/orders", label: "Orders" },
+  { to: "/admin/batch-management", label: "Batch Management" },
+  { to: "/admin/batch-summary", label: "Batch Summary" },
   { to: "/admin/products", label: "Products" },
   { to: "/admin/customers", label: "Customers" },
   { to: "/admin/notifications", label: "Notifications" },

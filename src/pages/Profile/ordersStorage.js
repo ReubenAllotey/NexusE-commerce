@@ -114,6 +114,7 @@ function normalizeOrderItemRecord(item = {}) {
 
   return {
     key: clean(readField(item, "key", "id")) || `${clean(readField(item, "productSlug", "product_slug"))}-${clean(readField(item, "productId", "product_id"))}`,
+    productId: clean(readField(item, "productId", "product_id")),
     slug: clean(readField(item, "productSlug", "product_slug")),
     name: clean(readField(item, "productName", "product_name")) || "Unnamed product",
     brand: clean(readField(item, "brand", "brand")),

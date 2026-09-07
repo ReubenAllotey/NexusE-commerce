@@ -68,9 +68,12 @@ import {
   normalizeSiteBanner,
   saveStoredSiteBanner,
 } from "./shared/siteBannerStorage";
+import { loadCurrentBatch } from "./shared/batchStorage";
 
 const AdminDashboard = lazy(() => import("./pages/Admin/dashboard/adminDashboard"));
 const AdminOrdersPage = lazy(() => import("./pages/Admin/AdminOrdersPage"));
+const BatchSummaryPage = lazy(() => import("./pages/Admin/batchSummary/batchSummary"));
+const BatchManagementPage = lazy(() => import("./pages/Admin/batchManagement/batchManagement"));
 const AdminSectionPage = lazy(() => import("./pages/Admin/AdminSectionPage"));
 const AnnouncementPage = lazy(() => import("./pages/Admin/announcement/announcementPage"));
 const AdminProductsPage = lazy(() => import("./pages/Admin/products/products"));
@@ -530,6 +533,14 @@ function AppShell({
             )}
           />
           <Route
+            path="/admin/batch-summary"
+            element={adminGuard(<BatchSummaryPage orders={orders} />)}
+          />
+          <Route
+            path="/admin/batch-management"
+            element={adminGuard(<BatchManagementPage orders={orders} />)}
+          />
+          <Route
             path="/admin/products"
             element={adminGuard(<AdminProductsPage orders={orders} />)}
           />
@@ -862,6 +873,7 @@ function App() {
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notificationsError, setNotificationsError] = useState("");
   const [siteBanner, setSiteBanner] = useState(() => defaultSiteBanner);
+  const [currentBatch, setCurrentBatch] = useState(null);
   const [wishlistItems, setWishlistItems] = useState([]);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
   const [authSession, setAuthSession] = useState(null);
@@ -920,13 +932,35 @@ function App() {
     let active = true;
 
     const refreshSiteBanner = async () => {
-      const banner = await loadStoredSiteBanner();
+      const [banner, managedBatch] = await Promise.all([
+        loadStoredSiteBanner(),
+        loadCurrentBatch(),
+      ]);
 
       if (!active) {
         return;
       }
 
-      setSiteBanner(normalizeSiteBanner(banner ?? defaultSiteBanner));
+      const normalizedBanner = normalizeSiteBanner(banner ?? defaultSiteBanner);
+      setCurrentBatch(managedBatch);
+      setSiteBanner(
+        normalizeSiteBanner(
+          managedBatch
+            ? {
+                ...normalizedBanner,
+                announcement: {
+                  ...normalizedBanner.announcement,
+                  batchNumber: managedBatch.batchNumber,
+                  batchWindowStart: managedBatch.startDate,
+                  batchWindowEnd: managedBatch.endDate,
+                  shippingMode: managedBatch.shipmentType,
+                  airTransitDays: managedBatch.airFreightDays ?? normalizedBanner.announcement.airTransitDays,
+                  seaTransitDays: managedBatch.seaFreightDays ?? normalizedBanner.announcement.seaTransitDays,
+                },
+              }
+            : normalizedBanner,
+        ),
+      );
     };
 
     void refreshSiteBanner();

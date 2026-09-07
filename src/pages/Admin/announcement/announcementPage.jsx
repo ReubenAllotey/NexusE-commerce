@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { loadAdminSession } from "../Auth/adminAuthStorage";
 import { formatDateTime } from "../adminHelpers";
 import {
@@ -117,14 +117,8 @@ function createReflectionDraft(siteBanner) {
 function createBatchDraft(siteBanner) {
   const safeBanner = normalizeSiteBanner(siteBanner ?? defaultSiteBanner);
   return {
-    batchNumber: safeBanner.announcement.batchNumber,
     headline: safeBanner.announcement.headline,
     body: safeBanner.announcement.body,
-    batchWindowStart: safeBanner.announcement.batchWindowStart ? String(safeBanner.announcement.batchWindowStart).slice(0, 10) : "",
-    batchWindowEnd: safeBanner.announcement.batchWindowEnd ? String(safeBanner.announcement.batchWindowEnd).slice(0, 10) : "",
-    shippingMode: safeBanner.announcement.shippingMode,
-    airTransitDays: String(safeBanner.announcement.airTransitDays),
-    seaTransitDays: String(safeBanner.announcement.seaTransitDays),
   };
 }
 
@@ -326,8 +320,8 @@ function AnnouncementPage({
   };
 
   const handleSaveBatch = async () => {
-    if (!batchDraft.batchNumber.trim() || !batchDraft.headline.trim() || !batchDraft.body.trim()) {
-      setAnnouncementError("Please complete the batch number, headline, and body.");
+    if (!batchDraft.headline.trim() || !batchDraft.body.trim()) {
+      setAnnouncementError("Please complete the batch headline and body.");
       setAnnouncementMessage("");
       return;
     }
@@ -336,14 +330,8 @@ function AnnouncementPage({
       announcement: {
         ...normalizeSiteBanner(siteBanner).announcement,
         label: "Announcement",
-        batchNumber: batchDraft.batchNumber.trim(),
         headline: batchDraft.headline.trim(),
         body: batchDraft.body.trim(),
-        batchWindowStart: batchDraft.batchWindowStart,
-        batchWindowEnd: batchDraft.batchWindowEnd,
-        shippingMode: batchDraft.shippingMode,
-        airTransitDays: Number(batchDraft.airTransitDays) || 16,
-        seaTransitDays: Number(batchDraft.seaTransitDays) || 30,
       },
     });
 
@@ -744,17 +732,6 @@ function AnnouncementPage({
           }
         >
           <div className="admin-announcement-modal__grid">
-            <Field label="Batch Number">
-              <input
-                type="text"
-                value={batchDraft.batchNumber}
-                onChange={(event) =>
-                  setBatchDraft((current) => ({ ...current, batchNumber: event.target.value }))
-                }
-                placeholder="SEA-08"
-              />
-            </Field>
-
             <Field label="Headline">
               <input
                 type="text"
@@ -777,66 +754,10 @@ function AnnouncementPage({
               />
             </Field>
 
-            <Field label="Batch Window Start">
-              <input
-                type="date"
-                value={batchDraft.batchWindowStart}
-                onChange={(event) =>
-                  setBatchDraft((current) => ({
-                    ...current,
-                    batchWindowStart: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-
-            <Field label="Batch Window End">
-              <input
-                type="date"
-                value={batchDraft.batchWindowEnd}
-                onChange={(event) =>
-                  setBatchDraft((current) => ({
-                    ...current,
-                    batchWindowEnd: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-
-            <Field label="Shipping Method">
-              <select
-                value={batchDraft.shippingMode}
-                onChange={(event) =>
-                  setBatchDraft((current) => ({ ...current, shippingMode: event.target.value }))
-                }
-              >
-                <option value="sea">Sea</option>
-                <option value="air">Air</option>
-                <option value="both">Both</option>
-              </select>
-            </Field>
-
-            <Field label="Air Transit Days">
-              <input
-                type="number"
-                min="1"
-                value={batchDraft.airTransitDays}
-                onChange={(event) =>
-                  setBatchDraft((current) => ({ ...current, airTransitDays: event.target.value }))
-                }
-              />
-            </Field>
-
-            <Field label="Sea Transit Days">
-              <input
-                type="number"
-                min="1"
-                value={batchDraft.seaTransitDays}
-                onChange={(event) =>
-                  setBatchDraft((current) => ({ ...current, seaTransitDays: event.target.value }))
-                }
-              />
-            </Field>
+            <div className="admin-announcement-managed-batch">
+              <span>Structured batch details are managed separately.</span>
+              <Link to="/admin/batch-management">Manage Batch</Link>
+            </div>
           </div>
         </ModalShell>
       ) : null}
