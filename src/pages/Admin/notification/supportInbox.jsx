@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { formatDateTime } from "../adminHelpers";
 import {
   deleteSupportMessage,
@@ -24,9 +23,9 @@ import {
   setContactMessageStatus,
 } from "../../Contact/contactStorage";
 
-function MetricCard({ title, value, note }) {
+function MetricCard({ title, value, note, tone = "blue" }) {
   return (
-    <article className="admin-support-metric">
+    <article className={`admin-orders-stat admin-orders-stat--${tone}`}>
       <span>{title}</span>
       <strong>{value}</strong>
       <small>{note}</small>
@@ -318,9 +317,9 @@ function SupportInboxPage() {
   };
 
   return (
-    <main className="admin-support-page">
-      <section className="admin-support-shell">
-        <header className="admin-support-header">
+    <main className="admin-orders-page admin-support-page">
+      <section className="admin-orders-shell admin-support-shell">
+        <header className="admin-orders-header admin-support-header">
           <div>
             <p>Admin inbox</p>
             <h1>Contact & Support Inbox</h1>
@@ -329,40 +328,36 @@ function SupportInboxPage() {
             </span>
           </div>
 
-          <div className="admin-support-header__actions">
-            <Link
-              to="/admin/dashboard"
-              className="admin-support-header__button admin-support-header__button--ghost"
-            >
-              Back to dashboard
-            </Link>
-          </div>
         </header>
 
-        <section className="admin-support-summary">
+        <section className="admin-orders-summary admin-support-summary">
           <MetricCard
             title="Total Messages"
             value={metrics.totalMessages}
             note="Support requests and contact submissions."
+            tone="indigo"
           />
           <MetricCard
             title="New Messages"
             value={metrics.newMessages}
             note="Unread and waiting for the first action."
+            tone="amber"
           />
           <MetricCard
             title="Open Messages"
             value={metrics.openMessages}
             note="Viewed by admin and currently being handled."
+            tone="blue"
           />
           <MetricCard
             title="Resolved Messages"
             value={metrics.resolvedMessages}
             note="Issues closed and marked complete."
+            tone="green"
           />
         </section>
 
-        <section className="admin-support-panel">
+        <section className="admin-orders-panel admin-support-panel">
           <div className="admin-support-toolbar">
             <label className="admin-support-search" htmlFor="admin-support-search">
               <span>Search</span>

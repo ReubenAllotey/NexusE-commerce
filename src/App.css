@@ -28037,3 +28037,54 @@ body[data-theme="dark"] .admin-customers-main-table .admin-customers-muted-value
     flex: 0 0 auto;
   }
 }
+
+/* Keep the support inbox on the same contained admin layout as Orders. */
+.admin-support-page {
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  background: #eef2f7;
+}
+
+.admin-support-page .admin-support-shell {
+  width: min(100%, 1540px);
+  min-width: 0;
+}
+
+.admin-support-page .admin-support-panel {
+  border: 0;
+  border-radius: 1.35rem;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.08);
+  min-width: 0;
+}
+
+.admin-support-page .admin-support-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.admin-support-page .admin-support-table {
+  min-width: 820px;
+}
+
+body[data-theme="dark"] .admin-support-page {
+  background: #0b1220;
+}
+
+body[data-theme="dark"] .admin-support-page .admin-support-panel {
+  background: var(--nexus-surface);
+  border-color: var(--nexus-border);
+  box-shadow: 0 24px 54px rgba(2, 6, 23, 0.3);
+}
+
+@media (max-width: 720px) {
+  .admin-support-page {
+    padding: 0.75rem;
+  }
+
+  .admin-support-page .admin-support-table {
+    min-width: 760px;
+  }
+}
