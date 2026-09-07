@@ -40,6 +40,7 @@ function mapAssignmentToRecord(assignment = {}, product = null) {
   }
 
   const placement = normalizePlacement(assignment.placement);
+  const imageOverride = cleanText(assignment.image_url);
   return {
     id: assignment.id ?? "",
     productId: assignment.product_id ?? "",
@@ -52,13 +53,15 @@ function mapAssignmentToRecord(assignment = {}, product = null) {
     createdAt: assignment.created_at ?? "",
     updatedAt: assignment.updated_at ?? "",
     ...product,
+    image: imageOverride || product.image,
+    merchandisingImage: imageOverride || null,
   };
 }
 
 async function queryMerchandisingAssignments() {
   const { data, error } = await supabase
     .from("product_merchandising")
-    .select("id,product_id,placement,display_order,starts_at,ends_at,created_at,updated_at")
+    .select("id,product_id,placement,display_order,starts_at,ends_at,image_url,created_at,updated_at")
     .order("placement", { ascending: true })
     .order("display_order", { ascending: true })
     .order("created_at", { ascending: true });
@@ -129,6 +132,7 @@ export async function saveFlashySalesRecord(record = {}) {
   const productSlug = cleanText(record.productSlug ?? record.product_slug);
   const placement = normalizePlacement(record.group ?? record.placement);
   const displayOrder = Math.max(Math.round(Number(record.displayOrder ?? record.order) || 0), 0);
+  const imageUrl = cleanText(record.imageUrl ?? record.image_url);
 
   let resolvedProductId = productId;
 
@@ -161,6 +165,7 @@ export async function saveFlashySalesRecord(record = {}) {
       displayOrder,
       startsAt: record.startsAt ?? record.starts_at ?? null,
       endsAt: record.endsAt ?? record.ends_at ?? null,
+      imageUrl: imageUrl || null,
     },
   });
 
@@ -170,6 +175,35 @@ export async function saveFlashySalesRecord(record = {}) {
       message: error.message || "Unable to save the merchandising record.",
       error,
     };
+  }
+
+  if (record.availabilityType || record.availability_type) {
+    const availabilityType = cleanText(record.availabilityType ?? record.availability_type).toLowerCase();
+    const selectedProduct = await loadProducts();
+    const product = selectedProduct.products?.find((entry) => entry.id === resolvedProductId) ?? null;
+
+    if (!product) {
+      return {
+        ok: false,
+        message: selectedProduct.message || "Unable to load the linked product availability.",
+        error: selectedProduct.error ?? null,
+      };
+    }
+
+    const { error: availabilityError } = await supabase.rpc("set_product_availability", {
+      p_product_id: resolvedProductId,
+      p_availability_type: availabilityType,
+      p_estimated_arrival: availabilityType === "preorder" ? product.estimatedArrival ?? product.estimated_arrival ?? null : null,
+      p_preorder_terms: availabilityType === "preorder" ? product.preorderTerms ?? product.preorder_terms ?? null : null,
+    });
+
+    if (availabilityError) {
+      return {
+        ok: false,
+        message: availabilityError.message || "Unable to update product availability.",
+        error: availabilityError,
+      };
+    }
   }
 
   return {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { loadAdminSession } from "../Auth/adminAuthStorage";
 import { formatMoney } from "../adminHelpers";
 import { useProducts } from "../../Products/productData";
@@ -10,9 +10,9 @@ import {
   useFlashySalesCatalog,
 } from "../../../shared/flashySalesStorage";
 
-function MetricCard({ title, value, note }) {
+function MetricCard({ title, value, note, tone = "blue" }) {
   return (
-    <article className="admin-products-metric">
+    <article className={`admin-orders-stat admin-orders-stat--${tone}`}>
       <span>{title}</span>
       <strong>{value}</strong>
       <small>{note}</small>
@@ -31,11 +31,23 @@ function ProductImage({ product }) {
 function getEmptyDraft() {
   return {
     productId: "",
+    productSearch: "",
+    imageUrl: "",
+    availabilityType: "ready_stock",
     placement: "flashy",
     displayOrder: "0",
     startsAt: "",
     endsAt: "",
   };
+}
+
+function readImageAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Unable to read the selected image."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function normalizePlacementLabel(value) {
@@ -104,6 +116,9 @@ function FlashySalesPage() {
 
     setDraft({
       productId: editingRecord.productId ?? "",
+      productSearch: editingRecord.name ?? "",
+      imageUrl: editingRecord.merchandisingImage ?? "",
+      availabilityType: editingRecord.availabilityType ?? editingRecord.availability_type ?? "ready_stock",
       placement: editingRecord.group ?? "flashy",
       displayOrder: String(editingRecord.order ?? 0),
       startsAt: editingRecord.startsAt ? String(editingRecord.startsAt).slice(0, 10) : "",
@@ -135,6 +150,9 @@ function FlashySalesPage() {
     setEditingRecordId(record.id);
     setDraft({
       productId: record.productId ?? "",
+      productSearch: record.name ?? "",
+      imageUrl: record.merchandisingImage ?? "",
+      availabilityType: record.availabilityType ?? record.availability_type ?? "ready_stock",
       placement: record.group ?? "flashy",
       displayOrder: String(record.order ?? 0),
       startsAt: record.startsAt ? String(record.startsAt).slice(0, 10) : "",
@@ -143,6 +161,37 @@ function FlashySalesPage() {
     setFormError("");
     setFormMessage("");
     setIsModalOpen(true);
+  };
+
+  const matchingProducts = useMemo(() => {
+    const term = draft.productSearch.trim().toLowerCase();
+    if (!term) return availableProducts.slice(0, 8);
+
+    return availableProducts
+      .filter((product) => `${product.name} ${product.slug}`.toLowerCase().includes(term))
+      .slice(0, 8);
+  }, [availableProducts, draft.productSearch]);
+
+  const selectProduct = (product) => {
+    setDraft((current) => ({
+      ...current,
+      productId: product.id,
+      productSearch: product.name,
+      availabilityType: product.availabilityType ?? product.availability_type ?? "ready_stock",
+      imageUrl: current.imageUrl || "",
+    }));
+  };
+
+  const handleImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const imageUrl = await readImageAsDataUrl(file);
+      setDraft((current) => ({ ...current, imageUrl }));
+    } catch (error) {
+      setFormError(error.message || "Unable to load the selected image.");
+    }
   };
 
   const handleDelete = async (record) => {
@@ -174,7 +223,7 @@ function FlashySalesPage() {
     setFormMessage("");
 
     if (!draft.productId) {
-      setFormError("Please choose a product.");
+      setFormError("Please select an existing product.");
       return;
     }
 
@@ -198,6 +247,8 @@ function FlashySalesPage() {
         displayOrder,
         startsAt: draft.startsAt || null,
         endsAt: draft.endsAt || null,
+        imageUrl: draft.imageUrl || null,
+        availabilityType: draft.availabilityType,
       });
 
       if (!result.ok) {
@@ -226,12 +277,6 @@ function FlashySalesPage() {
           </div>
 
           <div className="admin-products-header__actions">
-            <Link
-              to="/admin/dashboard"
-              className="admin-products-header__button admin-products-header__button--ghost"
-            >
-              Back to dashboard
-            </Link>
             <button
               type="button"
               className="admin-products-header__button"
@@ -247,21 +292,25 @@ function FlashySalesPage() {
             title="Total Items"
             value={metrics.totalItems}
             note="All flashy sales and best selling items saved in the catalog."
+            tone="indigo"
           />
           <MetricCard
             title="Flashy Sales"
             value={metrics.flashyItems}
             note="Products shown in the Flash Sales section."
+            tone="amber"
           />
           <MetricCard
             title="Best Selling"
             value={metrics.bestSellingItems}
             note="Products shown in the Best Selling section."
+            tone="green"
           />
           <MetricCard
             title="Average Rating"
             value={`${metrics.averageRating.toFixed(1)}/5`}
             note="Average rating across all saved items."
+            tone="blue"
           />
         </section>
 
@@ -396,24 +445,57 @@ function FlashySalesPage() {
             </header>
 
             <form className="admin-flashy-modal__form" onSubmit={handleSubmit}>
-              <label className="admin-flashy-modal__field">
+              <label className="admin-flashy-modal__field admin-flashy-modal__product-picker">
                 <span>Product</span>
-                <select
-                  value={draft.productId}
+                <input
+                  type="search"
+                  value={draft.productSearch}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      productId: event.target.value,
+                      productId: "",
+                      productSearch: event.target.value,
                     }))
                   }
+                  placeholder="Type to search active products"
                   disabled={productsLoading && availableProducts.length === 0}
+                />
+                {draft.productSearch && !draft.productId ? (
+                  <div className="admin-flashy-modal__suggestions">
+                    {matchingProducts.length > 0 ? matchingProducts.map((product) => (
+                      <button
+                        type="button"
+                        key={product.id}
+                        className="admin-flashy-modal__suggestion"
+                        onClick={() => selectProduct(product)}
+                      >
+                        <ProductImage product={product} />
+                        <span>
+                          <strong>{product.name}</strong>
+                          <small>{product.slug}</small>
+                        </span>
+                      </button>
+                    )) : <small className="admin-flashy-modal__suggestions-empty">No matching products.</small>}
+                  </div>
+                ) : null}
+                {selectedProduct ? <small className="admin-flashy-modal__selected">Selected: {selectedProduct.name}</small> : null}
+              </label>
+
+              <label className="admin-flashy-modal__field">
+                <span>Promotional Image (optional)</span>
+                <input type="file" accept="image/*" onChange={handleImageChange} />
+                <small>Leave empty to use the product image.</small>
+              </label>
+
+              <label className="admin-flashy-modal__field">
+                <span>Product Availability</span>
+                <select
+                  value={draft.availabilityType}
+                  onChange={(event) => setDraft((current) => ({ ...current, availabilityType: event.target.value }))}
                 >
-                  <option value="">Choose a product</option>
-                  {availableProducts.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name} - {product.slug}
-                    </option>
-                  ))}
+                  <option value="ready_stock">Ready Stock</option>
+                  <option value="preorder">Pre-order</option>
+                  <option value="coming_soon">Coming Soon</option>
                 </select>
               </label>
 
@@ -480,11 +562,11 @@ function FlashySalesPage() {
                 />
               </label>
 
-              {selectedProduct ? (
+              {draft.imageUrl || selectedProduct ? (
                 <div className="admin-flashy-modal__preview">
-                  <img src={selectedProduct.image} alt={selectedProduct.name} />
+                  <img src={draft.imageUrl || selectedProduct?.image} alt={selectedProduct?.name || "Promotional preview"} />
                   <small>
-                    {selectedProduct.name} - {formatMoney(selectedProduct.price)}
+                    {selectedProduct?.name} - {formatMoney(selectedProduct?.price)}
                   </small>
                 </div>
               ) : null}
