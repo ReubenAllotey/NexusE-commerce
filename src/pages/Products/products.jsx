@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useCategoryRecords } from "../../shared/categoryStorage";
 import {
   buildVariantKeyFromSelectedOptions,
+  getMissingRequiredVariationGroups,
   getProductPurchaseMeta,
   getProductPath,
   resolveProductCompareAt,
@@ -179,6 +180,7 @@ function renderStars(score) {
 }
 
 function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
+  const navigate = useNavigate();
   const variationGroups = useMemo(
     () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
@@ -331,14 +333,13 @@ function ProductCard({ item, isWishlisted, onAddToCart, onToggleWishlist }) {
             }`}
             disabled={availabilityMeta.disabled}
             onClick={() =>
-              onAddToCart({
-                ...item,
-                price: activePrice,
-                compareAt: activeCompareAt,
-                selectedOptions: activeSelection,
-                variantKey: activeVariantKey,
-                availabilityType: item.availabilityType ?? item.availability_type,
-              })
+              getMissingRequiredVariationGroups(variationGroups, activeSelection).length > 0
+                ? navigate(detailHref)
+                : onAddToCart(item, 1, {
+                    selectedOptions: activeSelection,
+                    variantKey: activeVariantKey,
+                    availabilityType: item.availabilityType ?? item.availability_type,
+                  })
             }
           >
             <CartIcon className="nexus-product-card__cart-icon" />

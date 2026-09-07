@@ -163,6 +163,7 @@ function mapOrderBundleToLegacyViewModel(bundle = {}, fallbackItems = []) {
     customerEmail:
       clean(readField(order, "customerEmail", "customer_email")) ||
       clean(readField(order, "customer_email", "customer_email")),
+    checkoutGroupId: clean(readField(order, "checkoutGroupId", "checkout_group_id")),
     orderType: normalizeAvailabilityType(readField(order, "orderType", "order_type")) === "preorder"
       ? "preorder"
       : "ready_stock",
@@ -369,11 +370,16 @@ export async function createOrderFromCart({
     return { ok: false, message: error.message || "Unable to create the order.", order: null };
   }
 
-  const nextOrder = mapOrderBundleToLegacyViewModel(data ?? {}, []);
+  const rawOrders = Array.isArray(data?.orders) ? data.orders : [];
+  const nextOrders = rawOrders.map((bundle) => mapOrderBundleToLegacyViewModel(bundle ?? {}, []));
+  const nextOrder = nextOrders[0] ?? mapOrderBundleToLegacyViewModel(data ?? {}, []);
 
   return {
     ok: true,
     order: nextOrder,
+    orders: nextOrders.length > 0 ? nextOrders : [nextOrder],
+    checkoutGroupId: clean(data?.checkoutGroupId ?? data?.checkout_group_id),
+    combined: data?.combined ?? null,
     raw: data ?? null,
   };
 }

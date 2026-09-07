@@ -5,6 +5,7 @@ import NexusProductCard from "./ProductCard";
 import UnavailableStockButton from "./UnavailableStockButton";
 import {
   buildVariantKeyFromSelectedOptions,
+  getMissingRequiredVariationGroups,
   getProductPurchaseMeta,
   getShippingFee,
   resolveProductCompareAt,
@@ -120,6 +121,7 @@ function ProductView({
   const [activeImage, setActiveImage] = useState(null);
   const [selectedVariationImage, setSelectedVariationImage] = useState("");
   const [selectedOptions, setSelectedOptions] = useState([]);
+  const [variationError, setVariationError] = useState("");
   const [quantity, setQuantity] = useState(1);
 
   const gallery = useMemo(
@@ -137,6 +139,7 @@ function ProductView({
     setActiveImage(null);
     setSelectedVariationImage("");
     setSelectedOptions([]);
+    setVariationError("");
     setQuantity(1);
   }, [productSlug]);
 
@@ -226,6 +229,14 @@ function ProductView({
   }
 
   const handleAddToCart = () => {
+    const missingGroups = getMissingRequiredVariationGroups(variationGroups, activeSelection);
+
+    if (missingGroups.length > 0) {
+      setVariationError(`Please select ${missingGroups[0].groupName}.`);
+      return;
+    }
+
+    setVariationError("");
     onAddToCart(product, safeQuantity, {
       selectedOptions: activeSelection,
       variantKey: buildVariantKeyFromSelectedOptions(activeSelection),
@@ -439,6 +450,12 @@ function ProductView({
                   );
                 })}
               </div>
+            ) : null}
+
+            {variationError ? (
+              <p className="product-view__variation-error" role="alert">
+                {variationError}
+              </p>
             ) : null}
 
             <div className="product-view__buybar">

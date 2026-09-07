@@ -105,28 +105,6 @@ function resolveProductAvailabilityType(product = {}) {
   return normalizeAvailabilityType(product?.availabilityType ?? product?.availability_type);
 }
 
-function getCartAvailabilityMode(items = []) {
-  const types = new Set(
-    (Array.isArray(items) ? items : [])
-      .map((item) => normalizeAvailabilityType(item?.availabilityType ?? item?.availability_type))
-      .filter(Boolean),
-  );
-
-  if (types.has("coming_soon")) {
-    return "coming_soon";
-  }
-
-  if (types.has("preorder") && types.has("ready_stock")) {
-    return "mixed";
-  }
-
-  if (types.has("preorder")) {
-    return "preorder";
-  }
-
-  return "ready_stock";
-}
-
 function getAvailabilityMeta(availabilityType) {
   const normalized = normalizeAvailabilityType(availabilityType);
 
@@ -381,11 +359,14 @@ async function getSignedInUser() {
 }
 
 async function ensureCartRow(userId) {
+  console.log("[NEXUS PREORDER TRACE] 8C CART CREATE START", { userId });
   const { data, error } = await supabase
     .from("carts")
     .upsert({ user_id: userId }, { onConflict: "user_id" })
     .select("id, user_id, created_at, updated_at")
     .single();
+
+  console.log("[NEXUS PREORDER TRACE] 8D CART CREATE RESULT", { data, error });
 
   if (error) {
     throw error;
@@ -813,6 +794,17 @@ export async function addCartLine({
   variantKey: incomingVariantKey = "",
   products = [],
 } = {}) {
+  const variantSelection = {
+    selectedColor,
+    selectedSize,
+    selectedOptions,
+    variantKey: incomingVariantKey,
+  };
+  console.log("[NEXUS PREORDER TRACE] 5 ADDCARTLINE START", {
+    product,
+    quantity,
+    variantSelection,
+  });
   const normalizedProduct = product && typeof product === "object" ? product : null;
   const normalizedProductId = clean(normalizedProduct?.id ?? normalizedProduct?.productId);
   const normalizedSelectedOptions = normalizeSelectedOptions(
@@ -822,7 +814,7 @@ export async function addCartLine({
   );
   const incomingAvailabilityType = resolveProductAvailabilityType(normalizedProduct);
   const purchaseMeta = getProductPurchaseMeta(normalizedProduct);
-
+  console.log("[NEXUS PREORDER TRACE] 6 PURCHASE META", purchaseMeta);
   if (!normalizedProductId) {
     return { ok: false, message: "A valid product is required.", items: [] };
   }
@@ -854,34 +846,11 @@ export async function addCartLine({
     variantKey: incomingVariantKey || normalizedProduct?.variantKey || normalizedProduct?.variant_key,
   });
   const userResult = await getSignedInUser();
-
+  console.log("[NEXUS PREORDER TRACE] 8 PERSISTENCE", {
+    authenticated: userResult.ok,
+    userId: userResult.user?.id ?? null,
+  });
   if (!userResult.ok) {
-    const currentGuestItems = mapCartRowsToItems(loadGuestCartDraft(), products);
-    const currentMode = getCartAvailabilityMode(currentGuestItems);
-    if (currentMode === "mixed") {
-      return {
-        ok: false,
-        message: "Pre-order and ready-stock products must be checked out separately.",
-        items: currentGuestItems,
-      };
-    }
-
-    if (currentMode === "preorder" && incomingAvailabilityType === "ready_stock") {
-      return {
-        ok: false,
-        message: "Pre-order and ready-stock products must be checked out separately.",
-        items: currentGuestItems,
-      };
-    }
-
-    if (currentMode === "ready_stock" && incomingAvailabilityType === "preorder") {
-      return {
-        ok: false,
-        message: "Pre-order and ready-stock products must be checked out separately.",
-        items: currentGuestItems,
-      };
-    }
-
     const nextItems = dedupeGuestCartItems([
       ...loadGuestCartDraft(),
       {
@@ -904,34 +873,28 @@ export async function addCartLine({
     };
   }
 
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+  console.log("[NEXUS PREORDER TRACE] AUTH SESSION", {
+    hasSession: Boolean(session),
+    hasAccessToken: Boolean(session?.access_token),
+    expiresAt: session?.expires_at,
+    userId: session?.user?.id,
+    sessionError,
+  });
+
   try {
+    console.log("[NEXUS PREORDER TRACE] 8A AUTH CART LOOKUP START", {
+      userId: userResult.user.id,
+    });
     const remoteCart = await ensureCartRow(userResult.user.id);
+    console.log("[NEXUS PREORDER TRACE] 8B AUTH CART LOOKUP RESULT", {
+      data: remoteCart,
+      error: null,
+    });
     const remoteCartRows = await loadRemoteCartRows(userResult.user.id);
-    const currentMode = getCartAvailabilityMode(mapCartRowsToItems(remoteCartRows, products));
-
-    if (currentMode === "mixed") {
-      return {
-        ok: false,
-        message: "Pre-order and ready-stock products must be checked out separately.",
-        items: mapCartRowsToItems(remoteCartRows, products),
-      };
-    }
-
-    if (currentMode === "preorder" && incomingAvailabilityType === "ready_stock") {
-      return {
-        ok: false,
-        message: "Pre-order and ready-stock products must be checked out separately.",
-        items: mapCartRowsToItems(remoteCartRows, products),
-      };
-    }
-
-    if (currentMode === "ready_stock" && incomingAvailabilityType === "preorder") {
-      return {
-        ok: false,
-        message: "Pre-order and ready-stock products must be checked out separately.",
-        items: mapCartRowsToItems(remoteCartRows, products),
-      };
-    }
 
     const lineQuery = supabase
       .from("cart_items")
@@ -940,24 +903,59 @@ export async function addCartLine({
       .eq("product_id", normalizedProductId)
       .eq("variant_key", resolvedVariantKey);
 
+    console.log("[NEXUS PREORDER TRACE] 8E CART ITEM LOOKUP START", {
+      cartId: remoteCart.id,
+      productId: normalizedProductId,
+      variantKey: resolvedVariantKey,
+    });
     const { data: existing, error: existingError } = await lineQuery.maybeSingle();
+    console.log("[NEXUS PREORDER TRACE] 8F CART ITEM LOOKUP RESULT", {
+      data: existing,
+      error: existingError,
+    });
 
     if (existingError) {
       throw existingError;
     }
 
     if (existing) {
-      const { error: updateError } = await supabase
+      console.log("[NEXUS PREORDER TRACE] 8G CART ITEM WRITE START", {
+        cartId: remoteCart.id,
+        productId: normalizedProductId,
+        quantity: safeQuantity,
+        selectedOptions: normalizedSelectedOptions,
+        variantKey: resolvedVariantKey,
+        availabilityType: incomingAvailabilityType,
+      });
+      const { data: updateData, error: updateError, status: updateStatus, statusText: updateStatusText } = await supabase
         .from("cart_items")
         .update({ quantity: normalizeQuantity(existing.quantity) + safeQuantity })
         .eq("id", existing.id)
         .eq("cart_id", remoteCart.id);
 
+      console.log("[NEXUS PREORDER TRACE] 8H CART ITEM WRITE RESULT", {
+        data: updateData,
+        error: updateError,
+        status: updateStatus,
+        statusText: updateStatusText,
+      });
+      if (updateError) {
+        console.error("[NEXUS PREORDER TRACE] SUPABASE CART ERROR", updateError);
+      }
+
       if (updateError) {
         throw updateError;
       }
     } else {
-      const { error: insertError } = await supabase.from("cart_items").insert({
+      console.log("[NEXUS PREORDER TRACE] 8G CART ITEM WRITE START", {
+        cartId: remoteCart.id,
+        productId: normalizedProductId,
+        quantity: safeQuantity,
+        selectedOptions: normalizedSelectedOptions,
+        variantKey: resolvedVariantKey,
+        availabilityType: incomingAvailabilityType,
+      });
+      const { data: insertData, error: insertError, status: insertStatus, statusText: insertStatusText } = await supabase.from("cart_items").insert({
         cart_id: remoteCart.id,
         product_id: normalizedProductId,
         quantity: safeQuantity,
@@ -967,18 +965,33 @@ export async function addCartLine({
         selected_options: normalizedSelectedOptions,
       });
 
+      console.log("[NEXUS PREORDER TRACE] 8H CART ITEM WRITE RESULT", {
+        data: insertData,
+        error: insertError,
+        status: insertStatus,
+        statusText: insertStatusText,
+      });
+      if (insertError) {
+        console.error("[NEXUS PREORDER TRACE] SUPABASE CART ERROR", insertError);
+      }
+
       if (insertError) {
         throw insertError;
       }
     }
 
     const refreshed = await loadRemoteCartRows(userResult.user.id);
+    console.log("[NEXUS PREORDER TRACE] 9 WRITE SUCCESS", {
+      source: "remote",
+      items: refreshed,
+    });
     return {
       ok: true,
       source: "remote",
       items: mapCartRowsToItems(refreshed, products),
     };
   } catch (error) {
+    console.error("[NEXUS PREORDER TRACE] ERROR", error);
     return {
       ok: false,
       message: error?.message || "Unable to save the cart item.",

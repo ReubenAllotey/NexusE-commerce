@@ -5026,6 +5026,13 @@ body[data-theme="dark"] .site-footer__inner {
   gap: 1rem;
 }
 
+.product-view__variation-error {
+  margin: 0 0 0.85rem;
+  color: #b42318;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 .product-view__sizes {
   padding: 0.85rem 0.9rem 0.95rem;
   border: 1px solid rgba(28, 63, 183, 0.08);

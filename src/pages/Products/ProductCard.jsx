@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
+  getMissingRequiredVariationGroups,
   getProductPath,
   resolveProductCompareAt,
   resolveProductPrice,
@@ -77,6 +78,7 @@ function ProductCard({
   classNamePrefix = "product-card",
 }) {
   const prefix = classNamePrefix === "shop-card" ? "shop-card" : "product-card";
+  const navigate = useNavigate();
   const safeVariationGroups = useMemo(
     () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
@@ -150,6 +152,41 @@ function ProductCard({
         String(left.groupId).localeCompare(String(right.groupId)),
       );
     });
+  };
+
+  const handlePurchaseClick = () => {
+    const requiredGroups = safeVariationGroups.filter((group) => group?.isRequired);
+    const variantSelection = {
+      selectedOptions: activeSelection,
+      variantKey: activeVariantKey,
+      availabilityType: item.availabilityType ?? item.availability_type,
+    };
+
+    console.log("[NEXUS PREORDER TRACE] 1 CARD CLICK", {
+      id: item?.id,
+      slug: item?.slug,
+      availability_type: item?.availability_type,
+      availabilityType: item?.availabilityType,
+      stock_status: item?.stock_status,
+      stockStatus: item?.stockStatus,
+    });
+    console.log("[NEXUS PREORDER TRACE] 2 VARIATION CHECK", {
+      variationGroups: safeVariationGroups,
+      requiredGroups,
+      selectedOptions: activeSelection,
+    });
+
+    if (getMissingRequiredVariationGroups(safeVariationGroups, activeSelection).length > 0) {
+      console.log("[NEXUS PREORDER TRACE] 3 NAVIGATE DETAIL", detailHref);
+      navigate(detailHref);
+      return;
+    }
+
+    console.log("[NEXUS PREORDER TRACE] 3 DIRECT ADD", {
+      quantity: 1,
+      variantSelection,
+    });
+    onAddToCart(item, 1, variantSelection);
   };
 
   return (
@@ -283,16 +320,7 @@ function ProductCard({
               availabilityMeta.disabled ? " is-disabled" : ""
             }`}
             disabled={availabilityMeta.disabled}
-            onClick={() =>
-              onAddToCart({
-                ...item,
-                price: activePrice,
-                compareAt: activeCompareAt,
-                selectedOptions: activeSelection,
-                variantKey: activeVariantKey,
-                availabilityType: item.availabilityType ?? item.availability_type,
-              })
-            }
+            onClick={handlePurchaseClick}
           >
             <CartIcon className="nexus-product-card__cart-icon" />
             {availabilityMeta.buttonLabel}

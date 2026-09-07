@@ -151,6 +151,9 @@ export function getProductPurchaseMeta(product = {}) {
   if (isProductOutOfStock(product)) {
     return {
       ...availabilityMeta,
+      isPreorder: availabilityMeta.availabilityType === "preorder",
+      isComingSoon: availabilityMeta.availabilityType === "coming_soon",
+      isPurchasable: false,
       badge: "OUT OF STOCK",
       buttonLabel: "Out of Stock",
       disabled: true,
@@ -160,8 +163,23 @@ export function getProductPurchaseMeta(product = {}) {
 
   return {
     ...availabilityMeta,
+    isPreorder: availabilityMeta.availabilityType === "preorder",
+    isComingSoon: availabilityMeta.availabilityType === "coming_soon",
+    isPurchasable: availabilityMeta.availabilityType === "ready_stock" || availabilityMeta.availabilityType === "preorder",
     outOfStock: false,
   };
+}
+
+export function getMissingRequiredVariationGroups(variationGroups = [], selectedOptions = []) {
+  const selectedGroupIds = new Set(
+    (Array.isArray(selectedOptions) ? selectedOptions : [])
+      .map((option) => String(option?.groupId ?? "").trim())
+      .filter(Boolean),
+  );
+
+  return (Array.isArray(variationGroups) ? variationGroups : []).filter(
+    (group) => group?.isRequired && !selectedGroupIds.has(String(group.id ?? "").trim()),
+  );
 }
 
 function getSelectedAbsoluteVariationValue(selectedOptions = [], field) {

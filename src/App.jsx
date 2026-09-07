@@ -1445,6 +1445,12 @@ function App() {
   };
 
   const handleAddToCart = (productOrSlug, quantity = 1, variantSelection = {}) => {
+    console.log("[NEXUS PREORDER TRACE] 4 APP HANDLER", {
+      product: productOrSlug,
+      quantity,
+      variantSelection,
+    });
+
     if (!productOrSlug) {
       return;
     }
@@ -1488,6 +1494,7 @@ function App() {
         setCartItems(result.items ?? []);
         setCartError("");
         setIsCartDrawerOpen(true);
+        console.log("[NEXUS PREORDER TRACE] 10 CART REFRESH");
         return;
       }
 

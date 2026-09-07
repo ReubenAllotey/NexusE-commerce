@@ -5,6 +5,7 @@ import logo from "../../assets/images/nexuslogo.png";
 import { getCategoryProductsPath } from "./catalogData";
 import {
   buildVariantKeyFromSelectedOptions,
+  getMissingRequiredVariationGroups,
   getProductPurchaseMeta,
   getProductPath,
   resolveProductCompareAt,
@@ -353,6 +354,7 @@ function formatMoney(value) {
 }
 
 function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
+  const navigate = useNavigate();
   const detailHref = getProductPath(item.slug ?? slugify(item.name));
   const variationGroups = useMemo(
     () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
@@ -508,14 +510,13 @@ function ProductCard({ item, onAddToCart, onToggleWishlist, isWishlisted }) {
             }`}
             disabled={availabilityMeta.disabled}
             onClick={() =>
-              onAddToCart({
-                ...item,
-                price: activePrice,
-                compareAt: activeCompareAt,
-                selectedOptions: activeSelection,
-                variantKey: activeVariantKey,
-                availabilityType: item.availabilityType ?? item.availability_type,
-              })
+              getMissingRequiredVariationGroups(variationGroups, activeSelection).length > 0
+                ? navigate(detailHref)
+                : onAddToCart(item, 1, {
+                    selectedOptions: activeSelection,
+                    variantKey: activeVariantKey,
+                    availabilityType: item.availabilityType ?? item.availability_type,
+                  })
             }
           >
             <CartIcon className="nexus-product-card__cart-icon" />
