@@ -7,7 +7,7 @@
   height: 100vh;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, #16213a 0%, #0f172a 45%, #070b14 100%);
+  background: #ffffff;
   opacity: 1;
   transition: opacity 500ms ease;
 }
@@ -43,7 +43,7 @@
 
 .app-loader__tagline {
   margin: 1.15rem 0 0;
-  color: #f8fafc;
+  color: #10204a;
   font-size: clamp(0.95rem, 2vw, 1.2rem);
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -52,26 +52,46 @@
   animation: app-loader-copy-in 500ms 180ms ease-out forwards;
 }
 
-.app-loader__dots {
-  display: flex;
-  gap: 0.45rem;
+.app-loader__progress {
+  width: min(72vw, 220px);
+  height: 5px;
   margin-top: 1.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e7eb;
+  opacity: 0;
+  transform: translateY(6px);
 }
 
-.app-loader__dots span {
-  width: 0.38rem;
-  height: 0.38rem;
-  border-radius: 50%;
-  background: #f8fafc;
-  animation: app-loader-dot-pulse 900ms ease-in-out infinite;
+.app-loader__progress.is-ready {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 400ms ease-out, transform 400ms ease-out;
 }
 
-.app-loader__dots span:nth-child(2) {
-  animation-delay: 150ms;
+.app-loader__progress-bar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: #1c3fb7;
+  transform: scaleX(0);
+  transform-origin: left center;
 }
 
-.app-loader__dots span:nth-child(3) {
-  animation-delay: 300ms;
+.app-loader__progress.is-ready .app-loader__progress-bar {
+  animation: app-loader-progress 1500ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes app-loader-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Prevent the loader from introducing a horizontal scrollbar. */
+.app-loader__content {
+  max-width: calc(100vw - 2rem);
 }
 
 @keyframes app-loader-logo-in {
@@ -88,19 +108,6 @@
   }
 }
 
-@keyframes app-loader-dot-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.85);
-  }
-
-  50% {
-    opacity: 1;
-    transform: scale(1.15);
-  }
-}
-
 @media (max-width: 480px) {
   .app-loader__logo {
     width: min(88vw, 400px);
@@ -108,6 +115,10 @@
 
   .app-loader__tagline {
     letter-spacing: 0.05em;
+  }
+
+  .app-loader__progress {
+    width: min(76vw, 220px);
   }
 }
 
@@ -124,8 +135,15 @@
     transform: scale(1);
   }
 
-  .app-loader__dots span {
+  .app-loader__progress,
+  .app-loader__progress.is-ready {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .app-loader__progress.is-ready .app-loader__progress-bar {
     animation: none;
-    opacity: 0.8;
+    transform: scaleX(1);
   }
 }

@@ -47,10 +47,14 @@ function AppLoader() {
           onError={() => setLogoLoaded(true)}
         />
         <p className="app-loader__tagline">Importing Made Simple.</p>
-        <div className="app-loader__dots" aria-hidden="true">
-          <span />
-          <span />
-          <span />
+        <div
+          className={`app-loader__progress${logoLoaded ? " is-ready" : ""}`}
+          role="progressbar"
+          aria-label="Loading Nexus Import Hub"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <span className="app-loader__progress-bar" />
         </div>
       </div>
     </div>

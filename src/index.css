@@ -17,13 +17,13 @@
 
 html {
   scroll-behavior: smooth;
-  background: #0b1220;
+  background: #ffffff;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  background: #0b1220;
+  background: #ffffff;
 }
 
 a {
@@ -44,5 +44,5 @@ img {
 
 #root {
   min-height: 100vh;
-  background: #0b1220;
+  background: #ffffff;
 }
