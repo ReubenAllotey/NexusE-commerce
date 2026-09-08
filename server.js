@@ -54,6 +54,24 @@ function normalizeShipmentType(value) {
   return "air";
 }
 
+function resolveProductFreightType(value) {
+  const normalized = clean(value).toLowerCase();
+
+  if (normalized === "air-freight") {
+    return "air";
+  }
+
+  if (normalized === "sea-freight") {
+    return "sea";
+  }
+
+  if (normalized === "both") {
+    return "both";
+  }
+
+  return null;
+}
+
 function normalizeAvailabilityType(value) {
   const normalized = clean(value).toLowerCase().replace(/[\s-]+/g, "_");
 
@@ -977,6 +995,15 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
     }
 
     const availabilityType = normalizeAvailabilityType(product.availability_type || "ready_stock");
+    const freightType = resolveProductFreightType(product.shipping_method);
+
+    if (!freightType) {
+      throw new Error("Your cart contains a product with an invalid shipping method.");
+    }
+
+    if (freightType === "both") {
+      throw new Error("A dual-freight product requires a selected shipping method.");
+    }
 
     if (availabilityType === "coming_soon") {
       throw new Error("Coming soon products cannot be checked out yet.");
@@ -993,6 +1020,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       row,
       product,
       availabilityType,
+      freightType,
     });
   }
 
@@ -1003,7 +1031,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
   const shippingMethods = new Set();
 
   for (const entry of resolvedEntries) {
-    const { row, product, availabilityType } = entry;
+    const { row, product, availabilityType, freightType } = entry;
     const selections = resolveGuestProductSelections({
       product,
       row,
@@ -1017,7 +1045,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
 
     subtotal += lineSubtotal;
     shippingTotal += lineShipping;
-    shippingMethods.add(normalizeShipmentType(product.shipping_method || "air"));
+    shippingMethods.add(freightType);
 
     normalized.push({
       productId: product.id,
@@ -1034,7 +1062,8 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       shippingFee,
       lineSubtotal,
       lineShipping,
-      shippingMethod: normalizeShipmentType(product.shipping_method || "air"),
+      freightType,
+      shippingMethod: freightType,
       availabilityType,
       estimatedArrival: clean(product.estimated_arrival) || null,
       preorderTerms: clean(product.preorder_terms) || null,
@@ -2208,6 +2237,7 @@ async function handleInitialize(req, res) {
       shipping_fee: item.availabilityType === "preorder" ? 0 : item.shippingFee ?? 0,
       line_subtotal: item.lineSubtotal,
       line_shipping: item.lineShipping,
+      freight_type: item.freightType || item.shippingMethod || "air",
       availability_type: item.availabilityType ?? "ready_stock",
       estimated_arrival: item.estimatedArrival ?? null,
       preorder_terms: item.preorderTerms ?? null,

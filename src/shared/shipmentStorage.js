@@ -9,6 +9,19 @@ export const SHIPMENT_STEPS = [
   { key: "delivery", label: "Orders packed for delivery", status: "out_for_delivery" },
 ];
 
+export function getShipmentStepsForFreight(freightType = "air") {
+  const freight = normalizeKey(freightType);
+  const isSea = freight === "sea";
+
+  return [
+    { key: "confirmed", label: "Orders confirmed", status: "preparing" },
+    { key: "packed", label: "Orders packed for shipment", status: "shipped_from_china" },
+    { key: "departed", label: isSea ? "Departed China Port" : "Departed China Airport", status: "in_transit" },
+    { key: "arrived", label: isSea ? "Arrived Ghana Port" : "Arrived Ghana Airport", status: "arrived_in_ghana" },
+    { key: "delivery", label: "Packed for delivery", status: "out_for_delivery" },
+  ];
+}
+
 const SHIPMENT_STATUSES = new Set([
   "preparing",
   "shipped_from_china",
@@ -158,6 +171,165 @@ function getShippingMethodLabel(value) {
     default:
       return "Air Freight";
   }
+}
+
+function mapTrackItems(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    id: clean(item?.id),
+    orderId: clean(item?.orderId ?? item?.order_id),
+    orderNumber: clean(item?.orderNumber ?? item?.order_number),
+    productId: clean(item?.productId ?? item?.product_id),
+    productName: clean(item?.productName ?? item?.product_name) || "Product",
+    productSlug: clean(item?.productSlug ?? item?.product_slug),
+    brand: clean(item?.brand),
+    imageUrl: clean(item?.imageUrl ?? item?.image_url),
+    quantity: Math.max(Math.round(toNumber(item?.quantity, 1)), 1),
+    selectedColor: clean(item?.selectedColor ?? item?.selected_color),
+    selectedSize: clean(item?.selectedSize ?? item?.selected_size),
+    variantKey: clean(item?.variantKey ?? item?.variant_key),
+    selectedOptions: Array.isArray(item?.selectedOptions ?? item?.selected_options)
+      ? item.selectedOptions ?? item.selected_options
+      : [],
+    freightType: normalizeShipmentMethod(item?.freightType ?? item?.freight_type),
+  }));
+}
+
+function mapNewShipmentTrack(row = {}) {
+  const freightType = normalizeShipmentMethod(readField(row, "freightType", "freight_type"));
+  const currentStatus = normalizeShipmentStatus(
+    readField(row, "currentStatus", "current_status"),
+    getStatusForStep(readField(row, "currentStep", "current_step")),
+  );
+  const currentStep = currentStatus === "delivered"
+    ? 4
+    : clampStepIndex(readField(row, "currentStep", "current_step"));
+  const steps = getShipmentStepsForFreight(freightType);
+  const orders = Array.isArray(row?.orders) ? row.orders : [];
+  const items = mapTrackItems(row?.items);
+  const stepStates = steps.map((step, index) => ({
+    ...step,
+    state: getStepState(currentStep, index, currentStatus),
+  }));
+
+  return {
+    id: clean(readField(row, "id", "id")),
+    batchId: clean(readField(row, "batchId", "batch_id")),
+    batchNumber: clean(readField(row, "batchNumber", "batch_number")),
+    freightType,
+    shippingMethod: freightType,
+    shippingMethodLabel: getShippingMethodLabel(freightType),
+    headline: clean(readField(row, "headline", "headline")),
+    body: clean(readField(row, "announcement", "announcement")),
+    announcement: clean(readField(row, "announcement", "announcement")),
+    currentStep,
+    currentStatus,
+    currentStatusLabel: getStatusLabel(currentStatus),
+    stepLabel: currentStatus === "delivered" ? "Delivered" : steps[currentStep]?.label ?? steps[0].label,
+    progressPercent: getProgressPercent(currentStep, currentStatus),
+    estimatedDeparture: readField(row, "estimatedDeparture", "estimated_departure"),
+    estimatedArrival: readField(row, "estimatedArrival", "estimated_arrival"),
+    updatedAt: readField(row, "updatedAt", "updated_at"),
+    createdAt: readField(row, "createdAt", "created_at"),
+    orders,
+    items,
+    orderCount: orders.length,
+    customerCount: new Set(orders.map((order) => clean(order?.customerId ?? order?.userId))).size,
+    stepStates,
+    events: [],
+    latestEvent: null,
+  };
+}
+
+export async function loadAdminShipmentTracks() {
+  const [{ data, error }, { data: batchRows, error: batchError }] = await Promise.all([
+    supabase
+      .from("shipment_tracks")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("import_batches")
+      .select("id,batch_number")
+      .order("start_date", { ascending: false }),
+  ]);
+
+  if (error) {
+    return { ok: false, message: error.message || "Unable to load shipment tracks.", tracks: [] };
+  }
+
+  if (batchError) {
+    return { ok: false, message: batchError.message || "Unable to load managed batches.", tracks: [] };
+  }
+
+  const batchNumbers = new Map(
+    (Array.isArray(batchRows) ? batchRows : []).map((batch) => [clean(batch.id), batch.batch_number]),
+  );
+
+  return {
+    ok: true,
+    tracks: (Array.isArray(data) ? data : []).map((row) => mapNewShipmentTrack({
+      ...row,
+      batch_number: batchNumbers.get(clean(row.batch_id)) ?? "",
+    })),
+  };
+}
+
+export async function saveShipmentTrack(payload = {}) {
+  const { data, error } = await supabase.rpc("save_shipment_track", {
+    payload: {
+      id: payload.id || null,
+      batch_id: payload.batchId ?? payload.batch_id ?? null,
+      freight_type: payload.freightType ?? payload.freight_type ?? "air",
+      headline: payload.headline ?? "",
+      current_step: payload.currentStep ?? payload.current_step ?? 0,
+      current_status: payload.currentStatus ?? payload.current_status ?? "preparing",
+      announcement: payload.announcement ?? payload.body ?? "",
+      estimated_departure: payload.estimatedDeparture ?? payload.estimated_departure ?? null,
+      estimated_arrival: payload.estimatedArrival ?? payload.estimated_arrival ?? null,
+      allow_correction: Boolean(payload.allowCorrection ?? payload.allow_correction),
+    },
+  });
+
+  if (error) {
+    return { ok: false, message: error.message || "Unable to save shipment tracking.", tracks: [] };
+  }
+
+  const rows = Array.isArray(data?.tracks) ? data.tracks : [];
+  return { ok: true, tracks: rows.map(mapNewShipmentTrack), raw: data };
+}
+
+export function useCustomerShipmentTracks() {
+  const [state, setState] = useState({ loading: true, error: "", tracks: [] });
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    const load = async () => {
+      setState((current) => ({ ...current, loading: true, error: "" }));
+      const { data, error } = await supabase.rpc("get_my_shipment_tracks");
+
+      if (!active) return;
+
+      if (error) {
+        setState({ loading: false, error: error.message || "Unable to load shipment tracking.", tracks: [] });
+        return;
+      }
+
+      setState({
+        loading: false,
+        error: "",
+        tracks: (Array.isArray(data) ? data : []).map(mapNewShipmentTrack),
+      });
+    };
+
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [refreshToken]);
+
+  return { ...state, refresh: () => setRefreshToken((value) => value + 1) };
 }
 
 function readField(source = {}, camelKey, snakeKey, fallback = null) {
