@@ -129,6 +129,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [savedCheckoutAddress, setSavedCheckoutAddress] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState(() => createEmptyForm(authUser, null));
   const [formError, setFormError] = useState("");
 
@@ -250,6 +251,12 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
   async function handleSubmit(event) {
     event.preventDefault();
 
+    if (isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
     const payload = {
       id: clean(formData.id),
       ...formData,
@@ -313,10 +320,16 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       setFormError(saveResult?.message || "Please review the address details.");
     } catch (error) {
       setFormError(error?.message || "Please review the address details.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
   function handleProceed() {
+    if (isSubmitting) {
+      return;
+    }
+
     if (selectedAddress) {
       persistAndContinue(selectedAddress);
       return;
@@ -479,13 +492,12 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     </label>
 
                     <label className="address-modal__field">
-                      <span>Email Address <span className="shipping-required" aria-hidden="true">*</span></span>
+                      <span>Email Address</span>
                       <input
                         type="email"
                         name="emailAddress"
                         value={formData.emailAddress}
                         onChange={handleFieldChange}
-                        required
                         autoComplete="email"
                       />
                     </label>
@@ -637,8 +649,9 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
             form={isFormOpen ? "shipping-address-form" : undefined}
             className="shipping-footer__button"
             onClick={!isFormOpen ? handleProceed : undefined}
+            disabled={isSubmitting}
           >
-            {isFormOpen ? "Save & Proceed" : "Proceed to Payment"}
+            {isSubmitting ? "Saving..." : isFormOpen ? "Save and Proceed" : "Proceed to Payment"}
           </button>
         </footer>
       </div>

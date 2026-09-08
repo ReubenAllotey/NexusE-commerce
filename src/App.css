@@ -9484,6 +9484,13 @@ body[data-theme="dark"] .site-footer__inner {
   filter: brightness(0.98);
 }
 
+.shipping-footer__button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
+  filter: none;
+}
+
 .shipping-required {
   color: #ef4444;
   font-weight: 800;
