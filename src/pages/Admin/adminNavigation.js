@@ -12,5 +12,5 @@ export const adminNavItems = [
   { to: "/admin/banners", label: "Banners" },
   { to: "/admin/categories", label: "Categories" },
   { to: "/admin/shipment", label: "Shipment" },
-  { to: "/admin/monthlyReports", label: "Monthly Report" },
+  { to: "/admin/monthly-report", label: "Monthly Report" },
 ];

@@ -605,9 +605,10 @@ function AppShell({
             element={adminGuard(<FlashySalesPage />)}
           />
           <Route
-            path="/admin/monthlyReports"
-            element={adminGuard(<MonthlyReportsPage orders={orders} />)}
+            path="/admin/monthly-report"
+            element={adminGuard(<MonthlyReportsPage />)}
           />
+          <Route path="/admin/monthlyReports" element={<Navigate to="/admin/monthly-report" replace />} />
           <Route
             path="/admin/shipment"
             element={adminGuard(

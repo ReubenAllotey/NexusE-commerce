@@ -1,656 +1,261 @@
-import { useMemo, useState } from "react";
-import {
-  formatMoney,
-  formatShortDate,
-  getOrderMetrics,
-  getRecentOrders,
-} from "../adminHelpers";
-import { isDeliveredOrder, isInTransitOrder } from "../../Profile/ordersStorage";
-import { useShipmentBatches } from "../../../shared/shipmentStorage";
-import { useProducts } from "../../Products/productData";
+import { useEffect, useMemo, useState } from "react";
+import { formatMoney, formatShortDate } from "../adminHelpers";
+import { loadMonthlyReportData } from "./monthlyReportStorage";
 
-function clean(value) {
-  return String(value ?? "").trim();
+const money = (value) => formatMoney(Number(value) || 0);
+const text = (value) => String(value ?? "").trim();
+
+function monthKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function parseDate(value) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function getMonthKey(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
-
-function getMonthLabel(date) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    year: "numeric",
-  }).format(date);
-}
-
-function getMonthStart(monthKey) {
-  const [year, month] = monthKey.split("-").map((value) => Number(value));
+function monthStart(key) {
+  const [year, month] = key.split("-").map(Number);
   return new Date(year, (month || 1) - 1, 1);
 }
 
-function isSameMonth(value, monthKey) {
-  const date = parseDate(value);
-  if (!date) {
-    return false;
-  }
-
-  return getMonthKey(date) === monthKey;
+function inMonth(value, key) {
+  return monthKey(value) === key;
 }
 
-function getOrderPaymentStatus(order) {
-  const paymentStatus = clean(order?.paymentStatus).toLowerCase();
-
-  if (paymentStatus === "paid" || paymentStatus === "successful") {
-    return "paid";
-  }
-
-  if (paymentStatus === "failed") {
-    return "failed";
-  }
-
-  return "pending";
+function labelForMonth(key) {
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(monthStart(key));
 }
 
-function getOrderStatusKey(order) {
-  const status = clean(order?.status).toLowerCase();
-
-  if (status === "delivered") {
-    return "delivered";
-  }
-
-  if (status === "returned" || clean(order?.returnStatus).toLowerCase() === "returned") {
-    return "returned";
-  }
-
-  if (status === "cancelled" || status === "canceled") {
-    return "cancelled";
-  }
-
-  if (status === "pending_payment") {
-    return "pending_payment";
-  }
-
-  return "processing";
+function isSuccessful(payment) {
+  return ["successful", "paid"].includes(text(payment?.status).toLowerCase());
 }
 
-function getWeekIndex(value) {
-  const date = parseDate(value);
-
-  if (!date) {
-    return 0;
-  }
-
-  return Math.min(Math.ceil(date.getDate() / 7), 4) - 1;
+function isCancelled(order) {
+  return ["cancelled", "canceled"].includes(text(order?.status).toLowerCase());
 }
 
-function getMonthOrders(orders, monthKey) {
-  return (Array.isArray(orders) ? orders : []).filter((order) =>
-    isSameMonth(order.createdAt ?? order.updatedAt, monthKey),
-  );
+function isAdmin(profile) {
+  return text(profile?.role).toLowerCase() === "admin";
 }
 
-function getUniqueCustomerCount(orders = [], users = [], monthKey = "") {
-  const userKeys = new Set();
+function customerKey(order) {
+  return text(order?.user_id || order?.customer_email).toLowerCase();
+}
 
-  for (const user of Array.isArray(users) ? users : []) {
-    if (!isSameMonth(user.createdAt, monthKey)) {
-      continue;
-    }
+function customerName(order, profilesById) {
+  const profile = profilesById.get(order?.user_id);
+  return text(profile?.full_name) || text(order?.customer_name) || text(order?.customer_email) || "Unknown customer";
+}
 
-    const key = clean(user.email || user.id || user.name).toLowerCase();
+function formatType(value) {
+  const key = text(value).toLowerCase();
+  if (key === "preorder") return "Pre-order";
+  if (key === "ready_stock") return "Ready Stock";
+  return key ? key.replaceAll("_", " ") : "Unknown";
+}
 
-    if (key) {
-      userKeys.add(key);
-    }
+function formatStatus(value) {
+  const key = text(value).toLowerCase();
+  if (key === "pending_payment") return "Pending Payment";
+  if (key === "in_transit") return "In Transit";
+  if (key === "cancelled" || key === "canceled") return "Cancelled";
+  return key ? key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Unknown";
+}
+
+function getUniqueSuccessfulPayments(payments, ordersById) {
+  const unique = new Map();
+  for (const payment of payments.filter(isSuccessful)) {
+    const order = ordersById.get(payment.order_id);
+    const groupKey = text(order?.checkout_group_id) || `payment:${payment.id}`;
+    if (!unique.has(groupKey)) unique.set(groupKey, payment);
+  }
+  return [...unique.values()];
+}
+
+function buildReport(data, key) {
+  const orders = Array.isArray(data?.orders) ? data.orders : [];
+  const items = Array.isArray(data?.orderItems) ? data.orderItems : [];
+  const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+  const batches = Array.isArray(data?.batches) ? data.batches : [];
+  const ordersById = new Map(orders.map((order) => [order.id, order]));
+  const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const itemsByOrder = new Map();
+
+  for (const item of items) {
+    const rows = itemsByOrder.get(item.order_id) || [];
+    rows.push(item);
+    itemsByOrder.set(item.order_id, rows);
   }
 
-  if (userKeys.size > 0) {
-    return userKeys.size;
-  }
+  const monthOrders = orders.filter((order) => inMonth(order.created_at, key));
+  const monthPayments = (data?.payments || []).filter((payment) => inMonth(payment.paid_at || payment.created_at, key));
+  const successfulPayments = getUniqueSuccessfulPayments(monthPayments, ordersById);
+  const paidOrderIds = new Set();
 
-  const orderKeys = new Set();
-
-  for (const order of Array.isArray(orders) ? orders : []) {
-    const key = clean(order.customerEmail || order.customerId || order.customerName).toLowerCase();
-
-    if (key) {
-      orderKeys.add(key);
+  for (const payment of successfulPayments) {
+    const order = ordersById.get(payment.order_id);
+    if (!order) continue;
+    const group = text(order.checkout_group_id);
+    for (const sibling of orders) {
+      if (sibling.id === order.id || (group && sibling.checkout_group_id === group)) paidOrderIds.add(sibling.id);
     }
   }
 
-  return orderKeys.size;
-}
-
-function buildWeeklyTotals(orders = []) {
-  const weekly = Array.from({ length: 4 }, (_, index) => ({
-    label: `Week ${index + 1}`,
-    sales: 0,
-    orders: 0,
-  }));
-
-  for (const order of orders) {
-    const weekIndex = getWeekIndex(order.createdAt ?? order.updatedAt);
-    const bucket = weekly[weekIndex];
-
-    if (!bucket) {
-      continue;
-    }
-
-    bucket.orders += 1;
-
-    if (getOrderPaymentStatus(order) === "paid") {
-      bucket.sales += Number(order.total) || 0;
-    }
+  const paidMonthOrders = monthOrders.filter((order) => paidOrderIds.has(order.id));
+  const eligiblePaidOrders = paidMonthOrders.filter((order) => !isCancelled(order));
+  const paidItemRows = eligiblePaidOrders.flatMap((order) => itemsByOrder.get(order.id) || []);
+  const typeCount = (type) => monthOrders.filter((order) => text(order.order_type).toLowerCase() === type).length;
+  const customers = profiles.filter((profile) => !isAdmin(profile) && text(profile.role).toLowerCase() === "customer");
+  const customerKeys = new Set(paidMonthOrders.map(customerKey).filter(Boolean));
+  const start = monthStart(key);
+  const previousKey = monthKey(new Date(start.getFullYear(), start.getMonth() - 1, 1));
+  const totalSales = successfulPayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const productSubtotal = eligiblePaidOrders.reduce((sum, order) => sum + (Number(order.subtotal) || 0), 0);
+  const shippingCollected = eligiblePaidOrders.reduce((sum, order) => sum + (Number(order.shipping_total) || 0), 0);
+  const statusCounts = {};
+  for (const order of monthOrders) {
+    const status = formatStatus(order.status);
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
   }
 
-  return weekly;
-}
-
-function buildTopProducts(orders = [], catalog = []) {
-  const productIndex = new Map(
-    (Array.isArray(catalog) ? catalog : []).map((product) => [
-      clean(product.slug || product.name).toLowerCase(),
-      product,
-    ]),
-  );
-  const productSales = new Map();
-
-  for (const order of Array.isArray(orders) ? orders : []) {
-    const items = Array.isArray(order.items) ? order.items : [];
-
-    for (const item of items) {
-      const key = clean(item.slug || item.name).toLowerCase();
-
-      if (!key) {
-        continue;
-      }
-
-      const quantity = Number(item.quantity) || 0;
-      const revenue =
-        Number(item.lineSubtotal) ||
-        (Number(item.price) || 0) * (quantity || 1);
-      const existing = productSales.get(key) ?? {
-        name: item.name || "Unnamed product",
-        image: item.image || "",
-        quantity: 0,
-        revenue: 0,
-      };
-      const catalogProduct = productIndex.get(key);
-
-      productSales.set(key, {
-        name: catalogProduct?.name ?? existing.name,
-        image: catalogProduct?.image ?? existing.image,
-        quantity: existing.quantity + (quantity || 1),
-        revenue: existing.revenue + revenue,
-      });
-    }
-  }
-
-  return [...productSales.values()]
-    .sort((left, right) => right.quantity - left.quantity || right.revenue - left.revenue)
-    .slice(0, 5);
-}
-
-function getChange(current, previous) {
-  if (!previous) {
-    return current > 0 ? "+100%" : "0%";
-  }
-
-  const delta = ((current - previous) / previous) * 100;
-  const prefix = delta > 0 ? "+" : "";
-  return `${prefix}${delta.toFixed(1)}%`;
-}
-
-function getMoneyChange(current, previous) {
-  return getChange(current, previous);
-}
-
-function buildDownloadPayload(report) {
-  return JSON.stringify(report, null, 2);
-}
-
-function MonthlyReports({ orders = [] }) {
-  const today = new Date();
-  const defaultMonthKey = getMonthKey(today);
-  const [selectedMonth, setSelectedMonth] = useState(defaultMonthKey);
-  const [chartMetric, setChartMetric] = useState("sales");
-
-  const { products: liveProducts } = useProducts();
-  const monthStart = useMemo(() => getMonthStart(selectedMonth), [selectedMonth]);
-  const previousMonthKey = useMemo(() => {
-    const previous = new Date(monthStart);
-    previous.setMonth(previous.getMonth() - 1);
-    return getMonthKey(previous);
-  }, [monthStart]);
-  const selectedMonthLabel = useMemo(() => getMonthLabel(monthStart), [monthStart]);
-  const previousMonthLabel = useMemo(() => getMonthLabel(getMonthStart(previousMonthKey)), [previousMonthKey]);
-
-  const monthOrders = useMemo(
-    () => getMonthOrders(orders, selectedMonth),
-    [orders, selectedMonth],
-  );
-  const previousMonthOrders = useMemo(
-    () => getMonthOrders(orders, previousMonthKey),
-    [orders, previousMonthKey],
-  );
-  const { shipments: monthShipments } = useShipmentBatches({ orders: monthOrders });
-  const weeklyTotals = useMemo(() => buildWeeklyTotals(monthOrders), [monthOrders]);
-  const topProducts = useMemo(() => buildTopProducts(monthOrders, liveProducts), [monthOrders, liveProducts]);
-
-  const summary = useMemo(() => {
-    const totalSales = monthOrders.reduce(
-      (sum, order) => (getOrderPaymentStatus(order) === "paid" ? sum + (Number(order.total) || 0) : sum),
-      0,
-    );
-    const totalOrders = monthOrders.length;
-    const newCustomers = getUniqueCustomerCount(monthOrders, [], selectedMonth);
-    const refunds = monthOrders.reduce((sum, order) => {
-      const status = getOrderStatusKey(order);
-      const paymentStatus = getOrderPaymentStatus(order);
-
-      if (status === "cancelled" && paymentStatus === "paid") {
-        return sum + (Number(order.total) || 0);
-      }
-
-      return sum + (Number(order.refundAmount) || 0);
-    }, 0);
-    const pendingPayments = monthOrders.reduce(
-      (sum, order) =>
-        getOrderPaymentStatus(order) === "pending"
-          ? sum + (Number(order.total) || 0)
-          : sum,
-      0,
-    );
-    const outstandingBalance = monthOrders.reduce(
-      (sum, order) => sum + (Number(order.shippingBalanceDue) || 0),
-      0,
-    );
-    const netProfit = Math.max(totalSales - refunds - outstandingBalance, 0);
-
-    return {
-      totalSales,
-      totalOrders,
-      newCustomers,
-      netProfit,
-      successfulPayments: totalSales,
-      pendingPayments,
-      refunds,
-      outstandingBalance,
-    };
-  }, [monthOrders, selectedMonth]);
-
-  const comparison = useMemo(() => {
-    const previousSales = previousMonthOrders.reduce(
-      (sum, order) => (getOrderPaymentStatus(order) === "paid" ? sum + (Number(order.total) || 0) : sum),
-      0,
-    );
-    const previousOrders = previousMonthOrders.length;
-    const previousCustomers = getUniqueCustomerCount(previousMonthOrders, [], previousMonthKey);
-
-    return [
-      {
-        metric: "Sales",
-        current: formatMoney(summary.totalSales),
-        previous: formatMoney(previousSales),
-        change: getMoneyChange(summary.totalSales, previousSales),
-      },
-      {
-        metric: "Orders",
-        current: String(summary.totalOrders),
-        previous: String(previousOrders),
-        change: getChange(summary.totalOrders, previousOrders),
-      },
-      {
-        metric: "Customers",
-        current: String(summary.newCustomers),
-        previous: String(previousCustomers),
-        change: getChange(summary.newCustomers, previousCustomers),
-      },
-    ];
-  }, [previousMonthKey, previousMonthOrders, summary.newCustomers, summary.totalOrders, summary.totalSales, users]);
-
-  const orderSummary = useMemo(() => {
-    const counts = {
-      delivered: 0,
-      processing: 0,
-      pending_payment: 0,
-      cancelled: 0,
-      returned: 0,
-    };
-
-    for (const order of monthOrders) {
-      const statusKey = getOrderStatusKey(order);
-      counts[statusKey] = (counts[statusKey] ?? 0) + 1;
-    }
-
-    return counts;
-  }, [monthOrders]);
-
-  const shipmentSummary = useMemo(() => {
-    const deliveredOrders = monthOrders.filter(isDeliveredOrder).length;
-    const inTransitOrders = monthOrders.filter(isInTransitOrder).length;
-    const awaitingCustoms = monthShipments.filter((batch) => batch.stepIndex === 2).reduce((sum, batch) => sum + batch.orderCount, 0);
-    const delayedShipments = monthShipments.filter((batch) => {
-      const updatedAt = parseDate(batch.updatedAt ?? batch.createdAt);
-
-      if (!updatedAt || batch.status === "completed") {
-        return false;
-      }
-
-      const daysElapsed = (Date.now() - updatedAt.getTime()) / (1000 * 60 * 60 * 24);
-      return daysElapsed >= 21;
-    }).reduce((sum, batch) => sum + batch.orderCount, 0);
-
-    return {
-      deliveredOrders,
-      inTransitOrders,
-      awaitingCustoms,
-      delayedShipments,
-    };
-  }, [monthOrders, monthShipments]);
-
-  const chartSeries = weeklyTotals.map((week) => ({
-    label: week.label,
-    value: chartMetric === "sales" ? week.sales : week.orders,
-  }));
-  const chartMax = Math.max(1, ...chartSeries.map((item) => item.value));
-
-  const shipmentBatches = monthShipments.slice(0, 4);
-
-  const handleDownloadReport = () => {
-    const report = {
-      month: selectedMonthLabel,
-      generatedAt: new Date().toISOString(),
-      summary,
-      orderSummary,
-      paymentSummary: {
-        successfulPayments: summary.successfulPayments,
-        pendingPayments: summary.pendingPayments,
-        refunds: summary.refunds,
-        outstandingBalance: summary.outstandingBalance,
-      },
-      salesChart: chartSeries,
-      topProducts,
-      shipmentSummary,
-      shipmentBatches: shipmentBatches.map((batch) => ({
-        batchNumber: batch.batchNumber,
-        method: batch.shippingMethodLabel,
-        status: batch.status === "completed" ? "Delivered" : batch.stepLabel,
-        updatedAt: batch.updatedAt,
-      })),
-      comparison,
-    };
-
-    const blob = new Blob([buildDownloadPayload(report)], {
-      type: "application/json;charset=utf-8",
+  const productMap = new Map();
+  for (const item of paidItemRows) {
+    const id = item.product_id || item.product_slug || item.product_name;
+    const current = productMap.get(id) || { name: item.product_name || "Unnamed product", units: 0, sales: 0 };
+    productMap.set(id, {
+      ...current,
+      units: current.units + (Number(item.quantity) || 0),
+      sales: current.sales + (Number(item.line_subtotal) || (Number(item.unit_price) || 0) * (Number(item.quantity) || 0)),
     });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+  }
 
-    link.href = url;
-    link.download = `monthly-report-${selectedMonth}.json`;
-    link.click();
+  const dailyMap = new Map();
+  for (const payment of successfulPayments) {
+    const date = new Date(payment.paid_at || payment.created_at);
+    dailyMap.set(date.getDate(), (dailyMap.get(date.getDate()) || 0) + (Number(payment.amount) || 0));
+  }
+  const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+  const dailySales = Array.from({ length: daysInMonth }, (_, index) => ({ day: index + 1, sales: dailyMap.get(index + 1) || 0 }));
+  const batchMap = new Map(batches.map((batch) => [batch.batch_number, batch]));
+  const batchRows = [...new Set(monthOrders.map((order) => order.batch_number).filter(Boolean))].map((batchNumber) => {
+    const batchOrders = paidMonthOrders.filter((order) => order.batch_number === batchNumber);
+    const batchItems = batchOrders.flatMap((order) => itemsByOrder.get(order.id) || []);
+    return {
+      batch: batchNumber,
+      status: batchMap.get(batchNumber)?.status || "historical",
+      orders: batchOrders.length,
+      units: batchItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
+      sales: batchOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0),
+      air: batchItems.filter((item) => item.freight_type === "air").reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
+      sea: batchItems.filter((item) => item.freight_type === "sea").reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
+    };
+  });
+  const customerSpend = new Map();
+  for (const order of eligiblePaidOrders) {
+    const id = customerKey(order);
+    if (id) customerSpend.set(id, (customerSpend.get(id) || 0) + (Number(order.total) || 0));
+  }
+  const topCustomers = [...customerSpend.entries()].map(([id, spend]) => {
+    const order = orders.find((candidate) => customerKey(candidate) === id) || {};
+    return { id, name: customerName(order, profilesById), spend };
+  }).sort((a, b) => b.spend - a.spend).slice(0, 5);
+  const newCustomers = customers.filter((profile) => inMonth(profile.created_at, key)).length;
+  const orderedCustomers = customers.filter((profile) => customerKeys.has(text(profile.id).toLowerCase())).length;
+  const returningCustomers = [...customerKeys].filter((id) => orders.some((order) => customerKey(order) === id && !inMonth(order.created_at, key))).length;
+  const paymentBreakdown = ["successful", "pending", "failed"].map((status) => ({
+    status,
+    count: monthPayments.filter((payment) => text(payment.status).toLowerCase() === status).length,
+    amount: monthPayments.filter((payment) => text(payment.status).toLowerCase() === status).reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0),
+  }));
+  const topOrders = [...monthOrders].sort((a, b) => (Number(b.total) || 0) - (Number(a.total) || 0)).slice(0, 10);
+  const previousOrders = orders.filter((order) => inMonth(order.created_at, previousKey));
+  const previousPayments = (data?.payments || []).filter((payment) => inMonth(payment.paid_at || payment.created_at, previousKey));
+  const previousSuccessfulPayments = getUniqueSuccessfulPayments(previousPayments, ordersById);
+  const previousCustomers = customers.filter((profile) => inMonth(profile.created_at, previousKey)).length;
 
-    URL.revokeObjectURL(url);
+  return {
+    key,
+    summary: {
+      totalSales,
+      paidOrders: paidMonthOrders.length,
+      totalOrders: monthOrders.length,
+      newCustomers,
+      readyOrders: typeCount("ready_stock"),
+      preorderOrders: typeCount("preorder"),
+      productSubtotal,
+      shippingCollected,
+      pendingPayments: paymentBreakdown.find((row) => row.status === "pending")?.amount || 0,
+      averageOrderValue: paidMonthOrders.length ? totalSales / paidMonthOrders.length : 0,
+    },
+    statusCounts,
+    dailySales,
+    topProducts: [...productMap.values()].sort((a, b) => b.units - a.units || b.sales - a.sales).slice(0, 10),
+    batchRows,
+    customerActivity: { newCustomers, returningCustomers, orderedCustomers, topCustomers },
+    paymentBreakdown,
+    topOrders,
+    comparison: {
+      sales: { current: totalSales, previous: previousSuccessfulPayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0) },
+      orders: { current: monthOrders.length, previous: previousOrders.length },
+      customers: { current: newCustomers, previous: previousCustomers },
+    },
   };
+}
 
-  return (
-    <main className="monthly-report-page">
-      <section className="monthly-report-shell">
-        <header className="monthly-report-header">
-          <div>
-            <p className="monthly-report-header__eyebrow">Admin report</p>
-            <h1>Monthly Report</h1>
-            <span>View your business performance for the selected month.</span>
-          </div>
+function change(current, previous) {
+  if (!previous) return current ? "+100%" : "0%";
+  const value = ((current - previous) / previous) * 100;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
 
-          <div className="monthly-report-header__actions">
-            <label className="monthly-report-select">
-              <span className="sr-only">Select month</span>
-              <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
-                {Array.from({ length: 12 }, (_, index) => {
-                  const optionDate = new Date(today);
-                  optionDate.setMonth(optionDate.getMonth() - index);
-                  const key = getMonthKey(optionDate);
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
 
-                  return (
-                    <option key={key} value={key}>
-                      {getMonthLabel(optionDate)}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
+function downloadCsv(report) {
+  const rows = [["Monthly Report", labelForMonth(report.key)], [], ["Summary", "Value"], ...Object.entries(report.summary), [], ["Top Products", "Units", "Sales"], ...report.topProducts.map((row) => [row.name, row.units, row.sales]), [], ["Batches", "Status", "Orders", "Units", "Sales", "Air Units", "Sea Units"], ...report.batchRows.map((row) => [row.batch, row.status, row.orders, row.units, row.sales, row.air, row.sea]), [], ["Orders", "Order", "Customer", "Type", "Status", "Total", "Created"], ...report.topOrders.map((order) => [order.order_number, order.customer_name, formatType(order.order_type), formatStatus(order.status), order.total, order.created_at])];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `nexus-monthly-report-${report.key}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
-            <button type="button" className="monthly-report-button" onClick={handleDownloadReport}>
-              Download Report
-            </button>
-          </div>
-        </header>
+function MonthlyReports() {
+  const [selectedMonth, setSelectedMonth] = useState(monthKey(new Date()));
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-        <section className="monthly-report-summary" aria-label="Monthly report summary">
-          <article className="monthly-report-card">
-            <span>Total Sales</span>
-            <strong>{formatMoney(summary.totalSales)}</strong>
-          </article>
-          <article className="monthly-report-card">
-            <span>Total Orders</span>
-            <strong>{summary.totalOrders}</strong>
-          </article>
-          <article className="monthly-report-card">
-            <span>New Customers</span>
-            <strong>{summary.newCustomers}</strong>
-          </article>
-          <article className="monthly-report-card">
-            <span>Net Profit</span>
-            <strong>{formatMoney(summary.netProfit)}</strong>
-          </article>
-        </section>
+  useEffect(() => {
+    let active = true;
+    loadMonthlyReportData().then((result) => {
+      if (!active) return;
+      if (!result.ok) setError(result.message);
+      else setData(result.data);
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
-        <section className="monthly-report-panel">
-          <div className="monthly-report-panel__header">
-            <div>
-              <p>Sales Overview</p>
-              <h2>{selectedMonthLabel}</h2>
-            </div>
+  const report = useMemo(() => data ? buildReport(data, selectedMonth) : null, [data, selectedMonth]);
+  const maxDailySales = Math.max(1, ...(report?.dailySales || []).map((day) => day.sales));
+  const cards = report ? [["Total Sales", money(report.summary.totalSales)], ["Paid Orders", report.summary.paidOrders], ["Total Orders", report.summary.totalOrders], ["New Customers", report.summary.newCustomers], ["Ready Stock Orders", report.summary.readyOrders], ["Pre-orders", report.summary.preorderOrders], ["Product Subtotal", money(report.summary.productSubtotal)], ["Shipping Collected", money(report.summary.shippingCollected)], ["Pending Payments", money(report.summary.pendingPayments)], ["Average Order Value", money(report.summary.averageOrderValue)]] : [];
 
-            <div className="monthly-report-toggle" role="tablist" aria-label="Sales chart metric">
-              <button
-                type="button"
-                className={chartMetric === "sales" ? "is-active" : ""}
-                onClick={() => setChartMetric("sales")}
-              >
-                Sales
-              </button>
-              <button
-                type="button"
-                className={chartMetric === "orders" ? "is-active" : ""}
-                onClick={() => setChartMetric("orders")}
-              >
-                Orders
-              </button>
-            </div>
-          </div>
-
-          <div className="monthly-report-chart">
-            {chartSeries.map((item) => {
-              const width = `${Math.max((item.value / chartMax) * 100, item.value > 0 ? 12 : 6)}%`;
-
-              return (
-                <div className="monthly-report-chart__row" key={item.label}>
-                  <div className="monthly-report-chart__meta">
-                    <strong>{item.label}</strong>
-                    <span>
-                      {chartMetric === "sales" ? formatMoney(item.value) : item.value}
-                    </span>
-                  </div>
-
-                  <div className="monthly-report-chart__track" aria-hidden="true">
-                    <span className="monthly-report-chart__fill" style={{ width }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <div className="monthly-report-grid">
-          <section className="monthly-report-panel">
-            <div className="monthly-report-panel__header">
-              <div>
-                <p>Order Summary</p>
-                <h2>Status snapshot</h2>
-              </div>
-            </div>
-
-            <div className="monthly-report-key-values">
-              <div><span>Delivered</span><strong>{orderSummary.delivered}</strong></div>
-              <div><span>Processing</span><strong>{orderSummary.processing}</strong></div>
-              <div><span>Pending Payment</span><strong>{orderSummary.pending_payment}</strong></div>
-              <div><span>Cancelled</span><strong>{orderSummary.cancelled}</strong></div>
-              <div><span>Returned</span><strong>{orderSummary.returned}</strong></div>
-            </div>
-          </section>
-
-          <section className="monthly-report-panel">
-            <div className="monthly-report-panel__header">
-              <div>
-                <p>Payment Summary</p>
-                <h2>Cash flow snapshot</h2>
-              </div>
-            </div>
-
-            <div className="monthly-report-key-values monthly-report-key-values--money">
-              <div><span>Successful Payments</span><strong>{formatMoney(summary.successfulPayments)}</strong></div>
-              <div><span>Pending Payments</span><strong>{formatMoney(summary.pendingPayments)}</strong></div>
-              <div><span>Refunds</span><strong>{formatMoney(summary.refunds)}</strong></div>
-              <div><span>Outstanding Balance</span><strong>{formatMoney(summary.outstandingBalance)}</strong></div>
-            </div>
-          </section>
-        </div>
-
-        <div className="monthly-report-grid monthly-report-grid--wide">
-          <section className="monthly-report-panel">
-            <div className="monthly-report-panel__header">
-              <div>
-                <p>Top-Selling Products</p>
-                <h2>Best five items</h2>
-              </div>
-            </div>
-
-            {topProducts.length > 0 ? (
-              <div className="monthly-report-table-wrap">
-                <table className="monthly-report-table">
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th>Units Sold</th>
-                      <th>Revenue</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topProducts.map((product) => (
-                      <tr key={`${product.name}-${product.revenue}`}>
-                        <td>{product.name}</td>
-                        <td>{product.quantity}</td>
-                        <td>{formatMoney(product.revenue)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="monthly-report-empty">No sales recorded for this month.</div>
-            )}
-          </section>
-
-          <section className="monthly-report-panel">
-            <div className="monthly-report-panel__header">
-              <div>
-                <p>Shipment Summary</p>
-                <h2>Delivery overview</h2>
-              </div>
-            </div>
-
-            <div className="monthly-report-key-values monthly-report-key-values--shipment">
-              <div><span>Delivered Orders</span><strong>{shipmentSummary.deliveredOrders}</strong></div>
-              <div><span>Orders in Transit</span><strong>{shipmentSummary.inTransitOrders}</strong></div>
-              <div><span>Awaiting Customs</span><strong>{shipmentSummary.awaitingCustoms}</strong></div>
-              <div><span>Delayed Shipments</span><strong>{shipmentSummary.delayedShipments}</strong></div>
-            </div>
-
-            {shipmentBatches.length > 0 ? (
-              <div className="monthly-report-table-wrap monthly-report-table-wrap--spaced">
-                <table className="monthly-report-table">
-                  <thead>
-                    <tr>
-                      <th>Batch</th>
-                      <th>Method</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shipmentBatches.map((batch) => (
-                      <tr key={batch.id}>
-                        <td>{batch.batchNumber}</td>
-                        <td>{batch.shippingMethodLabel}</td>
-                        <td>{batch.status === "completed" ? "Delivered" : batch.stepLabel}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </section>
-        </div>
-
-        <section className="monthly-report-panel">
-          <div className="monthly-report-panel__header">
-            <div>
-              <p>Monthly Comparison</p>
-              <h2>Current month versus last month</h2>
-            </div>
-          </div>
-
-          <div className="monthly-report-table-wrap">
-            <table className="monthly-report-table monthly-report-table--comparison">
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  <th>This Month</th>
-                  <th>Last Month</th>
-                  <th>Change</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparison.map((row) => (
-                  <tr key={row.metric}>
-                    <td>{row.metric}</td>
-                    <td>{row.current}</td>
-                    <td>{row.previous}</td>
-                    <td>{row.change}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </section>
-    </main>
-  );
+  return <main className="monthly-report-page"><section className="monthly-report-shell">
+    <header className="monthly-report-header"><div><p className="monthly-report-header__eyebrow">Admin report</p><h1>Monthly Report</h1><span>Review sales, customers, products, payments, and batch performance.</span></div><div className="monthly-report-header__actions"><label className="monthly-report-select"><span className="sr-only">Select month</span><input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} /></label><button type="button" className="monthly-report-button" disabled={!report} onClick={() => report && downloadCsv(report)}>Export CSV</button><button type="button" className="monthly-report-button monthly-report-button--secondary" onClick={() => window.print()}>Print</button></div></header>
+    {loading ? <section className="monthly-report-panel monthly-report-empty">Loading report data...</section> : null}
+    {error ? <section className="monthly-report-panel monthly-report-empty">{error}</section> : null}
+    {report ? <>
+      <section className="monthly-report-summary" aria-label="Monthly report summary">{cards.map(([label, value]) => <article className="monthly-report-card" key={label}><span>{label}</span><strong>{value}</strong><small>{label === "Total Sales" ? "Successful payment revenue" : "Selected month"}</small></article>)}</section>
+      <section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Sales Trend</p><h2>{labelForMonth(selectedMonth)}</h2></div><span className="monthly-report-panel__hint">Successful payments by day</span></div><div className="monthly-report-daily-chart">{report.dailySales.map((day) => <div className="monthly-report-daily-chart__bar" key={day.day} title={`${day.day}: ${money(day.sales)}`}><span style={{ height: `${Math.max((day.sales / maxDailySales) * 100, day.sales ? 7 : 2)}%` }} /><small>{day.day}</small></div>)}</div></section>
+      <div className="monthly-report-grid"><section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Order Breakdown</p><h2>Status</h2></div></div><div className="monthly-report-key-values">{Object.entries(report.statusCounts).map(([status, count]) => <div key={status}><span>{status}</span><strong>{count}</strong></div>)}</div></section><section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Payment Breakdown</p><h2>Payment activity</h2></div></div><div className="monthly-report-table-wrap"><table className="monthly-report-table"><thead><tr><th>Status</th><th>Count</th><th>Amount</th></tr></thead><tbody>{report.paymentBreakdown.map((row) => <tr key={row.status}><td>{formatStatus(row.status)}</td><td>{row.count}</td><td>{money(row.amount)}</td></tr>)}</tbody></table></div></section></div>
+      <div className="monthly-report-grid monthly-report-grid--wide"><section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Top Selling Products</p><h2>Historical order items</h2></div></div><div className="monthly-report-table-wrap"><table className="monthly-report-table"><thead><tr><th>Product</th><th>Units</th><th>Sales</th></tr></thead><tbody>{report.topProducts.map((row) => <tr key={row.name}><td>{row.name}</td><td>{row.units}</td><td>{money(row.sales)}</td></tr>)}</tbody></table></div>{!report.topProducts.length ? <div className="monthly-report-empty">No paid product sales recorded for this month.</div> : null}</section><section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Customer Activity</p><h2>Customer health</h2></div></div><div className="monthly-report-key-values"><div><span>New Customers</span><strong>{report.customerActivity.newCustomers}</strong></div><div><span>Returning</span><strong>{report.customerActivity.returningCustomers}</strong></div><div><span>Customers Who Ordered</span><strong>{report.customerActivity.orderedCustomers}</strong></div></div>{report.customerActivity.topCustomers.length ? <div className="monthly-report-table-wrap monthly-report-table-wrap--spaced"><table className="monthly-report-table"><thead><tr><th>Top Customer</th><th>Spend</th></tr></thead><tbody>{report.customerActivity.topCustomers.map((row) => <tr key={row.id}><td>{row.name}</td><td>{money(row.spend)}</td></tr>)}</tbody></table></div> : null}</section></div>
+      <section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Batch Performance</p><h2>Orders and freight by batch</h2></div></div><div className="monthly-report-table-wrap"><table className="monthly-report-table"><thead><tr><th>Batch</th><th>Status</th><th>Orders</th><th>Units</th><th>Sales</th><th>Air Units</th><th>Sea Units</th></tr></thead><tbody>{report.batchRows.map((row) => <tr key={row.batch}><td>{row.batch}</td><td>{formatStatus(row.status)}</td><td>{row.orders}</td><td>{row.units}</td><td>{money(row.sales)}</td><td>{row.air}</td><td>{row.sea}</td></tr>)}</tbody></table></div>{!report.batchRows.length ? <div className="monthly-report-empty">No batch activity recorded for this month.</div> : null}</section>
+      <section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Top Orders</p><h2>Highest-value orders</h2></div></div><div className="monthly-report-table-wrap"><table className="monthly-report-table"><thead><tr><th>Order</th><th>Customer</th><th>Type</th><th>Status</th><th>Total</th><th>Date</th></tr></thead><tbody>{report.topOrders.map((order) => <tr key={order.id}><td>{order.order_number}</td><td>{order.customer_name}</td><td>{formatType(order.order_type)}</td><td>{formatStatus(order.status)}</td><td>{money(order.total)}</td><td>{formatShortDate(order.created_at)}</td></tr>)}</tbody></table></div>{!report.topOrders.length ? <div className="monthly-report-empty">No orders recorded for this month.</div> : null}</section>
+      <section className="monthly-report-panel"><div className="monthly-report-panel__header"><div><p>Month-over-Month</p><h2>Compared with the previous month</h2></div></div><div className="monthly-report-table-wrap"><table className="monthly-report-table"><thead><tr><th>Metric</th><th>This Month</th><th>Last Month</th><th>Change</th></tr></thead><tbody><tr><td>Sales</td><td>{money(report.comparison.sales.current)}</td><td>{money(report.comparison.sales.previous)}</td><td>{change(report.comparison.sales.current, report.comparison.sales.previous)}</td></tr><tr><td>Orders</td><td>{report.comparison.orders.current}</td><td>{report.comparison.orders.previous}</td><td>{change(report.comparison.orders.current, report.comparison.orders.previous)}</td></tr><tr><td>New Customers</td><td>{report.comparison.customers.current}</td><td>{report.comparison.customers.previous}</td><td>{change(report.comparison.customers.current, report.comparison.customers.previous)}</td></tr></tbody></table></div></section>
+    </> : null}
+  </section></main>;
 }
 
 export default MonthlyReports;
-
