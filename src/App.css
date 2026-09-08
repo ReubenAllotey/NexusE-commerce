@@ -27924,6 +27924,19 @@ body[data-theme="dark"] .admin-orders-modal__button--ghost {
   box-shadow: 0 12px 24px rgba(28, 63, 183, 0.18);
 }
 
+.admin-shipment-page .admin-products-header__button--ghost {
+  background: rgba(23, 55, 122, 0.08);
+  border-color: rgba(23, 55, 122, 0.18);
+  color: #17377a;
+  box-shadow: none;
+}
+
+body[data-theme="dark"] .admin-shipment-page .admin-products-header__button--ghost {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #dbeafe;
+}
+
 .admin-products-page .admin-products-summary {
   gap: 1rem;
 }
