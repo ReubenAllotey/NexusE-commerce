@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import AppLoader from "./components/AppLoader/AppLoader";
+import WhatsAppWidget from "./components/WhatsAppWidget/WhatsAppWidget";
 import Header from "./assets/components/Header/header";
 import { supabase } from "./lib/supabaseClient";
 import Home from "./pages/Home/home";
@@ -857,6 +858,7 @@ function AppShell({
         <Route path="/register/login" element={<Login onLogin={onLogin} />} />
         <Route path="/account/set-password" element={<PasswordSetup />} />
       </Routes>
+      <WhatsAppWidget />
     </>
   );
 }
