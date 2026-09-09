@@ -25964,6 +25964,15 @@ body[data-theme="dark"] .cart-summary__stock-warning {
   }
 }
 
+.whatsapp-widget__trigger {
+  touch-action: none;
+  cursor: grab;
+}
+
+.whatsapp-widget.is-dragging .whatsapp-widget__trigger {
+  cursor: grabbing;
+}
+
 body[data-theme="dark"] .admin-dashboard-page {
   background: #0b1220;
   color: #f8fafc;
@@ -29023,12 +29032,48 @@ body[data-theme="dark"] .monthly-report-page {
 /* Storefront-only floating WhatsApp support widget. */
 .whatsapp-widget {
   position: fixed;
-  right: clamp(1rem, 3vw, 2rem);
-  bottom: clamp(1rem, 3vw, 2rem);
+  right: auto;
+  bottom: auto;
   z-index: 900;
   display: grid;
   justify-items: end;
   gap: 0.85rem;
+}
+
+.whatsapp-widget:not(.is-dragging) {
+  transition: left 180ms ease, top 180ms ease;
+}
+
+.whatsapp-widget--left {
+  justify-items: start;
+}
+
+.whatsapp-widget--right .whatsapp-widget__panel {
+  position: relative;
+  left: calc(-100% + 3.8rem);
+}
+
+.whatsapp-widget__panel {
+  order: 1;
+}
+
+.whatsapp-widget__trigger {
+  order: 2;
+  touch-action: none;
+  cursor: grab;
+}
+
+.whatsapp-widget--menu-below .whatsapp-widget__panel {
+  order: 2;
+}
+
+.whatsapp-widget--menu-below .whatsapp-widget__trigger {
+  order: 1;
+}
+
+.whatsapp-widget.is-dragging .whatsapp-widget__trigger {
+  cursor: grabbing;
+  opacity: 0.86;
 }
 
 .whatsapp-widget__trigger {
@@ -29245,13 +29290,17 @@ body[data-theme="dark"] .whatsapp-widget__panel {
 
 @media (max-width: 520px) {
   .whatsapp-widget {
-    right: 0.85rem;
-    bottom: 0.85rem;
+    right: auto;
+    bottom: auto;
   }
 
   .whatsapp-widget__trigger {
     width: 3.45rem;
     height: 3.45rem;
+  }
+
+  .whatsapp-widget--right .whatsapp-widget__panel {
+    left: calc(-100% + 3.45rem);
   }
 }
 
