@@ -29455,6 +29455,98 @@ body[data-theme="dark"] .whatsapp-widget__panel {
   .whatsapp-widget--right .whatsapp-widget__panel {
     left: calc(-100% + 3.45rem);
   }
+
+  .whatsapp-widget__panel {
+    width: min(19rem, calc(100vw - 1.5rem));
+    max-height: min(32rem, calc(100vh - 1.5rem));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Keep the shop catalog useful on phones without changing its desktop grid. */
+@media (max-width: 680px) {
+  .shop-page .shop-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: clamp(0.6rem, 2.5vw, 0.8rem);
+  }
+
+  .shop-page .shop-grid > * {
+    min-width: 0;
+  }
+
+  .shop-page .shop-shell {
+    width: min(calc(100% - 1.25rem), 100%);
+  }
+
+  .shop-page .shop-card__image {
+    aspect-ratio: 1 / 1;
+  }
+
+  .shop-page .shop-card__body {
+    gap: 0.58rem;
+    padding: 0.72rem 0.65rem 0.78rem;
+  }
+
+  .shop-page .shop-card__body h3 {
+    min-height: 2.5em;
+    font-size: 0.88rem;
+    line-height: 1.25;
+  }
+
+  .shop-page .shop-card__variant-group {
+    gap: 0.35rem;
+    padding: 0.55rem 0.5rem;
+  }
+
+  .shop-page .shop-card__variant-label,
+  .shop-page .shop-card__variant-label strong {
+    font-size: 0.72rem;
+  }
+
+  .shop-page .shop-card__variants {
+    gap: 0.28rem;
+  }
+
+  .shop-page .shop-card__variant,
+  .shop-page .shop-card__variant-more {
+    min-height: 1.8rem;
+    padding: 0.28rem 0.45rem;
+    font-size: 0.68rem;
+  }
+
+  .shop-page .shop-card__pricing strong {
+    font-size: 0.98rem;
+  }
+
+  .shop-page .shop-card__add.nexus-product-card__cart-button {
+    min-height: 2.7rem;
+    height: 2.7rem;
+    padding: 0 0.55rem;
+    font-size: 0.74rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .shop-page .shop-grid {
+    gap: 0.55rem;
+  }
+
+  .shop-page .shop-shell {
+    width: min(calc(100% - 1rem), 100%);
+  }
+
+  .shop-page .shop-card__body {
+    padding-inline: 0.55rem;
+  }
+
+  .shop-page .shop-card__body h3 {
+    font-size: 0.82rem;
+  }
+
+  .shop-page .shop-card__add.nexus-product-card__cart-button {
+    font-size: 0.68rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

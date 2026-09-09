@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 const defaultMessage = "Hello Nexus Import Hub, I need assistance with an order or product.";
 const POSITION_KEY = "nexus-whatsapp-widget-position";
 const EDGE_PADDING = 16;
+const MOBILE_BREAKPOINT = 520;
+const MOBILE_BOTTOM_SAFE_ZONE = 96;
 const DRAG_THRESHOLD = 7;
 
 function getWhatsAppNumber() {
@@ -42,7 +44,7 @@ function WhatsAppIcon() {
 
 function WhatsAppWidget() {
   const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState(() => readSavedPosition() || { side: "right", yRatio: 1 });
+  const [position, setPosition] = useState(() => readSavedPosition() || { side: "right", yRatio: null });
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [dragPreview, setDragPreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -93,11 +95,12 @@ function WhatsAppWidget() {
     const rect = triggerRef.current?.getBoundingClientRect();
     const width = rect?.width || 60;
     const height = rect?.height || 60;
+    const bottomSafeZone = viewport.width <= MOBILE_BREAKPOINT ? MOBILE_BOTTOM_SAFE_ZONE : EDGE_PADDING;
     return {
       width,
       height,
       maxX: Math.max(EDGE_PADDING, viewport.width - width - EDGE_PADDING),
-      maxY: Math.max(EDGE_PADDING, viewport.height - height - EDGE_PADDING),
+      maxY: Math.max(EDGE_PADDING, viewport.height - height - bottomSafeZone),
     };
   }
 
@@ -178,7 +181,13 @@ function WhatsAppWidget() {
   }
 
   const bounds = getBounds();
-  const savedTop = Math.min(Math.max(position.yRatio * bounds.maxY, EDGE_PADDING), bounds.maxY);
+  const isMobileViewport = viewport.width <= MOBILE_BREAKPOINT;
+  const defaultTop = isMobileViewport
+    ? Math.min(Math.max(viewport.height * 0.58, EDGE_PADDING), bounds.maxY)
+    : bounds.maxY;
+  const savedTop = Number.isFinite(position.yRatio)
+    ? Math.min(Math.max(position.yRatio * bounds.maxY, EDGE_PADDING), bounds.maxY)
+    : defaultTop;
   const left = dragPreview?.x ?? (position.side === "left" ? EDGE_PADDING : viewport.width - bounds.width - EDGE_PADDING);
   const top = dragPreview?.y ?? savedTop;
   const menuBelow = top < 240;
