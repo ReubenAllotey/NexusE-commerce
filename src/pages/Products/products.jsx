@@ -13,7 +13,7 @@ import {
 } from "./productData";
 import NexusProductCard from "./ProductCard";
 import UnavailableStockButton from "./UnavailableStockButton";
-import logo from "../../assets/images/nexuslogo.png";
+import logo from "../../assets/images/logo1.png";
 import { getDiscoverCategoryCards } from "../../shared/categoryStorage";
 import SiteFooter from "../../shared/SiteFooter";
 
@@ -699,7 +699,7 @@ function Products({
         </div>
       </div>
 
-      <SiteFooter logoSrc={logo} logoAlt="Nexus logo" />
+      <SiteFooter logoSrc={logo} logoAlt="Nexus Import Hub" />
     </main>
   );
 }

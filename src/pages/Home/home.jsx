@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import nexusPerson from "../../assets/images/nexusPerson.png";
-import logo from "../../assets/images/nexuslogo.png";
+import logo from "../../assets/images/logo1.png";
 import { getCategoryProductsPath } from "./catalogData";
 import {
   buildVariantKeyFromSelectedOptions,
@@ -1137,7 +1137,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
         </div>
       </section>
 
-      <SiteFooter logoSrc={logo} logoAlt="Nexus logo" />
+      <SiteFooter logoSrc={logo} logoAlt="Nexus Import Hub" />
     </main>
   );
 }

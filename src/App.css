@@ -23089,6 +23089,159 @@ body[data-theme="dark"] .nexus-mobile-nav__item:focus-visible {
   }
 }
 
+/* Wide Nexus Import Hub logo sizing. The asset is intentionally not placed in a square box. */
+.nexus-header__brand {
+  flex-shrink: 0;
+}
+
+.nexus-header__brand img {
+  width: clamp(170px, 16vw, 240px);
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.site-footer__logo {
+  width: min(15rem, 100%);
+  height: auto;
+  object-fit: contain;
+}
+
+.about-hero__logo {
+  width: min(20rem, 76vw);
+  height: auto;
+  object-fit: contain;
+}
+
+.admin-auth-brand {
+  display: block;
+  max-width: min(100%, 17rem);
+}
+
+.admin-auth-brand__logo {
+  display: block;
+  width: min(100%, 17rem);
+  height: auto;
+  object-fit: contain;
+}
+
+.admin-dashboard-brand {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.5rem;
+}
+
+.admin-dashboard-brand__mark {
+  width: 100%;
+  height: auto;
+  min-height: 2.25rem;
+  justify-content: flex-start;
+  background: transparent;
+  border-radius: 0;
+}
+
+.admin-dashboard-brand__logo {
+  display: block;
+  width: min(100%, 12.5rem);
+  height: auto;
+  object-fit: contain;
+}
+
+@media (max-width: 1024px) {
+  .nexus-header__brand img {
+    width: clamp(160px, 19vw, 210px);
+  }
+}
+
+@media (max-width: 768px) {
+  .nexus-header__brand img {
+    width: min(180px, 44vw);
+  }
+
+  .site-footer__logo {
+    width: min(13rem, 82vw);
+  }
+}
+
+@media (max-width: 430px) {
+  .nexus-header__brand img {
+    width: min(168px, 45vw);
+  }
+}
+
+@media (max-width: 360px) {
+  .nexus-header__brand img {
+    width: min(150px, 44vw);
+  }
+}
+
+/* Footer layout for the wide logo1 artwork. */
+.site-footer__inner {
+  grid-template-columns: minmax(220px, 1.35fr) repeat(3, minmax(125px, 0.78fr)) minmax(120px, 0.8fr);
+  gap: clamp(1.5rem, 3vw, 2.75rem);
+  align-items: start;
+}
+
+.site-footer__brand {
+  min-width: 0;
+}
+
+.site-footer__brand-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.site-footer__logo {
+  box-sizing: border-box;
+  width: min(15rem, 100%);
+  height: auto;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  object-fit: contain;
+}
+
+.site-footer__brand-row > div {
+  min-width: 0;
+}
+
+.site-footer__brand-row h3 {
+  line-height: 1.15;
+}
+
+@media (max-width: 1120px) {
+  .site-footer__inner {
+    grid-template-columns: minmax(210px, 1.25fr) repeat(2, minmax(150px, 1fr));
+  }
+
+  .site-footer__brand {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .site-footer__inner {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .site-footer__brand {
+    grid-column: 1 / -1;
+  }
+
+  .site-footer__logo {
+    width: min(14rem, 100%);
+  }
+}
+
+@media (max-width: 480px) {
+  .site-footer__inner {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Shop page redesign */
 .shop-page {
   min-height: 100vh;

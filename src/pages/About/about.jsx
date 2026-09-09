@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import logoImage from "../../assets/images/nexuslogo.png";
+import logoImage from "../../assets/images/logo1.png";
 import manImage from "../../assets/images/man.jpg";
 import womanImage from "../../assets/images/Woman.jpg";
 import SiteFooter from "../../shared/SiteFooter";
@@ -64,7 +64,7 @@ function About() {
             <img
               className="about-hero__logo"
               src={logoImage}
-              alt="Nexus Company logo"
+              alt="Nexus Import Hub"
             />
             <p className="about-hero__eyebrow">About Nexus Company</p>
             <p className="about-hero__lead">
@@ -152,7 +152,7 @@ function About() {
         </div>
       </section>
 
-      <SiteFooter logoSrc={logoImage} logoAlt="Nexus logo" />
+      <SiteFooter logoSrc={logoImage} logoAlt="Nexus Import Hub" />
     </main>
   );
 }

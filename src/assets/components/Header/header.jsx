@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import logo from "../../../assets/images/nexuslogo.png";
+import logo from "../../../assets/images/logo1.png";
 import { getCategoryProductsPath } from "../../../pages/Home/catalogData";
 import { getCategoryProductCount, useCategoryTree } from "../../../shared/categoryStorage";
 import { useProducts } from "../../../pages/Products/productData";
@@ -219,7 +219,7 @@ function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = 
     <header className="nexus-header">
       <div className="site-shell nexus-header__inner">
         <Link to="/" className="nexus-header__brand" aria-label="Nexus Import Hub home">
-          <img src={logo} alt="Nexus Imports" />
+          <img src={logo} alt="Nexus Import Hub" />
         </Link>
 
         <nav className="nexus-header__nav" aria-label="Primary">

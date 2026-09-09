@@ -8,7 +8,7 @@ import {
   saveAdminSession,
 } from "./adminAuthStorage";
 import { clearSessionUser, saveSessionUser } from "../../register/authStorage";
-import logo from "../../../assets/images/nexuslogo.png";
+import logo from "../../../assets/images/logo1.png";
 
 async function loadProfileByUserId(userId) {
   if (!userId) {
@@ -166,7 +166,7 @@ function AdminLogin({ authUser = null, authReady = true }) {
         <form className="admin-auth-card" onSubmit={handleSubmit}>
           <div className="admin-auth-card__header">
             <Link to="/" className="admin-auth-brand" aria-label="Nexus home">
-              <img src={logo} alt="" className="admin-auth-brand__logo" />
+              <img src={logo} alt="Nexus Import Hub" className="admin-auth-brand__logo" />
             </Link>
 
             <h1>Nexus Admin</h1>

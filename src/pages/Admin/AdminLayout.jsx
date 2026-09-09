@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import logo from "../../assets/images/nexuslogo.png";
+import logo from "../../assets/images/logo1.png";
 import MobileDrawer from "../../shared/mobileDrawer";
 import { clearAdminSession } from "./Auth/adminAuthStorage";
 import { adminNavItems } from "./adminNavigation";
@@ -66,7 +66,7 @@ function AdminLayout({ children, onLogout = clearAdminSession }) {
         <aside className="admin-dashboard-sidebar">
           <Link to="/" className="admin-dashboard-brand" aria-label="Nexus home">
             <span className="admin-dashboard-brand__mark">
-              <img src={logo} alt="" className="admin-dashboard-brand__logo" />
+              <img src={logo} alt="Nexus Import Hub" className="admin-dashboard-brand__logo" />
             </span>
             <span className="admin-dashboard-brand__copy">
               <strong>Nexus Admin</strong>
