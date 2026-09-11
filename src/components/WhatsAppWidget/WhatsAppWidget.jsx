@@ -209,7 +209,7 @@ function WhatsAppWidget() {
           <h2 id="whatsapp-widget-title">How can we help?</h2>
           <div className="whatsapp-widget__options">
             {whatsappUrl ? <a className="whatsapp-widget__option" href={whatsappUrl} target="_blank" rel="noopener noreferrer"><span className="whatsapp-widget__option-icon"><WhatsAppIcon /></span><span><strong>Chat with Nexus</strong><small>Questions, orders &amp; support</small></span><span className="whatsapp-widget__option-arrow" aria-hidden="true">-&gt;</span></a> : null}
-            {whatsappGroupUrl ? <a className="whatsapp-widget__option" href={whatsappGroupUrl} target="_blank" rel="noopener noreferrer"><span className="whatsapp-widget__option-icon"><WhatsAppIcon /></span><span><strong>Join WhatsApp Group</strong><small>Updates, new arrivals &amp; batch news</small></span><span className="whatsapp-widget__option-arrow" aria-hidden="true">-&gt;</span></a> : null}
+            {whatsappGroupUrl ? <a className="whatsapp-widget__option" href={whatsappGroupUrl} target="_blank" rel="noopener noreferrer"><span className="whatsapp-widget__option-icon"><WhatsAppIcon /></span><span><strong>Join WhatsApp Community</strong><small>Updates, announcements &amp; new arrivals</small></span><span className="whatsapp-widget__option-arrow" aria-hidden="true">-&gt;</span></a> : null}
           </div>
         </div>
       ) : null}
