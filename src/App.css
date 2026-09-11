@@ -27275,6 +27275,71 @@ body[data-theme="dark"] .shipping-form__error {
   color: #fca5a5;
 }
 
+/* Keep saved address cards readable on the dark profile surface. */
+body[data-theme="dark"] .profile-page .addresses-panel,
+body[data-theme="dark"] .profile-page .addresses-summary__card {
+  background: #111827;
+  border-color: var(--nexus-border);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.28);
+}
+
+body[data-theme="dark"] .profile-page .addresses-panel__header h2,
+body[data-theme="dark"] .profile-page .address-card__heading h3,
+body[data-theme="dark"] .profile-page .address-card__owner,
+body[data-theme="dark"] .profile-page .address-card__line,
+body[data-theme="dark"] .profile-page .address-card__contact,
+body[data-theme="dark"] .profile-page .address-card__contact strong {
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .profile-page .addresses-panel__header > span,
+body[data-theme="dark"] .profile-page .address-card__line--muted,
+body[data-theme="dark"] .profile-page .address-card__contact span {
+  color: var(--nexus-text-secondary);
+}
+
+body[data-theme="dark"] .profile-page .address-card {
+  background: #182235;
+  border-color: var(--nexus-border);
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.24);
+}
+
+body[data-theme="dark"] .profile-page .address-card.is-default {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+body[data-theme="dark"] .profile-page .address-card__button {
+  background: #202b3d;
+  border-color: var(--nexus-border);
+  color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .profile-page .address-card__button--primary {
+  background: var(--nexus-primary);
+  border-color: var(--nexus-primary);
+  color: #ffffff;
+}
+
+body[data-theme="dark"] .profile-page .address-card__button--danger {
+  background: rgba(220, 38, 38, 0.16);
+  border-color: rgba(248, 113, 113, 0.36);
+  color: #fca5a5;
+}
+
+body[data-theme="dark"] .profile-page .address-card__button:hover {
+  background: #2a3850;
+  color: #ffffff;
+}
+
+body[data-theme="dark"] .profile-page .address-card__button--primary:hover {
+  background: #2d50c7;
+}
+
+body[data-theme="dark"] .profile-page .address-card__button--danger:hover {
+  background: rgba(220, 38, 38, 0.24);
+  color: #fecaca;
+}
+
 body[data-theme="dark"] .payment-page,
 body[data-theme="dark"] .payment-status-page {
   background: #0b1220;
