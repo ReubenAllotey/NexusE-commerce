@@ -1120,6 +1120,170 @@ export async function setCartLineQuantity({
   }
 }
 
+export async function updateCartLine({
+  cartItemId = "",
+  originalVariantKey = "",
+  product,
+  quantity = 1,
+  selectedColor = "",
+  selectedSize = "",
+  selectedOptions = [],
+  products = [],
+} = {}) {
+  const normalizedProduct = product && typeof product === "object" ? product : null;
+  const normalizedProductId = clean(normalizedProduct?.id ?? normalizedProduct?.productId);
+  const normalizedSelectedOptions = normalizeSelectedOptions(selectedOptions);
+  const purchaseMeta = getProductPurchaseMeta(normalizedProduct);
+
+  if (!normalizedProductId) {
+    return { ok: false, message: "A valid product is required.", items: [] };
+  }
+
+  if (purchaseMeta.disabled) {
+    return {
+      ok: false,
+      message: purchaseMeta.outOfStock
+        ? "This item is currently out of stock."
+        : "Coming soon products cannot be added to the cart yet.",
+      items: [],
+    };
+  }
+
+  const safeQuantity = normalizeQuantity(quantity);
+  const safeColor = normalizeOptionalText(selectedColor);
+  const safeSize = normalizeOptionalText(selectedSize);
+  const nextVariantKey = buildVariantKeyFromSelection({
+    slug: normalizedProduct.slug ?? normalizedProductId,
+    selectedColor: safeColor,
+    selectedSize: safeSize,
+    selectedOptions: normalizedSelectedOptions,
+  });
+  const oldVariantKey = clean(originalVariantKey);
+  const userResult = await getSignedInUser();
+
+  if (!userResult.ok) {
+    const draft = loadGuestCartDraft();
+    const targetIndex = draft.findIndex(
+      (item) =>
+        clean(item.productId) === normalizedProductId &&
+        buildVariantKeyFromSelection({
+          slug: item.slug ?? normalizedProduct.slug ?? normalizedProductId,
+          selectedColor: item.selectedColor,
+          selectedSize: item.selectedSize,
+          selectedOptions: item.selectedOptions,
+          variantKey: item.variantKey,
+        }) === oldVariantKey,
+    );
+
+    if (targetIndex < 0) {
+      return { ok: false, message: "The cart item could not be found.", items: [] };
+    }
+
+    const target = draft[targetIndex];
+    const collisionIndex = draft.findIndex(
+      (item, index) =>
+        index !== targetIndex &&
+        clean(item.productId) === normalizedProductId &&
+        buildVariantKeyFromSelection({
+          slug: item.slug ?? normalizedProduct.slug ?? normalizedProductId,
+          selectedColor: item.selectedColor,
+          selectedSize: item.selectedSize,
+          selectedOptions: item.selectedOptions,
+          variantKey: item.variantKey,
+        }) === nextVariantKey,
+    );
+    let nextItems;
+
+    if (collisionIndex >= 0) {
+      nextItems = draft.filter((_, index) => index !== targetIndex).map((item, index) =>
+        index === collisionIndex - (targetIndex < collisionIndex ? 1 : 0)
+          ? { ...item, quantity: normalizeQuantity(item.quantity) + safeQuantity }
+          : item,
+      );
+    } else {
+      nextItems = draft.map((item, index) =>
+        index === targetIndex
+          ? {
+              ...item,
+              quantity: safeQuantity,
+              selectedColor: safeColor,
+              selectedSize: safeSize,
+              selectedOptions: normalizedSelectedOptions,
+              variantKey: nextVariantKey,
+            }
+          : item,
+      );
+    }
+
+    saveGuestCartDraft(nextItems);
+    return { ok: true, source: "guest", items: mapCartRowsToItems(nextItems, products) };
+  }
+
+  try {
+    const remoteCart = await ensureCartRow(userResult.user.id);
+    const targetQuery = supabase
+      .from("cart_items")
+      .select("id, quantity")
+      .eq("cart_id", remoteCart.id);
+    const { data: target, error: targetError } = cartItemId
+      ? await targetQuery.eq("id", cartItemId).maybeSingle()
+      : await targetQuery.eq("product_id", normalizedProductId).eq("variant_key", oldVariantKey).maybeSingle();
+
+    if (targetError) throw targetError;
+    if (!target) return { ok: false, message: "The cart item could not be found.", items: [] };
+
+    const { data: collision, error: collisionError } = await supabase
+      .from("cart_items")
+      .select("id, quantity")
+      .eq("cart_id", remoteCart.id)
+      .eq("product_id", normalizedProductId)
+      .eq("variant_key", nextVariantKey)
+      .neq("id", target.id)
+      .maybeSingle();
+
+    if (collisionError) throw collisionError;
+
+    if (collision) {
+      const { error: mergeError } = await supabase
+        .from("cart_items")
+        .update({ quantity: normalizeQuantity(collision.quantity) + safeQuantity })
+        .eq("id", collision.id)
+        .eq("cart_id", remoteCart.id);
+      if (mergeError) throw mergeError;
+
+      const { error: deleteError } = await supabase
+        .from("cart_items")
+        .delete()
+        .eq("id", target.id)
+        .eq("cart_id", remoteCart.id);
+      if (deleteError) throw deleteError;
+    } else {
+      const { error: updateError } = await supabase
+        .from("cart_items")
+        .update({
+          quantity: safeQuantity,
+          selected_color: safeColor,
+          selected_size: safeSize,
+          variant_key: nextVariantKey,
+          selected_options: normalizedSelectedOptions,
+        })
+        .eq("id", target.id)
+        .eq("cart_id", remoteCart.id);
+      if (updateError) throw updateError;
+    }
+
+    const refreshed = await loadRemoteCartRows(userResult.user.id);
+    return { ok: true, source: "remote", items: mapCartRowsToItems(refreshed, products) };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error?.message || "Unable to update the cart item.",
+      error,
+      items: [],
+    };
+  }
+}
+
 export async function removeCartLine({
   product,
   selectedColor = "",

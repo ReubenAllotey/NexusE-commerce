@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import AppLoader from "./components/AppLoader/AppLoader";
+import CartEditModal from "./components/CartEditModal";
 import WhatsAppWidget from "./components/WhatsAppWidget/WhatsAppWidget";
 import Header from "./assets/components/Header/header";
 import { supabase } from "./lib/supabaseClient";
@@ -42,6 +43,7 @@ import {
   loadWishlistState,
   removeCartLine,
   setCartLineQuantity,
+  updateCartLine,
   toggleWishlistItem,
 } from "./shared/cartWishlistStorage";
 import {
@@ -209,7 +211,10 @@ function CartDrawer({
   productLookup = new Map(),
   isOpen = false,
   onClose = () => {},
+  onRemoveCartItem = () => {},
+  onEditCartItem = async () => ({ ok: false }),
 }) {
+  const [editingItem, setEditingItem] = useState(null);
   const drawerItems = cartItems
     .map((item) => {
       const product = resolveDrawerItem(item, productLookup);
@@ -224,10 +229,11 @@ function CartDrawer({
         key: getCartItemKey(item, product.slug ?? product.name),
         product,
         quantity,
-        lineTotal: product.price * quantity,
+        lineTotal: Number(item.price ?? product.price) * quantity,
         variant: item.variant ?? null,
         selectedOptions: item.selectedOptions ?? [],
         variantLabel: getVariantLabel(item),
+        item,
       };
     })
     .filter(Boolean);
@@ -256,7 +262,7 @@ function CartDrawer({
 
         <div className="cart-drawer__items">
           {drawerItems.length > 0 ? (
-            drawerItems.map(({ key, product, quantity, lineTotal, variant, selectedOptions }) => {
+            drawerItems.map(({ key, product, quantity, lineTotal, variant, selectedOptions, item }) => {
               const variantLabel =
                 getVariantLabel({
                   variant,
@@ -282,6 +288,10 @@ function CartDrawer({
                   <div className="cart-drawer__meta">
                     <span>Qty {quantity}</span>
                     <strong>{formatMoney(lineTotal)}</strong>
+                  </div>
+                  <div className="cart-drawer__actions">
+                    <button type="button" onClick={() => setEditingItem({ item, product })}>Edit</button>
+                    <button type="button" className="is-remove" onClick={() => onRemoveCartItem(key)}>Remove</button>
                   </div>
                 </div>
               </article>
@@ -310,6 +320,14 @@ function CartDrawer({
           </Link>
         </footer>
       </aside>
+      {editingItem ? (
+        <CartEditModal
+          item={editingItem.item}
+          product={editingItem.product}
+          onClose={() => setEditingItem(null)}
+          onUpdate={onEditCartItem}
+        />
+      ) : null}
     </div>
   );
 }
@@ -342,6 +360,7 @@ function AppShell({
   onSetDefaultAddress,
   onUpdateCartQuantity,
   onRemoveCartItem,
+  onEditCartItem,
   onClearCart,
   onCreateNotification,
   onReplaceOrders,
@@ -643,6 +662,8 @@ function AppShell({
         productLookup={productLookup}
         isOpen={isCartDrawerOpen}
         onClose={onCloseCartDrawer}
+        onRemoveCartItem={onRemoveCartItem}
+        onEditCartItem={onEditCartItem}
       />
       <Routes>
         <Route
@@ -693,6 +714,7 @@ function AppShell({
               error={cartError}
               onUpdateCartQuantity={onUpdateCartQuantity}
               onRemoveCartItem={onRemoveCartItem}
+              onEditCartItem={onEditCartItem}
               onClearCart={onClearCart}
             />
           }
@@ -1612,6 +1634,36 @@ function App() {
     void syncCartRemoval();
   };
 
+  const handleEditCartItem = async ({ item, product, quantity, selectedOptions }) => {
+    const target = cartItems.find((entry) => getCartItemKey(entry) === getCartItemKey(item));
+    const resolvedProduct =
+      liveProducts.find((entry) => String(entry?.id) === String(item?.productId ?? product?.id)) || product;
+
+    if (!target || !resolvedProduct) {
+      return { ok: false, message: "The cart item could not be found." };
+    }
+
+    const result = await updateCartLine({
+      cartItemId: target.id,
+      originalVariantKey: target.variantKey ?? "",
+      product: resolvedProduct,
+      quantity,
+      selectedColor: target.selectedColor ?? target.variant?.color ?? "",
+      selectedSize: target.selectedSize ?? target.variant?.size ?? "",
+      selectedOptions,
+      products: liveProducts,
+    });
+
+    if (result.ok) {
+      setCartItems(result.items ?? []);
+      setCartError("");
+    } else {
+      setCartError(result.message || "Unable to update the cart item.");
+    }
+
+    return result;
+  };
+
   const handleClearCart = () => {
     const syncCartClear = async () => {
       const result = await clearCartState({ products: liveProducts });
@@ -1831,6 +1883,7 @@ function App() {
         onSetDefaultAddress={handleSetDefaultAddress}
         onUpdateCartQuantity={handleUpdateCartQuantity}
         onRemoveCartItem={handleRemoveCartItem}
+        onEditCartItem={handleEditCartItem}
         onClearCart={handleClearCart}
         onCreateNotification={handleCreateNotification}
         onReplaceOrders={setOrders}

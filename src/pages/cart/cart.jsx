@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import CartEditModal from "../../components/CartEditModal";
 import {
   getShippingFee,
   isProductOutOfStock,
@@ -62,8 +64,10 @@ function Cart({
   error = "",
   onUpdateCartQuantity = () => {},
   onRemoveCartItem = () => {},
+  onEditCartItem = async () => ({ ok: false }),
   onClearCart = () => {},
 }) {
+  const [editingItem, setEditingItem] = useState(null);
   const navigate = useNavigate();
   const {
     products,
@@ -106,6 +110,7 @@ function Cart({
         lineSubtotal,
         lineShipping,
         variant: item.variant ?? null,
+        item,
         outOfStock,
       };
     })
@@ -232,6 +237,7 @@ function Cart({
                       effectiveShippingFee,
                       lineSubtotal,
                       variant,
+                      item,
                       outOfStock,
                     }) => (
                       <tr key={key}>
@@ -252,7 +258,7 @@ function Cart({
                             ) : null}
                           </div>
                         </td>
-                        <td>{formatMoney(product.price)}</td>
+                        <td>{formatMoney(lineSubtotal / Math.max(quantity, 1))}</td>
                         <td>
                           <div className="cart-qty">
                             <button
@@ -276,14 +282,20 @@ function Cart({
                         <td>{shippingFee == null ? "Pending" : formatMoney(effectiveShippingFee)}</td>
                         <td>{formatMoney(lineSubtotal)}</td>
                         <td>
-                          <button
-                            type="button"
-                            className="cart-remove"
-                            onClick={() => onRemoveCartItem(key)}
-                            aria-label={`Remove ${product.name} from cart`}
-                          >
-                            <TrashIcon />
-                          </button>
+                          <div className="cart-table__actions">
+                            <button type="button" className="cart-edit" onClick={() => setEditingItem({ item, product })}>
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="cart-remove"
+                              onClick={() => onRemoveCartItem(key)}
+                              aria-label={`Remove ${product.name} from cart`}
+                            >
+                              <TrashIcon />
+                              <span>Remove</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ),
@@ -382,6 +394,14 @@ function Cart({
           </section>
         )}
       </div>
+      {editingItem ? (
+        <CartEditModal
+          item={editingItem.item}
+          product={editingItem.product}
+          onClose={() => setEditingItem(null)}
+          onUpdate={onEditCartItem}
+        />
+      ) : null}
     </main>
   );
 }

@@ -307,15 +307,17 @@ function ProductView({
           </div>
 
           <div className="product-view__content">
-            <div className="product-view__topline">
-              {product.badge ? <p className="product-view__series">{product.badge}</p> : null}
+            <div className="product-view__title-row">
+              <div className="product-view__title-copy">
+                {product.badge ? <p className="product-view__series">{product.badge}</p> : null}
+                <h1>{product.name}</h1>
+              </div>
               <span
                 className={`product-view__availability product-view__availability--${availabilityMeta.tone ?? "green"}`}
               >
                 {availabilityMeta.badge}
               </span>
             </div>
-            <h1>{product.name}</h1>
 
             <div className="product-view__rating" aria-label={`${product.rating} out of 5 stars`}>
               <div className="product-view__stars">
@@ -331,34 +333,6 @@ function ProductView({
               <span>{activeCompareAt ? formatMoney(activeCompareAt) : "-"}</span>
             </div>
 
-            {isPreorderProduct ? (
-              <div className="product-view__preorder-banner">
-                <strong>PRE-ORDER</strong>
-                <p>
-                  Estimated arrival: {product.estimatedArrival || "To be announced"}. Product payment
-                  confirms your order. Final shipping fee will be calculated separately when the item
-                  arrives in Ghana.
-                </p>
-              </div>
-            ) : null}
-
-            {isComingSoonProduct ? (
-              <div className="product-view__preorder-banner product-view__preorder-banner--coming-soon">
-                <strong>COMING SOON</strong>
-                <p>This product is coming soon and cannot be added to cart yet.</p>
-              </div>
-            ) : null}
-
-            <p className="product-view__stock">{product.stockStatus}</p>
-            <p className="product-view__shipping">Shipping fee {shippingFeeLabel}</p>
-
-            <div className="product-view__divider" />
-
-            <div className="product-view__row">
-              <span>Shipment</span>
-              <strong>{shippingMethodLabel}</strong>
-            </div>
-
             {variationGroups.length > 0 ? (
               <div className="product-view__variations">
                 {variationGroups.map((group) => {
@@ -370,7 +344,7 @@ function ProductView({
                     <div key={group.id ?? group.groupName} className="product-view__sizes">
                       <div className="product-view__swatch-label">
                         <span>{group.groupName}</span>
-                        <strong>{activeGroupOption?.label ?? "Default"}</strong>
+                        <strong>{activeGroupOption?.label ?? "Select an option"}</strong>
                       </div>
                       <div
                         className={
@@ -381,19 +355,28 @@ function ProductView({
                         aria-label={`${group.groupName} options`}
                       >
                         {groupOptions.map((option) => {
-                          const isActive = activeGroupOption?.id === option.id;
+                          const optionKey = option.id ?? option.value ?? option.label;
+                          const selectedGroupOption = selectedOptions.find(
+                            (selectedOption) => String(selectedOption?.groupId ?? "") === String(group.id ?? ""),
+                          );
+                          const selectedOptionKey =
+                            selectedGroupOption?.optionId ??
+                            selectedGroupOption?.id ??
+                            selectedGroupOption?.value ??
+                            selectedGroupOption?.label;
+                          const isActive = String(selectedOptionKey ?? "") === String(optionKey ?? "");
                           const buttonClass =
                             group.kind === "color"
-                              ? `product-view__swatch${isActive ? " is-active" : ""}`
-                              : `product-view__size${isActive ? " is-active" : ""}`;
+                              ? `product-view__swatch${isActive ? " is-active is-selected" : ""}`
+                              : `product-view__size${isActive ? " is-active is-selected" : ""}`;
 
                           return (
                             <button
                               type="button"
-                              key={option.id ?? option.value ?? option.label}
+                              key={optionKey}
                               className={buttonClass}
                               onClick={() => {
-                                const isDeselecting = activeGroupOption?.id === option.id;
+                                const isDeselecting = isActive;
 
                                 if (isDeselecting) {
                                   setSelectedOptions((current) => current.filter((entry) => entry.groupId !== group.id));
@@ -508,6 +491,35 @@ function ProductView({
               </button>
             </div>
 
+            <p className="product-view__shipping">Shipping fee {shippingFeeLabel}</p>
+
+            {isPreorderProduct ? (
+              <div className="product-view__preorder-banner">
+                <strong>PRE-ORDER</strong>
+                <p>
+                  Estimated arrival: {product.estimatedArrival || "To be announced"}. Product payment
+                  confirms your order. Final shipping fee will be calculated separately when the item
+                  arrives in Ghana.
+                </p>
+              </div>
+            ) : null}
+
+            {isComingSoonProduct ? (
+              <div className="product-view__preorder-banner product-view__preorder-banner--coming-soon">
+                <strong>COMING SOON</strong>
+                <p>This product is coming soon and cannot be added to cart yet.</p>
+              </div>
+            ) : null}
+
+            <p className="product-view__stock">{product.stockStatus}</p>
+
+            {product.description?.trim() ? (
+              <section className="product-view__details-card product-view__description-inline">
+                <h2>Product Description</h2>
+                <p>{product.description}</p>
+              </section>
+            ) : null}
+
             <div className="product-view__perks">
               <article className="product-view__perk product-view__perk--shipping">
                 <TruckIcon />
@@ -540,11 +552,6 @@ function ProductView({
 
         <section className="product-view__details-panel">
           <div className="product-view__details">
-            <div className="product-view__details-card">
-              <h2>Description</h2>
-              <p>{product.description}</p>
-            </div>
-
             <div className="product-view__details-card">
               <h2>Overview</h2>
               <p>{product.overview}</p>
