@@ -179,11 +179,17 @@ function CloseIcon() {
 }
 
 function resolveDrawerItem(item, productLookup = new Map()) {
-  if (item?.name && item?.price && item?.image) {
-    return item;
+  const product =
+    productLookup.get(String(item?.productId ?? "").trim()) ??
+    productLookup.get(String(item?.slug ?? "").trim().toLowerCase()) ??
+    productLookup.get(String(item?.name ?? "").trim().toLowerCase());
+
+  if (product) {
+    // Keep the cart snapshot values while adding the product's full variation catalog.
+    return { ...product, ...item, variationGroups: product.variationGroups ?? [] };
   }
 
-  return item?.slug ? productLookup.get(item.slug) ?? null : null;
+  return item?.name && item?.price != null && item?.image ? item : null;
 }
 
 function getCartItemKey(item, fallbackSlug = "") {

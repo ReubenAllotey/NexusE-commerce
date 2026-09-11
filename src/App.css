@@ -29683,6 +29683,7 @@ body[data-theme="dark"] .monthly-report-button--secondary {
   place-items: center;
   padding: 1rem;
   background: rgba(15, 23, 42, 0.56);
+  pointer-events: auto;
 }
 
 .cart-edit-modal__panel {
@@ -29695,6 +29696,7 @@ body[data-theme="dark"] .monthly-report-button--secondary {
   background: var(--nexus-surface, #ffffff);
   color: var(--nexus-text, #0f172a);
   box-shadow: 0 2rem 5rem rgba(2, 6, 23, 0.28);
+  pointer-events: auto;
 }
 
 .cart-edit-modal__header,

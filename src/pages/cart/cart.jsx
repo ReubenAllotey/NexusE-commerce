@@ -75,12 +75,18 @@ function Cart({
     error: productsError,
   } = useProducts();
   const productBySlug = new Map(products.map((product) => [product.slug, product]));
+  const productById = new Map(products.map((product) => [String(product.id), product]));
   const resolveCartProduct = (item) => {
-    if (item?.name && item?.price && item?.image) {
-      return item;
+    const product =
+      productById.get(String(item?.productId ?? item?.product_id ?? "")) ??
+      productBySlug.get(String(item?.slug ?? "").trim().toLowerCase());
+
+    if (product) {
+      // Keep the cart snapshot values while adding the product's full variation catalog.
+      return { ...product, ...item, variationGroups: product.variationGroups ?? [] };
     }
 
-    return item?.slug ? productBySlug.get(item.slug) ?? null : null;
+    return item?.name && item?.price != null && item?.image ? item : null;
   };
 
   const rows = cartItems

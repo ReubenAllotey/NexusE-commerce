@@ -23,9 +23,88 @@ function selectedOptionKey(option = {}) {
   return String(option.optionId ?? option.id ?? option.value ?? option.label ?? "");
 }
 
+function normalizeSelectedOptionsForProduct(value, groups = []) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((selected) => {
+      if (!selected || typeof selected !== "object") {
+        return null;
+      }
+
+      const selectedGroupId = selected.groupId ?? selected.group_id;
+      const selectedGroupName = String(selected.groupName ?? selected.group_name ?? "").trim().toLowerCase();
+      const group = groups.find(
+        (entry) =>
+          (selectedGroupId != null && String(entry?.id ?? "") === String(selectedGroupId)) ||
+          (selectedGroupName && String(entry?.groupName ?? entry?.group_name ?? "").trim().toLowerCase() === selectedGroupName),
+      );
+
+      if (!group) {
+        return selected;
+      }
+
+      const selectedId = selected.optionId ?? selected.option_id;
+      const selectedLabel = String(selected.label ?? selected.optionLabel ?? selected.option_label ?? "").trim().toLowerCase();
+      const selectedValue = String(selected.value ?? selected.optionValue ?? selected.option_value ?? "").trim().toLowerCase();
+      const option = (Array.isArray(group.options) ? group.options : []).find(
+        (entry) =>
+          (selectedId != null && String(entry?.id ?? "") === String(selectedId)) ||
+          (selectedLabel && String(entry?.label ?? "").trim().toLowerCase() === selectedLabel) ||
+          (selectedValue && String(entry?.value ?? "").trim().toLowerCase() === selectedValue),
+      );
+
+      if (!option) {
+        return { ...selected, groupId: group.id ?? selectedGroupId };
+      }
+
+      return {
+        groupId: group.id ?? selectedGroupId ?? "",
+        groupName: group.groupName ?? group.group_name ?? selected.groupName ?? selected.group_name ?? "Variation",
+        kind: group.kind ?? selected.kind ?? "text",
+        optionId: option.id ?? selectedId ?? "",
+        label: option.label ?? selected.label ?? "",
+        value: option.value ?? selected.value ?? option.label ?? "",
+        priceDelta: Number(option.priceDelta ?? option.price_delta ?? selected.priceDelta ?? selected.price_delta) || 0,
+        compareAtDelta: option.compareAtDelta ?? option.compare_at_delta ?? selected.compareAtDelta ?? selected.compare_at_delta ?? null,
+        swatchColor: option.swatchColor ?? option.swatch_color ?? selected.swatchColor ?? selected.swatch_color ?? "",
+        imageUrl: option.imageUrl ?? option.image_url ?? selected.imageUrl ?? selected.image_url ?? "",
+        isDefault: Boolean(option.isDefault ?? option.is_default ?? selected.isDefault ?? selected.is_default),
+      };
+    })
+    .filter(Boolean);
+}
+
 function CartEditModal({ item, product, onClose, onUpdate }) {
   const variationGroups = useMemo(
-    () => (Array.isArray(product?.variationGroups) ? product.variationGroups.filter(Boolean) : []),
+    () => {
+      const groups = Array.isArray(product?.variationGroups)
+        ? product.variationGroups
+        : Array.isArray(product?.variation_groups)
+          ? product.variation_groups
+          : [];
+
+      return groups.filter(Boolean).map((group) => ({
+        ...group,
+        id: group.id ?? group.group_id ?? "",
+        groupName: group.groupName ?? group.group_name ?? group.name ?? "Variation",
+        kind: group.kind ?? "text",
+        options: (group.options ?? group.variationOptions ?? group.variation_options ?? [])
+          .filter(Boolean)
+          .map((option) => ({
+            ...option,
+            id: option.id ?? option.option_id ?? "",
+            label: option.label ?? option.optionLabel ?? option.option_label ?? option.name ?? option.value ?? "",
+            value: option.value ?? option.optionValue ?? option.option_value ?? option.label ?? option.name ?? "",
+            priceDelta: option.priceDelta ?? option.price_delta ?? 0,
+            compareAtDelta: option.compareAtDelta ?? option.compare_at_delta ?? null,
+            swatchColor: option.swatchColor ?? option.swatch_color ?? "",
+            imageUrl: option.imageUrl ?? option.image_url ?? "",
+          })),
+      }));
+    },
     [product],
   );
   const [selectedOptions, setSelectedOptions] = useState([]);
@@ -34,10 +113,12 @@ function CartEditModal({ item, product, onClose, onUpdate }) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setSelectedOptions(Array.isArray(item?.selectedOptions) ? item.selectedOptions : []);
+    setSelectedOptions(
+      normalizeSelectedOptionsForProduct(item?.selectedOptions ?? item?.selected_options, variationGroups),
+    );
     setQuantity(Math.max(Number(item?.quantity) || 1, 1));
     setError("");
-  }, [item]);
+  }, [item, variationGroups]);
 
   useEffect(() => {
     function handleKeyDown(event) {
