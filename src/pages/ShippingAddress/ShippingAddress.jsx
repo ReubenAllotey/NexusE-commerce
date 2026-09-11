@@ -15,6 +15,25 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+const GHANA_REGIONS = [
+  "Ahafo",
+  "Ashanti",
+  "Bono",
+  "Bono East",
+  "Central",
+  "Eastern",
+  "Greater Accra",
+  "North East",
+  "Northern",
+  "Oti",
+  "Savannah",
+  "Upper East",
+  "Upper West",
+  "Volta",
+  "Western",
+  "Western North",
+];
+
 function formatMoney(value) {
   const safeValue = Number(value) || 0;
 
@@ -36,9 +55,9 @@ function createEmptyForm(authUser = null, address = null) {
     id: address?.id ?? "",
     addressLabel: address?.addressLabel ?? "",
     fullName: address?.fullName ?? authUser?.name ?? "",
-    phoneNumber: address?.phoneNumber ?? "",
+    phoneNumber: address?.phoneNumber ?? authUser?.phoneNumber ?? "",
     emailAddress: address?.emailAddress ?? authUser?.email ?? "",
-    country: address?.country ?? "",
+    country: "Ghana",
     region: address?.region ?? "",
     city: address?.city ?? "",
     streetAddress: address?.streetAddress ?? "",
@@ -132,6 +151,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState(() => createEmptyForm(authUser, null));
   const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     const nextSavedCheckoutAddress = readScopedCheckoutDraft(currentUserId);
@@ -142,6 +162,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
     setIsFormOpen(!nextInitialAddress);
     setFormData(createEmptyForm(authUser, nextInitialAddress));
     setFormError("");
+    setFieldErrors({});
   }, [addresses, authUser, currentUserId, profileAddress]);
 
   if (isAddressesLoading) {
@@ -209,6 +230,8 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       ...current,
       [name]: value,
     }));
+    setFieldErrors((current) => ({ ...current, [name]: "" }));
+    setFormError("");
   }
 
   function persistAndContinue(address, guestCredentials = null, ownerKeyOverride = "") {
@@ -255,15 +278,13 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       return;
     }
 
-    setIsSubmitting(true);
-
     const payload = {
       id: clean(formData.id),
       ...formData,
       fullName: clean(formData.fullName),
       phoneNumber: clean(formData.phoneNumber),
       emailAddress: clean(formData.emailAddress),
-      country: clean(formData.country),
+      country: "Ghana",
       region: clean(formData.region),
       city: clean(formData.city),
       streetAddress: clean(formData.streetAddress),
@@ -272,10 +293,22 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       postalCode: clean(formData.postalCode),
     };
 
-    if (!payload.fullName || !payload.phoneNumber || !payload.country || !payload.region || !payload.city || !payload.streetAddress) {
-      setFormError("Please fill in the required address fields.");
+    const nextFieldErrors = {};
+    if (!payload.fullName) nextFieldErrors.fullName = "Please enter the recipient's full name.";
+    if (!payload.phoneNumber || payload.phoneNumber.replace(/\D/g, "").length < 9 || payload.phoneNumber.replace(/\D/g, "").length > 15) {
+      nextFieldErrors.phoneNumber = "Please enter a valid phone number.";
+    }
+    if (!payload.region || !GHANA_REGIONS.includes(payload.region)) nextFieldErrors.region = "Please select a region.";
+    if (!payload.city) nextFieldErrors.city = "Please enter your city or town.";
+    if (!payload.streetAddress) nextFieldErrors.streetAddress = "Please enter your delivery address.";
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      setFormError("Please review the highlighted fields before continuing.");
       return;
     }
+
+    setIsSubmitting(true);
 
     try {
       if (!currentUserId) {
@@ -297,6 +330,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
 
         setSelectedAddress(guestAddress);
         setFormError("");
+        setFieldErrors({});
         setIsFormOpen(false);
         persistAndContinue(
           guestAddress,
@@ -312,6 +346,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
         const savedAddress = saveResult.address;
         setSelectedAddress(savedAddress);
         setFormError("");
+        setFieldErrors({});
         setIsFormOpen(false);
         persistAndContinue(savedAddress);
         return;
@@ -470,116 +505,162 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                     <label className="address-modal__field address-modal__field--full">
                       <span>Full Name <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
+                        id="shipping-full-name"
                         type="text"
                         name="fullName"
                         value={formData.fullName}
                         onChange={handleFieldChange}
                         required
                         autoComplete="name"
+                        aria-invalid={Boolean(fieldErrors.fullName)}
+                        aria-describedby="shipping-full-name-help shipping-full-name-error"
                       />
+                      <small id="shipping-full-name-help" className="shipping-form__helper">Enter the full name of the person who will receive the order.</small>
+                      {fieldErrors.fullName ? <small id="shipping-full-name-error" className="shipping-form__field-error">{fieldErrors.fullName}</small> : null}
                     </label>
 
                     <label className="address-modal__field">
-                      <span>WhatsApp Number <span className="shipping-required" aria-hidden="true">*</span></span>
+                      <span>Phone / WhatsApp Number <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
+                        id="shipping-phone-number"
                         type="tel"
+                        inputMode="tel"
                         name="phoneNumber"
                         value={formData.phoneNumber}
                         onChange={handleFieldChange}
                         required
+                        placeholder="e.g. 024 123 4567"
                         autoComplete="tel"
+                        aria-invalid={Boolean(fieldErrors.phoneNumber)}
+                        aria-describedby="shipping-phone-help shipping-phone-error"
                       />
+                      <small id="shipping-phone-help" className="shipping-form__helper">Enter a number we can use to contact you about delivery, preferably WhatsApp.</small>
+                      {fieldErrors.phoneNumber ? <small id="shipping-phone-error" className="shipping-form__field-error">{fieldErrors.phoneNumber}</small> : null}
                     </label>
 
                     <label className="address-modal__field">
                       <span>Email Address</span>
                       <input
+                        id="shipping-email-address"
                         type="email"
                         name="emailAddress"
                         value={formData.emailAddress}
                         onChange={handleFieldChange}
+                        placeholder="e.g. reuben@example.com"
                         autoComplete="email"
+                        aria-describedby="shipping-email-help"
                       />
+                      <small id="shipping-email-help" className="shipping-form__helper">Enter your email if you want delivery and order updates by email.</small>
                     </label>
 
                     <label className="address-modal__field">
                       <span>Country <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
+                        id="shipping-country"
                         type="text"
                         name="country"
-                        value={formData.country}
-                        onChange={handleFieldChange}
+                        value="Ghana"
+                        readOnly
                         required
                         autoComplete="country-name"
+                        aria-describedby="shipping-country-help"
                       />
+                      <small id="shipping-country-help" className="shipping-form__helper">Nexus Import Hub currently delivers to addresses in Ghana.</small>
                     </label>
 
                     <label className="address-modal__field">
                       <span>Region <span className="shipping-required" aria-hidden="true">*</span></span>
-                      <input
-                        type="text"
+                      <select
+                        id="shipping-region"
                         name="region"
                         value={formData.region}
                         onChange={handleFieldChange}
                         required
                         autoComplete="address-level1"
-                      />
+                        aria-invalid={Boolean(fieldErrors.region)}
+                        aria-describedby="shipping-region-help shipping-region-error"
+                      >
+                        <option value="">Select your region</option>
+                        {GHANA_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                      </select>
+                      <small id="shipping-region-help" className="shipping-form__helper">Select the region where the delivery address is located.</small>
+                      {fieldErrors.region ? <small id="shipping-region-error" className="shipping-form__field-error">{fieldErrors.region}</small> : null}
                     </label>
 
                     <label className="address-modal__field">
                       <span>City <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
+                        id="shipping-city"
                         type="text"
                         name="city"
                         value={formData.city}
                         onChange={handleFieldChange}
                         required
+                        placeholder="e.g. Amasaman"
                         autoComplete="address-level2"
+                        aria-invalid={Boolean(fieldErrors.city)}
+                        aria-describedby="shipping-city-help shipping-city-error"
                       />
+                      <small id="shipping-city-help" className="shipping-form__helper">Enter the city, town, or community where the order should be delivered.</small>
+                      {fieldErrors.city ? <small id="shipping-city-error" className="shipping-form__field-error">{fieldErrors.city}</small> : null}
                     </label>
 
                     <label className="address-modal__field address-modal__field--full">
                       <span>Street Address <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
+                        id="shipping-street-address"
                         type="text"
                         name="streetAddress"
                         value={formData.streetAddress}
                         onChange={handleFieldChange}
                         required
+                        placeholder="e.g. Amasaman Main Road, near XYZ Pharmacy"
                         autoComplete="street-address"
+                        aria-invalid={Boolean(fieldErrors.streetAddress)}
+                        aria-describedby="shipping-street-help shipping-street-error"
                       />
+                      <small id="shipping-street-help" className="shipping-form__helper">Enter your street, area, house number, landmark, or other locating details.</small>
+                      {fieldErrors.streetAddress ? <small id="shipping-street-error" className="shipping-form__field-error">{fieldErrors.streetAddress}</small> : null}
                     </label>
 
                     <label className="address-modal__field">
                       <span>House Number</span>
                       <input
+                        id="shipping-house-number"
                         type="text"
                         name="houseNumber"
                         value={formData.houseNumber}
                         onChange={handleFieldChange}
                         autoComplete="address-line2"
                       />
+                      <small className="shipping-form__helper">Add the house or building number if available.</small>
                     </label>
 
                     <label className="address-modal__field">
                       <span>Landmark</span>
                       <input
+                        id="shipping-landmark"
                         type="text"
                         name="landmark"
                         value={formData.landmark}
                         onChange={handleFieldChange}
+                        placeholder="e.g. Opposite Melcom"
                       />
+                      <small className="shipping-form__helper">Enter a nearby landmark that will make your location easier to find.</small>
                     </label>
 
                     <label className="address-modal__field">
-                      <span>GPS Code</span>
+                      <span>GhanaPost GPS / Digital Address</span>
                       <input
+                        id="shipping-postal-code"
                         type="text"
                         name="postalCode"
                         value={formData.postalCode}
                         onChange={handleFieldChange}
+                        placeholder="e.g. GA-123-4567"
                         autoComplete="postal-code"
                       />
+                      <small className="shipping-form__helper">Enter your GhanaPost GPS digital address if available.</small>
                     </label>
                   </div>
 

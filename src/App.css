@@ -7157,7 +7157,8 @@ body[data-theme="dark"] .site-footer__inner {
   font-weight: 700;
 }
 
-.address-modal__field input {
+.address-modal__field input,
+.address-modal__field select {
   width: 100%;
   min-height: 3rem;
   padding: 0 0.95rem;
@@ -7168,7 +7169,12 @@ body[data-theme="dark"] .site-footer__inner {
   outline: none;
 }
 
-.address-modal__field input:focus {
+.address-modal__field select {
+  appearance: auto;
+}
+
+.address-modal__field input:focus,
+.address-modal__field select:focus {
   border-color: #0267d2;
   box-shadow: 0 0 0 4px rgba(2, 103, 210, 0.12);
 }
@@ -9391,6 +9397,19 @@ body[data-theme="dark"] .site-footer__inner {
   margin: 0.85rem 0 0;
   color: #b42318;
   font-weight: 700;
+}
+
+.shipping-form__helper {
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.shipping-form__field-error {
+  color: #b42318;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .shipping-summary {
@@ -27229,19 +27248,31 @@ body[data-theme="dark"] .address-modal__field span {
   color: var(--nexus-text);
 }
 
-body[data-theme="dark"] .address-modal__field input {
+body[data-theme="dark"] .address-modal__field input,
+body[data-theme="dark"] .address-modal__field select {
   background: var(--nexus-input-bg);
   border-color: var(--nexus-border);
   color: var(--nexus-text);
 }
 
-body[data-theme="dark"] .address-modal__field input::placeholder {
+body[data-theme="dark"] .address-modal__field input::placeholder,
+body[data-theme="dark"] .address-modal__field select::placeholder {
   color: var(--nexus-text-muted);
 }
 
-body[data-theme="dark"] .address-modal__field input:focus {
+body[data-theme="dark"] .address-modal__field input:focus,
+body[data-theme="dark"] .address-modal__field select:focus {
   border-color: var(--nexus-primary);
   box-shadow: 0 0 0 4px rgba(28, 63, 183, 0.18);
+}
+
+body[data-theme="dark"] .shipping-form__helper {
+  color: var(--nexus-text-muted);
+}
+
+body[data-theme="dark"] .shipping-form__field-error,
+body[data-theme="dark"] .shipping-form__error {
+  color: #fca5a5;
 }
 
 body[data-theme="dark"] .payment-page,
