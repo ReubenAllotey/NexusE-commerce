@@ -53,11 +53,15 @@ function buildTickerMessage({ announcement, reflection }) {
     announcement.batchWindowStart,
     announcement.batchWindowEnd,
   );
+  const announcementCopy = [announcement.headline, announcement.body]
+    .filter(Boolean)
+    .join(" - ");
   const reflectionText = reflection.headline || "Daily reflection";
   const verse = reflection.verse || "Genesis 1:1";
 
   return (
-    `Orders  are open  for   (${activeDate}) for the Batch  ${batchNumber} | ` +
+    `${announcementCopy || `Orders are open for the Batch ${batchNumber}`} | ` +
+    `Active window: ${activeDate} | ` +
     " " +
     "Sea freight shipment takes 1-2 months after the active batch date is closed | " +
     "Air freight shipment takes 10-16 days after the active batch date is closed | " +
