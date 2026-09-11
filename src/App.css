@@ -30304,3 +30304,76 @@ body[data-theme="dark"] .shipment-timeline__step.active {
   background: rgba(28, 63, 183, 0.25);
   color: #b7caff;
 }
+
+body[data-theme="dark"] .orders-summary__card,
+body[data-theme="dark"] .orders-panel,
+body[data-theme="dark"] .orders-card,
+body[data-theme="dark"] .orders-card__details,
+body[data-theme="dark"] .orders-card__meta div,
+body[data-theme="dark"] .orders-card__totals div,
+body[data-theme="dark"] .orders-item,
+body[data-theme="dark"] .orders-empty,
+body[data-theme="dark"] .payment-table-wrap {
+  background: #182235;
+  border-color: var(--nexus-border, #2b3648);
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .orders-summary__value,
+body[data-theme="dark"] .orders-panel__header h2,
+body[data-theme="dark"] .orders-card__header strong,
+body[data-theme="dark"] .orders-card__meta strong,
+body[data-theme="dark"] .orders-card__totals strong,
+body[data-theme="dark"] .orders-card__details-header h3,
+body[data-theme="dark"] .orders-item__details strong,
+body[data-theme="dark"] .orders-item__price strong,
+body[data-theme="dark"] .payment-table tbody td,
+body[data-theme="dark"] .payment-table tbody td strong {
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .orders-summary__note,
+body[data-theme="dark"] .orders-card__meta span,
+body[data-theme="dark"] .orders-card__totals span,
+body[data-theme="dark"] .orders-card__details-header span,
+body[data-theme="dark"] .orders-item__details span,
+body[data-theme="dark"] .orders-item__price span,
+body[data-theme="dark"] .orders-empty p,
+body[data-theme="dark"] .orders-empty span,
+body[data-theme="dark"] .payment-table thead th,
+body[data-theme="dark"] .payment-table tbody td span,
+body[data-theme="dark"] .payment-table tbody td small {
+  color: var(--nexus-text-secondary, #cbd5e1);
+}
+
+body[data-theme="dark"] .orders-card__status,
+body[data-theme="dark"] .orders-card__button--ghost,
+body[data-theme="dark"] .orders-item__media {
+  background: #263449;
+  color: #cbd5e1;
+}
+
+body[data-theme="dark"] .orders-card__status.is-transit {
+  background: rgba(28, 63, 183, 0.25);
+  color: #b7caff;
+}
+
+body[data-theme="dark"] .orders-card__status.is-delivered {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+body[data-theme="dark"] .payment-table tbody tr,
+body[data-theme="dark"] .orders-card__totals {
+  border-color: var(--nexus-border, #2b3648);
+}
+
+body[data-theme="dark"] .payment-table__status.is-completed {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+body[data-theme="dark"] .payment-table__status.is-failed {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
