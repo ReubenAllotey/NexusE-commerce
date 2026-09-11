@@ -30138,3 +30138,169 @@ body[data-theme="dark"] .product-view__description-inline p {
     height: 2.65rem;
   }
 }
+
+/* Keep profile surfaces readable when the shared dark theme is active. */
+body[data-theme="dark"] .account-settings-page,
+body[data-theme="dark"] .account-settings-header,
+body[data-theme="dark"] .account-settings-panel,
+body[data-theme="dark"] .notifications-panel,
+body[data-theme="dark"] .shipment-panel {
+  background: var(--nexus-surface, #111827);
+  border-color: var(--nexus-border, #2b3648);
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .account-settings-header h1,
+body[data-theme="dark"] .account-settings-panel__header h2,
+body[data-theme="dark"] .account-settings-photo > span,
+body[data-theme="dark"] .account-settings-field > span,
+body[data-theme="dark"] .notifications-panel__header h2,
+body[data-theme="dark"] .notification-card__top strong,
+body[data-theme="dark"] .shipment-panel__header h2,
+body[data-theme="dark"] .shipment-card__header strong,
+body[data-theme="dark"] .shipment-empty p {
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .account-settings-header span,
+body[data-theme="dark"] .account-settings-photo small,
+body[data-theme="dark"] .account-settings-message,
+body[data-theme="dark"] .account-settings-danger__text,
+body[data-theme="dark"] .notification-card__body p,
+body[data-theme="dark"] .notification-card__cta-note,
+body[data-theme="dark"] .notifications-empty p,
+body[data-theme="dark"] .shipment-stat span,
+body[data-theme="dark"] .shipment-stat small,
+body[data-theme="dark"] .shipment-empty span,
+body[data-theme="dark"] .shipment-card__meta span,
+body[data-theme="dark"] .shipment-card__meta strong {
+  color: var(--nexus-text-secondary, #cbd5e1);
+}
+
+body[data-theme="dark"] .account-settings-status,
+body[data-theme="dark"] .account-settings-button--ghost {
+  background: #202b3d;
+  border-color: var(--nexus-border, #2b3648);
+  color: var(--nexus-text-secondary, #cbd5e1);
+}
+
+body[data-theme="dark"] .account-settings-status.is-active {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+body[data-theme="dark"] .account-settings-field input,
+body[data-theme="dark"] .account-settings-field select {
+  background: var(--nexus-input-bg, #0f172a);
+  border-color: var(--nexus-border, #2b3648);
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .account-settings-field input::placeholder {
+  color: #8491a5;
+}
+
+body[data-theme="dark"] .account-settings-photo__preview,
+body[data-theme="dark"] .account-settings-header__avatar {
+  background: #182235;
+  border-color: #334155;
+}
+
+body[data-theme="dark"] .account-settings-button--ghost:disabled {
+  opacity: 1;
+  background: #202b3d;
+  color: #aeb9c9;
+}
+
+body[data-theme="dark"] .notifications-overview__card,
+body[data-theme="dark"] .shipment-stat {
+  background: linear-gradient(180deg, #182235 0%, #141e30 100%);
+  border-color: var(--nexus-border, #2b3648);
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.28);
+}
+
+body[data-theme="dark"] .notifications-overview__card strong,
+body[data-theme="dark"] .shipment-stat strong {
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .notifications-filter,
+body[data-theme="dark"] .notification-card,
+body[data-theme="dark"] .notifications-empty,
+body[data-theme="dark"] .shipment-card,
+body[data-theme="dark"] .shipment-empty,
+body[data-theme="dark"] .shipment-card__meta div {
+  background: #182235;
+  border-color: var(--nexus-border, #2b3648);
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .notifications-filter {
+  color: var(--nexus-text-secondary, #cbd5e1);
+}
+
+body[data-theme="dark"] .notifications-filter span,
+body[data-theme="dark"] .notification-card__ref,
+body[data-theme="dark"] .notification-card__state.is-read {
+  background: #263449;
+  color: #cbd5e1;
+}
+
+body[data-theme="dark"] .notifications-filter.is-active {
+  background: rgba(28, 63, 183, 0.28);
+  border-color: #4d70d2;
+  color: #b7caff;
+}
+
+body[data-theme="dark"] .notifications-filter.is-active span {
+  background: rgba(28, 63, 183, 0.46);
+  color: #dbe5ff;
+}
+
+body[data-theme="dark"] .notifications-panel__action {
+  background: rgba(28, 63, 183, 0.2);
+  border-color: rgba(91, 125, 220, 0.55);
+  color: #b7caff;
+}
+
+body[data-theme="dark"] .notifications-panel__action:disabled {
+  background: #202b3d;
+  border-color: var(--nexus-border, #2b3648);
+  color: #8793a6;
+  opacity: 1;
+}
+
+body[data-theme="dark"] .notification-card__top span {
+  color: #aeb9c9;
+}
+
+body[data-theme="dark"] .shipment-panel__header span,
+body[data-theme="dark"] .shipment-card__header p {
+  color: #8faeff;
+}
+
+body[data-theme="dark"] .shipment-card__header span {
+  background: rgba(28, 63, 183, 0.25);
+  color: #b7caff;
+}
+
+body[data-theme="dark"] .shipment-card__bar,
+body[data-theme="dark"] .shipment-progress__track {
+  background: #263449;
+}
+
+body[data-theme="dark"] .shipment-timeline__step,
+body[data-theme="dark"] .shipment-card__link {
+  background: #263449;
+  color: #cbd5e1;
+}
+
+body[data-theme="dark"] .shipment-timeline__step.done {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+body[data-theme="dark"] .shipment-timeline__step.active {
+  background: rgba(28, 63, 183, 0.25);
+  color: #b7caff;
+}
