@@ -34,6 +34,7 @@ function AddProduct() {
           description="Create a new product record for the storefront and admin catalog."
           submitLabel="Save product"
           initialProduct={{}}
+          enableAiAssistant
           onSubmit={handleSubmit}
           onCancel={() => navigate("/admin/products")}
         />

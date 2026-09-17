@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  buildVariantKeyFromSelectedOptions,
   getProductPurchaseMeta,
-  getMissingRequiredVariationGroups,
   getProductPath,
   resolveProductCompareAt,
   resolveProductPrice,
@@ -54,22 +52,6 @@ function formatMoney(value) {
   }).format(Number(value) || 0);
 }
 
-function buildSelectionEntry(group, option) {
-  return {
-    groupId: group.id ?? group.groupName ?? "",
-    groupName: group.groupName ?? "Variation",
-    kind: group.kind ?? "text",
-    optionId: option.id ?? "",
-    label: option.label ?? "",
-    value: option.value ?? option.label ?? "",
-    priceDelta: Number(option.priceDelta) || 0,
-    compareAtDelta: option.compareAtDelta ?? null,
-    swatchColor: option.swatchColor ?? "",
-    imageUrl: option.imageUrl ?? "",
-    isDefault: Boolean(option.isDefault),
-  };
-}
-
 function ProductCard({
   item = {},
   onAddToCart = () => {},
@@ -83,110 +65,22 @@ function ProductCard({
     () => (Array.isArray(item.variationGroups) ? item.variationGroups.filter(Boolean) : []),
     [item.variationGroups],
   );
-  const [selectedOptions, setSelectedOptions] = useState([]);
-
-  useEffect(() => {
-    setSelectedOptions([]);
-  }, [item.id, item.slug]);
-
-  const selectionLookup = useMemo(
-    () => new Map(selectedOptions.map((option) => [option.groupId, option])),
-    [selectedOptions],
-  );
-
-  const activeSelection = useMemo(
-    () =>
-      safeVariationGroups
-        .map((group) => {
-          const selectedOption = selectionLookup.get(group.id) ?? null;
-
-          if (!selectedOption) {
-            return null;
-          }
-
-          return buildSelectionEntry(group, selectedOption);
-        })
-        .filter(Boolean),
-    [safeVariationGroups, selectionLookup],
-  );
-
-  const primaryGroup = safeVariationGroups.find(Boolean) ?? null;
-  const visibleGroups = useMemo(() => {
-    if (!safeVariationGroups.length) {
-      return [];
-    }
-
-    const groupsWithOptions = safeVariationGroups.filter(
-      (group) => Array.isArray(group.options) && group.options.length > 0,
-    );
-
-    if (groupsWithOptions.length === 0) {
-      return [];
-    }
-
-    const primary = groupsWithOptions[0] ?? null;
-    const colorGroup =
-      groupsWithOptions.find((group, index) => index > 0 && group.kind === "color") ?? null;
-    const fallbackGroup = groupsWithOptions[1] ?? null;
-
-    return [primary, colorGroup ?? fallbackGroup].filter(Boolean).filter((group, index, list) => {
-      return list.findIndex((entry) => entry?.id === group?.id) === index;
-    });
-  }, [safeVariationGroups]);
-
-  const activePrice = resolveProductPrice(item, activeSelection);
-  const activeCompareAt = resolveProductCompareAt(item, activeSelection);
-  const activeImage =
-    activeSelection.find((option) => option.imageUrl)?.imageUrl ||
-    item.image ||
-    item.primaryImageUrl ||
-    FALLBACK_IMAGE;
-  const activeVariantKey = buildVariantKeyFromSelectedOptions(activeSelection);
+  const activePrice = resolveProductPrice(item, []);
+  const activeCompareAt = resolveProductCompareAt(item, []);
+  const activeImage = item.image || item.primaryImageUrl || FALLBACK_IMAGE;
   const detailHref = getProductPath(item.slug ?? slugify(item.name));
   const availabilityMeta = getProductPurchaseMeta(item);
 
-  const handleSelectOption = (group, option) => {
-    setSelectedOptions((current) => {
-      const next = current.filter((entry) => entry.groupId !== (group.id ?? group.groupName ?? ""));
-      return [...next, buildSelectionEntry(group, option)].sort((left, right) =>
-        String(left.groupId).localeCompare(String(right.groupId)),
-      );
-    });
-  };
-
   const handlePurchaseClick = () => {
-    const requiredGroups = safeVariationGroups.filter((group) => group?.isRequired);
-    const variantSelection = {
-      selectedOptions: activeSelection,
-      variantKey: activeVariantKey,
-      availabilityType: item.availabilityType ?? item.availability_type,
-    };
-
-    console.log("[NEXUS PREORDER TRACE] 1 CARD CLICK", {
-      id: item?.id,
-      slug: item?.slug,
-      availability_type: item?.availability_type,
-      availabilityType: item?.availabilityType,
-      stock_status: item?.stock_status,
-      stockStatus: item?.stockStatus,
-    });
-    console.log("[NEXUS PREORDER TRACE] 2 VARIATION CHECK", {
-      variationGroups: safeVariationGroups,
-      requiredGroups,
-      selectedOptions: activeSelection,
-    });
-
-    if (getMissingRequiredVariationGroups(safeVariationGroups, activeSelection).length > 0) {
-      console.log("[NEXUS PREORDER TRACE] 3 NAVIGATE DETAIL", detailHref);
+    if (safeVariationGroups.length > 0) {
       navigate(detailHref);
       return;
     }
-
-    console.log("[NEXUS PREORDER TRACE] 3 DIRECT ADD", {
-      quantity: 1,
-      variantSelection,
+    onAddToCart(item, 1, {
+      selectedOptions: [],
+      variantKey: "",
+      availabilityType: item.availabilityType ?? item.availability_type,
     });
-    onAddToCart(item, 1, variantSelection);
   };
 
   return (
@@ -238,65 +132,6 @@ function ProductCard({
         <Link to={detailHref} className={`${prefix}__title-link`}>
           <h3>{item.name}</h3>
         </Link>
-
-        {visibleGroups.length > 0 ? (
-          <div className={`${prefix}__variation-stack`}>
-            {visibleGroups.map((group) => {
-              const groupOptions = Array.isArray(group.options) ? group.options : [];
-              const activeGroupOption = activeSelection.find((option) => option.groupId === group.id) ?? null;
-              const visibleOptions = groupOptions.slice(0, 4);
-              const hiddenCount = Math.max(groupOptions.length - visibleOptions.length, 0);
-
-              return (
-                <div key={group.id ?? group.groupName} className={`${prefix}__variant-group`}>
-                  <div className={`${prefix}__variant-label`}>
-                    <span>{group.groupName}</span>
-                    <strong>{activeGroupOption?.label ?? "Default"}</strong>
-                  </div>
-
-                  <div
-                    className={`${prefix}__variants`}
-                    role="list"
-                    aria-label={`${item.name} ${group.groupName} options`}
-                  >
-                    {visibleOptions.map((option) => {
-                      const optionKey = option.id ?? option.value ?? option.label;
-                      const isActive =
-                        (activeGroupOption?.id ?? activeGroupOption?.value ?? activeGroupOption?.label) ===
-                        optionKey;
-                      const isColor = group.kind === "color" && Boolean(option.swatchColor);
-
-                      return (
-                        <button
-                          key={optionKey}
-                          type="button"
-                          className={`${prefix}__variant${isActive ? " is-active" : ""}${
-                            isColor ? ` ${prefix}__variant--swatch` : ""
-                          }`}
-                          onClick={() => handleSelectOption(group, option)}
-                          aria-pressed={isActive}
-                          aria-label={`${item.name} ${option.label}`}
-                          style={
-                            isColor
-                              ? { "--variant-swatch": option.swatchColor }
-                              : undefined
-                          }
-                        >
-                          {isColor ? <span className={`${prefix}__variant-swatch`} aria-hidden="true" /> : null}
-                          <span>{option.label}</span>
-                        </button>
-                      );
-                    })}
-
-                    {hiddenCount > 0 ? (
-                      <span className={`${prefix}__variant-more`}>+{hiddenCount}</span>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
 
         <div className={`${prefix}__price`}>
           <strong>{formatMoney(activePrice)}</strong>

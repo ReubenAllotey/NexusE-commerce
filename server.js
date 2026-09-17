@@ -4,6 +4,7 @@ import path from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { analyzeProduct } from "./server/services/aiProductService.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
@@ -1795,6 +1796,59 @@ async function handleGenerateProductContent(req, res) {
   }
 }
 
+async function handleAnalyzeProduct(req, res) {
+  if (!supabaseAdmin) {
+    sendJson(res, 500, { ok: false, message: "Supabase server credentials are missing." });
+    return;
+  }
+
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Admin access is required to analyze products." });
+    return;
+  }
+
+  const rawBody = await readRequestBody(req, true);
+  if (Buffer.byteLength(rawBody, "utf8") > 8 * 1024 * 1024) {
+    sendJson(res, 413, { ok: false, message: "The supplied product images are too large to process." });
+    return;
+  }
+
+  let body = {};
+  try {
+    body = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    sendJson(res, 400, { ok: false, message: "The request body must be valid JSON." });
+    return;
+  }
+
+  try {
+    const categories = Array.isArray(body.categories)
+      ? body.categories.slice(0, 200).map((category) => ({
+          id: clean(category?.id).slice(0, 120),
+          name: clean(category?.name).slice(0, 240),
+        })).filter((category) => category.id && category.name)
+      : [];
+    const result = await analyzeProduct({
+      apiKey: openaiApiKey,
+      model: openaiModel,
+      supplierText: body.supplierText,
+      images: body.images,
+      categories,
+    });
+    sendJson(res, 200, { ok: true, draft: result });
+  } catch (error) {
+    console.error("Product analysis failed:", error?.message ?? error);
+    sendJson(res, 500, { ok: false, message: "Unable to analyze this product. Please try again." });
+  }
+}
+
 async function syncOrderPaymentStatus(orderId, status) {
   const paymentStatus = clean(status).toLowerCase() === "successful" ? "paid" : clean(status).toLowerCase();
   const { data: currentOrder, error: currentOrderError } = await supabaseAdmin
@@ -3096,6 +3150,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/products/generate-content" && req.method === "POST") {
     await handleGenerateProductContent(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/ai/product-analysis" && req.method === "POST") {
+    await handleAnalyzeProduct(req, res);
     return;
   }
 

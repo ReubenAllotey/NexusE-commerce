@@ -13,6 +13,7 @@ import {
   getVariationPreset,
   variationNames,
 } from "./variationPresets";
+import AiProductAssistant from "./AiProductAssistant";
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -425,6 +426,7 @@ function ProductEditorForm({
   initialProduct,
   onSubmit,
   onCancel,
+  enableAiAssistant = false,
 }) {
   const [formData, setFormData] = useState(() => buildImageEntries(initialProduct));
   const [submitError, setSubmitError] = useState("");
@@ -437,6 +439,7 @@ function ProductEditorForm({
   const [quickCustomValue, setQuickCustomValue] = useState("");
   const [quickCustomHex, setQuickCustomHex] = useState("#1C3FB7");
   const [variationNameChoice, setVariationNameChoice] = useState("");
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const {
     records: categoryRecords,
     loading: categoriesLoading,
@@ -494,6 +497,12 @@ function ProductEditorForm({
     : formData.categoryId
       ? [{ value: formData.categoryId, label: `${initialProduct?.category ?? "Current category"} (current)` }, ...categoryOptions]
       : categoryOptions;
+  const assistantCategories = categoryRecords
+    .filter((record) => record.status === "active" && !record.deletedAt)
+    .map((record) => ({
+      id: record.id,
+      name: resolveCategoryLabel(record.id, categoryRecords) || record.name,
+    }));
   const generateButtonLabel = isGenerating
     ? "Generating..."
     : formData.description || formData.overview
@@ -511,6 +520,48 @@ function ProductEditorForm({
       ...current,
       [name]: value,
       }));
+  };
+
+  const handleApplyAiDraft = (draft) => {
+    const suggestedGroups = (Array.isArray(draft?.variationSuggestions) ? draft.variationSuggestions : [])
+      .map((group, groupIndex) => ({
+        id: createEditorId("variation-group"),
+        groupName: String(group?.groupName ?? "").trim(),
+        displayOrder: groupIndex + 1,
+        isRequired: false,
+        options: (Array.isArray(group?.options) ? group.options : [])
+          .map((option, optionIndex) => {
+            const label = String(option ?? "").trim();
+            return {
+              id: createEditorId("variation-option"),
+              label,
+              value: slugify(label),
+              priceDelta: 0,
+              compareAtDelta: null,
+              swatchColor: "",
+              imageUrl: "",
+              displayOrder: optionIndex + 1,
+              isDefault: optionIndex === 0,
+            };
+          })
+          .filter((option) => option.label && option.value),
+      }))
+      .filter((group) => group.groupName && group.options.length > 0);
+    const specificationLines = (Array.isArray(draft?.specifications) ? draft.specifications : [])
+      .map((item) => `${String(item?.name ?? "").trim()}: ${String(item?.value ?? "").trim()}`)
+      .filter((line) => line !== ": ");
+
+    setFormData((current) => ({
+      ...current,
+      name: String(draft?.productName ?? current.name).trim() || current.name,
+      categoryId: draft?.categorySuggestion?.categoryId || current.categoryId,
+      description: draft?.shortDescription || current.description,
+      overview: draft?.description || current.overview,
+      featuresText: specificationLines.length > 0 ? specificationLines.join("\n") : current.featuresText,
+      variationGroups: suggestedGroups.length > 0 ? reindexVariationGroups(suggestedGroups) : current.variationGroups,
+    }));
+    setShowAiAssistant(false);
+    setGenerateError("");
   };
 
   const updateVariationGroups = (updater) => {
@@ -1022,7 +1073,22 @@ function ProductEditorForm({
           <h2>{title}</h2>
           <span>{description}</span>
         </div>
+        {enableAiAssistant ? <button
+          type="button"
+          className="admin-product-form__button admin-product-form__button--ai"
+          onClick={() => setShowAiAssistant(true)}
+        >
+          AI Product Assistant
+        </button> : null}
       </div>
+
+      {enableAiAssistant && showAiAssistant ? (
+        <AiProductAssistant
+          categories={assistantCategories}
+          onApply={handleApplyAiDraft}
+          onClose={() => setShowAiAssistant(false)}
+        />
+      ) : null}
 
       <div className="admin-product-form__grid">
         <section className="admin-product-form__section admin-product-form__section--full">
