@@ -6,7 +6,13 @@ import {
   defaultSiteBanner,
   normalizeSiteBanner,
 } from "../../shared/siteBannerStorage";
-import { normalizeAvailabilityType, resolveProductPrice } from "../Products/productData";
+import { normalizeAvailabilityType } from "../Products/productData";
+import {
+  calculateShippingCheckoutSummary,
+  normalizeShippingPaymentMode,
+  resolveShippingLine,
+  SHIPPING_PAYMENT_MODES,
+} from "../../shared/shippingCheckout";
 import {
   clearCheckoutDraft,
   clearPaymentSession,
@@ -84,40 +90,22 @@ function resolveCartRows(cartItems = []) {
             product?.availabilityType ??
             product?.availability_type,
         );
-        const shippingFee =
-          availabilityType === "preorder"
-            ? 0
-            : typeof item.shippingFee === "number"
-              ? item.shippingFee
-              : 0;
+        const shippingLine = resolveShippingLine(product, item);
 
         return {
           key: item.cartKey ?? item.slug ?? product.slug ?? product.name,
           product,
           quantity,
-          shippingFee,
-          lineSubtotal: resolveProductPrice(
-            product,
-            item.selectedOptions ?? item.selected_options ?? item.variant?.options ?? [],
-          ) * quantity,
-          lineShipping: shippingFee * quantity,
+          shippingFee: shippingLine.shippingFee,
+          shippingFeeStatus: shippingLine.shippingFeeStatus,
+          lineSubtotal: shippingLine.lineSubtotal,
+          lineShipping: shippingLine.lineShipping,
+          hasPendingShipping: shippingLine.hasPendingShipping,
           availabilityType,
           variant: item.variant ?? null,
         };
       })
     .filter(Boolean);
-}
-
-function computeTotals(rows = [], fallbackTotals = {}) {
-  const subtotal = rows.reduce((sum, row) => sum + (Number(row.lineSubtotal) || 0), 0);
-  const shippingTotal = rows.reduce((sum, row) => sum + (Number(row.lineShipping) || 0), 0);
-  const totalPrice = subtotal + shippingTotal;
-
-  return {
-    subtotal: Number(fallbackTotals.subtotal) || subtotal,
-    shippingTotal: Number(fallbackTotals.shippingTotal) || shippingTotal,
-    totalPrice: Number(fallbackTotals.totalPrice) || Number(fallbackTotals.total) || totalPrice,
-  };
 }
 
 function getInitialCheckout(locationState, cartItems, ownerUserId = "") {
@@ -127,12 +115,16 @@ function getInitialCheckout(locationState, cartItems, ownerUserId = "") {
   const draftRows = Array.isArray(draft?.cartRows) && draft.cartRows.length > 0 ? draft.cartRows : [];
   const cartRows = routeRows.length > 0 ? routeRows : draftRows.length > 0 ? draftRows : resolveCartRows(cartItems);
   const shippingAddress = state.shippingAddress ?? draft?.shippingAddress ?? null;
-  const totals = computeTotals(cartRows, state.totals ?? draft?.totals ?? {});
+  const shippingPaymentPreference = normalizeShippingPaymentMode(
+    state.shippingPaymentPreference ?? draft?.shippingPaymentPreference ?? SHIPPING_PAYMENT_MODES.PAY_LATER,
+  );
+  const totals = calculateShippingCheckoutSummary(cartRows, shippingPaymentPreference);
 
   return {
     shippingAddress,
     cartRows,
     totals,
+    shippingPaymentPreference,
     draft,
   };
 }
@@ -254,14 +246,23 @@ function PaymentSummary({ shippingAddress, cartRows, totals }) {
         </div>
 
         <div className="payment-summary__row">
-          <span>Shipping</span>
-          <strong>{formatGhanaCedis(totals.shippingTotal)}</strong>
+          <span>Known Shipping</span>
+          <strong>{totals.shippingTotal > 0 ? formatGhanaCedis(totals.shippingTotal) : totals.hasPendingShipping ? "Calculated later" : "Free"}</strong>
         </div>
 
+        {totals.hasPendingShipping ? <div className="payment-summary__row"><span>Pending Shipping</span><strong>Calculated later</strong></div> : null}
+
         <div className="payment-summary__total">
-          <span>Total</span>
-          <strong>{formatGhanaCedis(totals.totalPrice)}</strong>
+          <span>Total Order Value</span>
+          <strong>{formatGhanaCedis(totals.knownCommercialTotal ?? totals.totalPrice)}</strong>
         </div>
+
+        <div className="payment-summary__row">
+          <span>Pay Now</span>
+          <strong>{formatGhanaCedis(totals.amountPayableNow ?? totals.totalPrice)}</strong>
+        </div>
+
+        {(totals.shippingDueLater ?? 0) > 0 ? <div className="payment-summary__row"><span>Shipping Due Later</span><strong>{formatGhanaCedis(totals.shippingDueLater)}</strong></div> : null}
       </div>
 
       <div className="payment-summary__address">
@@ -375,6 +376,7 @@ function PaymentCheckout({
         totalPrice: paymentIntent?.amount ?? 0,
       }
     : snapshot.totals;
+  const shippingPaymentPreference = snapshot.shippingPaymentPreference;
 
   const [paymentMethod, setPaymentMethod] = useState(() => normalizePaymentMethod(session?.paymentMethod ?? "mobile-money"));
   const [mobileNetwork, setMobileNetwork] = useState(() => session?.paymentNetwork ?? "mtn");
@@ -478,6 +480,7 @@ function PaymentCheckout({
     setIsSubmitting(true);
 
     let pendingOrder = null;
+    let authoritativeAmount = summaryTotal;
 
     try {
       if (!authUser) {
@@ -492,6 +495,7 @@ function PaymentCheckout({
             shippingAddress,
             cartRows,
             totals,
+            shippingPaymentPreference,
             paymentPurpose: "order",
             paymentMethod,
             paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
@@ -506,6 +510,7 @@ function PaymentCheckout({
         const authorizationUrl = clean(paystackData.authorization_url || guestCheckout?.authorizationUrl);
         const accessCode = clean(paystackData.access_code || guestCheckout?.accessCode);
         const guestCheckoutId = clean(guestCheckout?.id || initResponse?.guestCheckoutId || `guest-${Date.now()}`);
+        authoritativeAmount = Number(guestCheckout?.amountDueNow) || Number(paystackData.amount ?? 0) / 100 || summaryTotal;
 
         if (!paymentReference || !authorizationUrl) {
           throw new Error("Paystack did not return a valid checkout link.");
@@ -519,7 +524,7 @@ function PaymentCheckout({
           customerEmail: checkoutEmail,
           batchNumber: checkoutBatchNumber,
           shippingAddress,
-          total: summaryTotal,
+          total: authoritativeAmount,
           subtotal: totals.subtotal ?? 0,
           shippingTotal: totals.shippingTotal ?? summaryTotal,
           status: "pending_payment",
@@ -551,8 +556,8 @@ function PaymentCheckout({
             customerId: "guest",
             customerName: checkoutCustomer.name,
             customerEmail: checkoutEmail,
-            amount: summaryTotal,
-            amountInPesewas: Math.round(summaryTotal * 100),
+            amount: authoritativeAmount,
+            amountInPesewas: Math.round(authoritativeAmount * 100),
             topUpOrderId: "",
             guestCheckoutEmail: checkoutEmail,
             guestCheckoutName: checkoutCustomer.name,
@@ -595,6 +600,7 @@ function PaymentCheckout({
         const createResult = await createOrderFromCart({
           shippingAddressId: shippingAddress?.id ?? "",
           batchNumber: checkoutBatchNumber,
+          shippingPaymentPreference,
         });
 
         if (!createResult.ok || !createResult.order) {
@@ -602,6 +608,7 @@ function PaymentCheckout({
         }
 
         pendingOrder = createResult.order;
+        authoritativeAmount = Number(createResult.combined?.amountDueNow) || summaryTotal;
 
         if (typeof onReplaceOrders === "function") {
           onReplaceOrders((current = []) => [
@@ -621,6 +628,7 @@ function PaymentCheckout({
           paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
           paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
           shippingBalanceDue: isShippingBalancePayment ? summaryTotal : 0,
+          shippingPaymentPreference,
           batchNumber: pendingOrder.batchNumber ?? checkoutBatchNumber,
         },
         { accessToken: tokenResult.accessToken },
@@ -656,8 +664,8 @@ function PaymentCheckout({
           customerName: checkoutCustomer.name,
           customerEmail: checkoutEmail,
           batchNumber: pendingOrder.batchNumber ?? checkoutBatchNumber,
-          amount: summaryTotal,
-          amountInPesewas: Math.round(summaryTotal * 100),
+          amount: authoritativeAmount,
+          amountInPesewas: Math.round(authoritativeAmount * 100),
           topUpOrderId: isShippingBalancePayment ? pendingOrder.id : "",
           createdAt: session?.createdAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString(),

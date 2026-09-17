@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import CartEditModal from "../../components/CartEditModal";
+import { isProductOutOfStock, useProducts } from "../Products/productData";
 import {
-  getShippingFee,
-  isProductOutOfStock,
-  resolveProductPrice,
-  useProducts,
-} from "../Products/productData";
+  calculateShippingCheckoutSummary,
+  canPayShippingNow,
+  getDefaultShippingPaymentMode,
+  resolveShippingLine,
+  saveShippingPaymentPreference,
+  SHIPPING_PAYMENT_MODES,
+} from "../../shared/shippingCheckout";
 
 function formatMoney(value) {
   const safeValue = Number(value) || 0;
@@ -68,6 +71,7 @@ function Cart({
   onClearCart = () => {},
 }) {
   const [editingItem, setEditingItem] = useState(null);
+  const [shippingPaymentPreference, setShippingPaymentPreference] = useState(SHIPPING_PAYMENT_MODES.PAY_LATER);
   const navigate = useNavigate();
   const {
     products,
@@ -82,8 +86,16 @@ function Cart({
       productBySlug.get(String(item?.slug ?? "").trim().toLowerCase());
 
     if (product) {
-      // Keep the cart snapshot values while adding the product's full variation catalog.
-      return { ...product, ...item, variationGroups: product.variationGroups ?? [] };
+      // Keep cart-only selection/quantity data, but let current product fields
+      // such as shipping status and fee remain authoritative.
+      return {
+        ...item,
+        ...product,
+        cartKey: item.cartKey,
+        quantity: item.quantity,
+        selectedOptions: item.selectedOptions ?? item.selected_options,
+        variationGroups: product.variationGroups ?? [],
+      };
     }
 
     return item?.name && item?.price != null && item?.image ? item : null;
@@ -94,17 +106,12 @@ function Cart({
       const product = resolveCartProduct(item);
       if (!product) return null;
 
-      const quantity = item.quantity ?? 1;
-      const shippingFee =
-        typeof item.shippingFee === "number"
-          ? item.shippingFee
-          : getShippingFee(product);
-      const effectiveShippingFee = typeof shippingFee === "number" ? shippingFee : 0;
-      const lineSubtotal = resolveProductPrice(
-        product,
-        item.selectedOptions ?? item.selected_options ?? item.variant?.options ?? [],
-      ) * quantity;
-      const lineShipping = effectiveShippingFee * quantity;
+      const shippingLine = resolveShippingLine(product, item);
+      const quantity = shippingLine.quantity;
+      const shippingFee = shippingLine.shippingFee;
+      const effectiveShippingFee = shippingLine.lineShipping / quantity;
+      const lineSubtotal = shippingLine.lineSubtotal;
+      const lineShipping = shippingLine.lineShipping;
       const outOfStock = isProductOutOfStock(product);
 
       return {
@@ -115,6 +122,8 @@ function Cart({
         effectiveShippingFee,
         lineSubtotal,
         lineShipping,
+        shippingFeeStatus: shippingLine.shippingFeeStatus,
+        hasPendingShipping: shippingLine.hasPendingShipping,
         variant: item.variant ?? null,
         item,
         outOfStock,
@@ -124,11 +133,25 @@ function Cart({
   const needsProductLookup = cartItems.some((item) => !item?.name || !item?.price || !item?.image);
 
   const itemCount = rows.reduce((sum, row) => sum + row.quantity, 0);
-  const subtotal = rows.reduce((sum, row) => sum + row.lineSubtotal, 0);
-  const shippingTotal = rows.reduce((sum, row) => sum + row.lineShipping, 0);
+  const baseSummary = calculateShippingCheckoutSummary(rows, SHIPPING_PAYMENT_MODES.PAY_LATER);
+  const summary = calculateShippingCheckoutSummary(rows, shippingPaymentPreference);
+  const subtotal = summary.productSubtotal;
+  const shippingTotal = summary.knownShippingTotal;
   const taxEstimate = 0;
-  const totalPrice = subtotal + shippingTotal + taxEstimate;
+  const totalPrice = summary.amountPayableNow + taxEstimate;
   const hasOutOfStock = rows.some((row) => row.outOfStock);
+
+  useEffect(() => {
+    const defaultMode = getDefaultShippingPaymentMode(baseSummary);
+    setShippingPaymentPreference((current) => {
+      if (current === SHIPPING_PAYMENT_MODES.PAY_NOW && !canPayShippingNow(baseSummary)) {
+        return defaultMode;
+      }
+      return current === SHIPPING_PAYMENT_MODES.PAY_NOW || current === SHIPPING_PAYMENT_MODES.PAY_LATER
+        ? current
+        : defaultMode;
+    });
+  }, [baseSummary.knownShippingTotal, baseSummary.hasPendingShipping]);
 
   if (loading) {
     return (
@@ -198,9 +221,13 @@ function Cart({
         totals: {
           subtotal,
           shippingTotal,
+          knownCommercialTotal: summary.knownCommercialTotal,
+          amountPayableNow: summary.amountPayableNow,
+          shippingDueLater: summary.shippingDueLater,
           taxEstimate,
           totalPrice,
         },
+        shippingPaymentPreference,
       },
     });
   };
@@ -332,9 +359,16 @@ function Cart({
               </div>
 
               <div className="cart-summary__line">
-                <span>Estimated Shipping</span>
-                <strong>{formatMoney(shippingTotal)}</strong>
+                <span>Known Shipping</span>
+                <strong>{shippingTotal > 0 ? formatMoney(shippingTotal) : summary.hasPendingShipping ? "Calculated later" : "Free"}</strong>
               </div>
+
+              {summary.hasPendingShipping ? (
+                <div className="cart-summary__line">
+                  <span>Pending Shipping</span>
+                  <strong>Calculated later</strong>
+                </div>
+              ) : null}
 
               <div className="cart-summary__line">
                 <span>Tax Estimate</span>
@@ -342,17 +376,62 @@ function Cart({
               </div>
 
               <div className="cart-summary__total">
-                <span>Total Price</span>
-                <strong>{formatMoney(totalPrice)}</strong>
+                <span>Total Order Value</span>
+                <strong>{formatMoney(summary.knownCommercialTotal)}</strong>
               </div>
 
-              <div className="cart-summary__promo">
-                <label htmlFor="promo-code">Promo Code</label>
-                <div>
-                  <input id="promo-code" type="text" placeholder="Enter code" />
-                  <button type="button">Apply</button>
-                </div>
+              {!summary.hasOnlyFreeShipping ? (
+                <fieldset className="cart-shipping-choice">
+                  <legend>Shipping payment</legend>
+                  <label className={`cart-shipping-choice__option${shippingPaymentPreference === SHIPPING_PAYMENT_MODES.PAY_NOW ? " is-selected" : ""}${!canPayShippingNow(baseSummary) ? " is-disabled" : ""}`}>
+                    <input
+                      type="radio"
+                      name="shipping-payment-preference"
+                      value={SHIPPING_PAYMENT_MODES.PAY_NOW}
+                      checked={shippingPaymentPreference === SHIPPING_PAYMENT_MODES.PAY_NOW}
+                      disabled={!canPayShippingNow(baseSummary)}
+                      onChange={() => {
+                        setShippingPaymentPreference(SHIPPING_PAYMENT_MODES.PAY_NOW);
+                        saveShippingPaymentPreference(SHIPPING_PAYMENT_MODES.PAY_NOW);
+                      }}
+                    />
+                    <span>
+                      <strong>Pay with Shipping Fee</strong>
+                      <small>Pay all currently available shipping fees together with your items.</small>
+                    </span>
+                  </label>
+                  <label className={`cart-shipping-choice__option${shippingPaymentPreference === SHIPPING_PAYMENT_MODES.PAY_LATER ? " is-selected" : ""}`}>
+                    <input
+                      type="radio"
+                      name="shipping-payment-preference"
+                      value={SHIPPING_PAYMENT_MODES.PAY_LATER}
+                      checked={shippingPaymentPreference === SHIPPING_PAYMENT_MODES.PAY_LATER}
+                      onChange={() => {
+                        setShippingPaymentPreference(SHIPPING_PAYMENT_MODES.PAY_LATER);
+                        saveShippingPaymentPreference(SHIPPING_PAYMENT_MODES.PAY_LATER);
+                      }}
+                    />
+                    <span>
+                      <strong>Pay Shipping Fee Later</strong>
+                      <small>Pay for your items now and settle shipping fees later.</small>
+                    </span>
+                  </label>
+                  {baseSummary.hasPendingShipping && !canPayShippingNow(baseSummary) ? (
+                    <p className="cart-shipping-choice__note">Shipping fee is not available yet and will be paid later.</p>
+                  ) : null}
+                </fieldset>
+              ) : null}
+
+              <div className="cart-summary__line cart-summary__line--payable">
+                <span>Pay Now</span>
+                <strong>{formatMoney(summary.amountPayableNow)}</strong>
               </div>
+              {summary.shippingDueLater > 0 ? (
+                <div className="cart-summary__line">
+                  <span>Shipping Due Later</span>
+                  <strong>{formatMoney(summary.shippingDueLater)}</strong>
+                </div>
+              ) : null}
 
               <button
                 type="button"

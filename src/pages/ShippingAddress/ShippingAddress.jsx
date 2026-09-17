@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  getShippingFee,
   normalizeAvailabilityType,
-  resolveProductPrice,
   useProducts,
 } from "../Products/productData";
+import {
+  calculateShippingCheckoutSummary,
+  getDefaultShippingPaymentMode,
+  loadShippingPaymentPreference,
+  resolveShippingLine,
+  saveShippingPaymentPreference,
+  SHIPPING_PAYMENT_MODES,
+} from "../../shared/shippingCheckout";
 import {
   loadCheckoutDraft as loadPaymentCheckoutDraft,
   saveCheckoutDraft as savePaymentCheckoutDraft,
@@ -96,25 +102,18 @@ function resolveCartRows(cartItems = [], productLookup = new Map()) {
           product?.availabilityType ??
           product?.availability_type,
       );
-      const shippingFee =
-        availabilityType === "preorder"
-          ? 0
-          : typeof item.shippingFee === "number"
-            ? item.shippingFee
-            : getShippingFee(product);
-      const effectiveShippingFee = typeof shippingFee === "number" ? shippingFee : 0;
+      const shippingLine = resolveShippingLine(product, item);
 
       return {
         key: item.cartKey ?? item.slug ?? product.slug ?? product.name,
         product,
         quantity,
-        shippingFee,
-        effectiveShippingFee,
-        lineSubtotal: resolveProductPrice(
-          product,
-          item.selectedOptions ?? item.selected_options ?? item.variant?.options ?? [],
-        ) * quantity,
-        lineShipping: effectiveShippingFee * quantity,
+        shippingFee: shippingLine.shippingFee,
+        shippingFeeStatus: shippingLine.shippingFeeStatus,
+        effectiveShippingFee: shippingLine.lineShipping / shippingLine.quantity,
+        lineSubtotal: shippingLine.lineSubtotal,
+        lineShipping: shippingLine.lineShipping,
+        hasPendingShipping: shippingLine.hasPendingShipping,
         availabilityType,
         variant: item.variant ?? null,
       };
@@ -136,9 +135,13 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
     ? routeRows
     : resolveCartRows(cartItems, productLookup);
   const itemCount = cartRows.reduce((sum, row) => sum + (row.quantity ?? 1), 0);
-  const subtotal = cartRows.reduce((sum, row) => sum + (row.lineSubtotal ?? 0), 0);
-  const shippingTotal = cartRows.reduce((sum, row) => sum + (row.lineShipping ?? 0), 0);
-  const totalPrice = subtotal + shippingTotal;
+  const [shippingPaymentPreference, setShippingPaymentPreference] = useState(
+    location.state?.shippingPaymentPreference ?? SHIPPING_PAYMENT_MODES.PAY_LATER,
+  );
+  const summary = calculateShippingCheckoutSummary(cartRows, shippingPaymentPreference);
+  const subtotal = summary.productSubtotal;
+  const shippingTotal = summary.knownShippingTotal;
+  const totalPrice = summary.amountPayableNow;
 
   const isAddressesLoading = addresses == null;
   const visibleAddresses = Array.isArray(addresses) ? addresses : [];
@@ -152,6 +155,11 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
   const [formData, setFormData] = useState(() => createEmptyForm(authUser, null));
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
+
+  useEffect(() => {
+    const savedPreference = location.state?.shippingPaymentPreference ?? loadShippingPaymentPreference(currentUserId || "guest");
+    setShippingPaymentPreference(savedPreference ?? getDefaultShippingPaymentMode(summary));
+  }, [currentUserId, location.state?.shippingPaymentPreference]);
 
   useEffect(() => {
     const nextSavedCheckoutAddress = readScopedCheckoutDraft(currentUserId);
@@ -248,14 +256,19 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       totals: {
         subtotal,
         shippingTotal,
+        knownCommercialTotal: summary.knownCommercialTotal,
+        amountPayableNow: summary.amountPayableNow,
+        shippingDueLater: summary.shippingDueLater,
         totalPrice,
       },
+      shippingPaymentPreference,
       guestCredentials,
       guestCheckoutEmail: clean(address?.emailAddress) || clean(formData.emailAddress),
       guestCheckoutName: clean(address?.fullName) || clean(formData.fullName),
       updatedAt: new Date().toISOString(),
     };
 
+    saveShippingPaymentPreference(shippingPaymentPreference, ownerKey);
     savePaymentCheckoutDraft(ownerKey, checkoutDraft);
 
     navigate("/payment", {
@@ -267,6 +280,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
         guestCheckoutEmail: checkoutDraft.guestCheckoutEmail,
         guestCheckoutName: checkoutDraft.guestCheckoutName,
         guestCheckoutOwnerKey: ownerKey,
+        shippingPaymentPreference,
       },
     });
   }
@@ -688,14 +702,32 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
             </div>
 
             <div className="cart-summary__line">
-              <span>Estimated Shipping</span>
-              <strong>{formatMoney(shippingTotal)}</strong>
+              <span>Known Shipping</span>
+              <strong>{shippingTotal > 0 ? formatMoney(shippingTotal) : summary.hasPendingShipping ? "Calculated later" : "Free"}</strong>
             </div>
 
+            {summary.hasPendingShipping ? (
+              <div className="cart-summary__line">
+                <span>Pending Shipping</span>
+                <strong>Calculated later</strong>
+              </div>
+            ) : null}
+
             <div className="cart-summary__total">
-              <span>Total Price</span>
-              <strong>{formatMoney(totalPrice)}</strong>
+              <span>Total Order Value</span>
+              <strong>{formatMoney(summary.knownCommercialTotal)}</strong>
             </div>
+
+            <div className="cart-summary__line">
+              <span>Pay Now</span>
+              <strong>{formatMoney(summary.amountPayableNow)}</strong>
+            </div>
+            {summary.shippingDueLater > 0 ? (
+              <div className="cart-summary__line">
+                <span>Shipping Due Later</span>
+                <strong>{formatMoney(summary.shippingDueLater)}</strong>
+              </div>
+            ) : null}
 
             <div className="shipping-summary__items">
                 {cartRows.slice(0, 3).map((row) => (

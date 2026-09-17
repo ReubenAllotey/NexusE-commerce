@@ -30607,3 +30607,99 @@ body[data-theme="dark"] .ai-product-assistant__close {
     flex-wrap: wrap;
   }
 }
+/* Checkout shipping payment choice */
+.cart-shipping-choice {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 0;
+  border: 0;
+}
+
+.cart-shipping-choice legend {
+  margin-bottom: 2px;
+  color: var(--text-primary, #101a30);
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cart-shipping-choice__option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, #1c3fb7 22%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, #1c3fb7 4%, transparent);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.cart-shipping-choice__option:hover,
+.cart-shipping-choice__option.is-selected {
+  border-color: #1c3fb7;
+  background: color-mix(in srgb, #1c3fb7 10%, transparent);
+}
+
+.cart-shipping-choice__option.is-selected {
+  box-shadow: 0 8px 20px rgba(28, 63, 183, 0.12);
+}
+
+.cart-shipping-choice__option.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.cart-shipping-choice__option input {
+  accent-color: #1c3fb7;
+  margin-top: 3px;
+}
+
+.cart-shipping-choice__option span {
+  display: grid;
+  gap: 3px;
+}
+
+.cart-shipping-choice__option strong {
+  color: var(--text-primary, #101a30);
+  font-size: 0.9rem;
+}
+
+.cart-shipping-choice__option small,
+.cart-shipping-choice__note {
+  color: var(--text-muted, #667085);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.cart-shipping-choice__note {
+  margin: 0;
+}
+
+.cart-summary__line--payable {
+  color: #1c3fb7;
+}
+
+body[data-theme="dark"] .cart-shipping-choice legend,
+body[data-theme="dark"] .cart-shipping-choice__option strong {
+  color: #f4f7ff;
+}
+
+body[data-theme="dark"] .cart-shipping-choice__option {
+  border-color: rgba(143, 171, 255, 0.26);
+  background: rgba(143, 171, 255, 0.08);
+}
+
+body[data-theme="dark"] .cart-shipping-choice__option:hover,
+body[data-theme="dark"] .cart-shipping-choice__option.is-selected {
+  border-color: #7f9dff;
+  background: rgba(28, 63, 183, 0.28);
+}
+
+body[data-theme="dark"] .cart-shipping-choice__option small,
+body[data-theme="dark"] .cart-shipping-choice__note {
+  color: #b8c1d6;
+}

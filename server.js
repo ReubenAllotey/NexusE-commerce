@@ -924,7 +924,7 @@ function normalizeGuestCheckoutItem(item = {}) {
   };
 }
 
-async function resolveGuestCheckoutProducts(cartRows = []) {
+async function resolveGuestCheckoutProducts(cartRows = [], shippingPaymentPreference = "pay_now") {
   if (!supabaseAdmin) {
     throw new Error("Supabase server credentials are missing.");
   }
@@ -975,7 +975,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
 
   const resolvedEntries = [];
   const resolvedProductIds = new Set();
-  let availabilityMode = null;
+  const availabilityModes = new Set();
 
   for (const row of normalizedRows) {
     const product =
@@ -1010,11 +1010,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       throw new Error("Coming soon products cannot be checked out yet.");
     }
 
-    if (!availabilityMode) {
-      availabilityMode = availabilityType;
-    } else if (availabilityMode !== availabilityType) {
-      throw new Error("Pre-order and ready-stock products must be checked out separately.");
-    }
+    availabilityModes.add(availabilityType);
 
     resolvedProductIds.add(clean(product.id));
     resolvedEntries.push({
@@ -1029,6 +1025,7 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
   const normalized = [];
   let subtotal = 0;
   let shippingTotal = 0;
+  let hasPendingShipping = false;
   const shippingMethods = new Set();
 
   for (const entry of resolvedEntries) {
@@ -1040,12 +1037,16 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
     });
     const basePrice = Number(product.price) || 0;
     const unitPrice = selections.priceDelta > 0 ? selections.priceDelta : basePrice;
-    const shippingFee = availabilityType === "preorder" ? 0 : Number(product.shipping_fee) || 0;
+    const shippingFeeStatus = clean(product.shipping_fee_status).toLowerCase() === "ready" && product.shipping_fee != null
+      ? "ready"
+      : "pending";
+    const shippingFee = shippingFeeStatus === "ready" ? Math.max(Number(product.shipping_fee) || 0, 0) : null;
     const lineSubtotal = unitPrice * row.quantity;
-    const lineShipping = shippingFee * row.quantity;
+    const lineShipping = shippingFeeStatus === "ready" ? (shippingFee ?? 0) * row.quantity : 0;
 
     subtotal += lineSubtotal;
     shippingTotal += lineShipping;
+    hasPendingShipping = hasPendingShipping || shippingFeeStatus === "pending";
     shippingMethods.add(freightType);
 
     normalized.push({
@@ -1061,6 +1062,8 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
       variantKey: selections.variantKey,
       selectedOptions: selections.selectedOptions,
       shippingFee,
+      shippingFeeStatus,
+      shippingPaidAmount: 0,
       lineSubtotal,
       lineShipping,
       freightType,
@@ -1076,7 +1079,17 @@ async function resolveGuestCheckoutProducts(cartRows = []) {
     subtotal,
     shippingTotal,
     total: subtotal + shippingTotal,
-    availabilityType: availabilityMode || "ready_stock",
+    availabilityType: availabilityModes.size === 1 ? [...availabilityModes][0] : "mixed",
+    hasReadyStock: availabilityModes.has("ready_stock"),
+    hasPreorder: availabilityModes.has("preorder"),
+    hasPendingShipping,
+    shippingPaymentMode: shippingPaymentPreference === "pay_later" ? "pay_later" : "pay_now",
+    amountDueNow: subtotal + (shippingPaymentPreference === "pay_now" ? shippingTotal : 0),
+    shippingPaymentStatus: hasPendingShipping && shippingTotal === 0
+      ? "pending"
+      : shippingTotal > 0
+        ? "outstanding"
+        : "not_due",
     shipmentType:
       shippingMethods.size === 0
         ? null
@@ -1100,9 +1113,9 @@ async function createGuestCheckoutSession({
     throw new Error("Supabase server credentials are missing.");
   }
 
-  const checkout = await resolveGuestCheckoutProducts(cartRows);
+  const checkout = await resolveGuestCheckoutProducts(cartRows, "pay_now");
   const paymentReference = buildPaymentReference(name || email);
-  const amount = Number(checkout.total) || 0;
+  const amount = Number(checkout.amountDueNow) || 0;
   const amountMinor = Math.round(amount * 100);
 
   if (amount <= 0) {
@@ -1506,6 +1519,9 @@ function mapOrderBundle(order, items = []) {
       subtotal: order.subtotal,
       shippingTotal: order.shipping_total,
       total: order.total,
+      amountDueNow: order.amount_due_now,
+      shippingPaymentMode: order.shipping_payment_mode,
+      shippingPaymentStatus: order.shipping_payment_status,
       estimatedArrival: order.estimated_arrival,
       preorderTerms: order.preorder_terms,
       deliveredAt: order.delivered_at,
@@ -1526,6 +1542,8 @@ function mapOrderBundle(order, items = []) {
         variantKey: item.variant_key,
         selectedOptions: item.selected_options,
         shippingFee: item.shipping_fee,
+        shippingFeeStatus: item.shipping_fee_status,
+        shippingPaidAmount: item.shipping_paid_amount,
         availabilityType: item.availability_type,
         estimatedArrival: item.estimated_arrival,
         preorderTerms: item.preorder_terms,
@@ -1549,6 +1567,8 @@ function mapOrderBundle(order, items = []) {
       variantKey: item.variant_key,
       selectedOptions: item.selected_options,
       shippingFee: item.shipping_fee,
+      shippingFeeStatus: item.shipping_fee_status,
+      shippingPaidAmount: item.shipping_paid_amount,
       availabilityType: item.availability_type,
       estimatedArrival: item.estimated_arrival,
       preorderTerms: item.preorder_terms,
@@ -1581,6 +1601,22 @@ async function getOutstandingAmount(orderId) {
   }, 0);
 
   return paidTotal;
+}
+
+async function getOutstandingShippingAmount(orderId) {
+  const { data, error } = await supabaseAdmin
+    .from("order_items")
+    .select("line_shipping, shipping_paid_amount")
+    .eq("order_id", orderId);
+
+  if (error) {
+    throw error;
+  }
+
+  return (Array.isArray(data) ? data : []).reduce(
+    (sum, item) => sum + Math.max((Number(item.line_shipping) || 0) - (Number(item.shipping_paid_amount) || 0), 0),
+    0,
+  );
 }
 
 async function findOpenPayment(orderId, amount) {
@@ -1905,6 +1941,127 @@ async function syncOrderPaymentStatus(orderId, status) {
   return mapOrderBundle(data, Array.isArray(items) ? items : []);
 }
 
+async function syncCheckoutPaymentStatus(orderId, status, settledAmount = 0, allowShippingBalanceAllocation = true) {
+  const { data: anchorOrder, error: anchorError } = await supabaseAdmin
+    .from("orders")
+    .select("id, checkout_group_id, user_id")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (anchorError) throw anchorError;
+  if (!anchorOrder) throw new Error("The payment order could not be found.");
+
+  let orderQuery = supabaseAdmin.from("orders").select("*");
+  let orderRows;
+  let orderError;
+  if (anchorOrder.checkout_group_id) {
+    ({ data: orderRows, error: orderError } = await orderQuery.eq("checkout_group_id", anchorOrder.checkout_group_id));
+  } else {
+    orderQuery = anchorOrder.user_id ? orderQuery.eq("user_id", anchorOrder.user_id) : orderQuery.is("user_id", null);
+    ({ data: orderRows, error: orderError } = await orderQuery.eq("id", anchorOrder.id));
+  }
+
+  if (orderError) throw orderError;
+
+  const normalizedStatus = clean(status).toLowerCase() === "successful" ? "paid" : clean(status).toLowerCase();
+  const nextOrders = [];
+
+  for (const order of Array.isArray(orderRows) ? orderRows : []) {
+    const { data: items, error: itemError } = await supabaseAdmin
+      .from("order_items")
+      .select("id, line_shipping, shipping_fee_status, shipping_paid_amount")
+      .eq("order_id", order.id);
+
+    if (itemError) throw itemError;
+
+    const itemRows = Array.isArray(items) ? items : [];
+    const isShippingBalancePayment = order.id === orderId
+      && normalizePaymentStatus(order.payment_status) === "successful"
+      && order.shipping_payment_status === "outstanding"
+      && order.shipping_payment_mode === "pay_later";
+
+    if (normalizedStatus === "paid" && order.shipping_payment_mode === "pay_now") {
+      const readyItems = itemRows.filter((item) => item.shipping_fee_status === "ready");
+      for (const item of readyItems) {
+        const { error: allocationError } = await supabaseAdmin
+          .from("order_items")
+          .update({ shipping_paid_amount: Math.max(Number(item.line_shipping) || 0, 0) })
+          .eq("id", item.id)
+          .eq("shipping_fee_status", "ready");
+        if (allocationError) throw allocationError;
+      }
+    }
+
+    if (normalizedStatus === "paid" && isShippingBalancePayment && allowShippingBalanceAllocation) {
+      let remainingAmount = Math.max(Number(settledAmount) || 0, 0);
+      const readyItems = itemRows.filter((item) => item.shipping_fee_status === "ready");
+      for (const item of readyItems) {
+        const currentPaid = Math.max(Number(item.shipping_paid_amount) || 0, 0);
+        const lineShipping = Math.max(Number(item.line_shipping) || 0, 0);
+        const lineDue = Math.max(lineShipping - currentPaid, 0);
+        const allocation = Math.min(lineDue, remainingAmount);
+        if (allocation <= 0) continue;
+
+        const { error: allocationError } = await supabaseAdmin
+          .from("order_items")
+          .update({ shipping_paid_amount: currentPaid + allocation })
+          .eq("id", item.id)
+          .eq("shipping_fee_status", "ready");
+        if (allocationError) throw allocationError;
+        remainingAmount -= allocation;
+      }
+    }
+
+    const { data: refreshedItems, error: refreshedItemError } = await supabaseAdmin
+      .from("order_items")
+      .select("line_shipping, shipping_fee_status, shipping_paid_amount")
+      .eq("order_id", order.id);
+    if (refreshedItemError) throw refreshedItemError;
+
+    const currentItems = Array.isArray(refreshedItems) ? refreshedItems : [];
+    const hasPendingShipping = currentItems.some((item) => item.shipping_fee_status === "pending");
+    const knownShipping = currentItems.reduce((sum, item) => sum + (Number(item.line_shipping) || 0), 0);
+    const knownShippingDue = currentItems.reduce(
+      (sum, item) => sum + Math.max((Number(item.line_shipping) || 0) - (Number(item.shipping_paid_amount) || 0), 0),
+      0,
+    );
+    const shippingPaymentStatus = hasPendingShipping
+      ? knownShippingDue > 0 && order.shipping_payment_mode === "pay_later" ? "outstanding" : "pending"
+      : knownShippingDue > 0 ? "outstanding" : knownShipping > 0 ? "paid" : "not_due";
+    const currentStatus = clean(order.status).toLowerCase();
+    const nextOrderStatus = normalizedStatus === "paid"
+      ? normalizeAvailabilityType(order.order_type || "ready_stock") === "preorder"
+        ? currentStatus || "preorder_received"
+        : !["processing", "delivered", "cancelled", "canceled"].includes(currentStatus) ? "processing" : order.status
+      : order.status;
+
+    const { data: updatedOrder, error: updateError } = await supabaseAdmin
+      .from("orders")
+      .update({
+        payment_status: normalizedStatus || "paid",
+        shipping_payment_status: shippingPaymentStatus,
+        status: nextOrderStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id)
+      .select("*")
+      .single();
+    if (updateError) throw updateError;
+    nextOrders.push(updatedOrder);
+  }
+
+  const firstOrder = nextOrders.find((order) => order.id === orderId) ?? nextOrders[0];
+  const { data: bundleItems, error: bundleItemError } = await supabaseAdmin
+    .from("order_items")
+    .select("*")
+    .eq("order_id", firstOrder.id)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+  if (bundleItemError) throw bundleItemError;
+
+  return mapOrderBundle(firstOrder, Array.isArray(bundleItems) ? bundleItems : []);
+}
+
 async function updateGuestOrderBundle(orderId, values = {}) {
   const safeValues = Object.fromEntries(
     Object.entries(values ?? {}).filter(([, value]) => value !== undefined),
@@ -2189,6 +2346,9 @@ async function handleInitialize(req, res) {
   const paymentMethod = clean(body.paymentMethod) || "mobile-money";
   const paymentNetwork = clean(body.paymentNetwork) || "";
   const paymentPhoneNumber = clean(body.paymentPhoneNumber) || "";
+  const shippingPaymentPreference = clean(body.shippingPaymentPreference || body.shipping_payment_mode).toLowerCase() === "pay_later"
+    ? "pay_later"
+    : "pay_now";
   const callbackUrl = clean(body.callbackUrl) || "http://localhost:5173/payment/success";
 
   if (isGuestCheckout) {
@@ -2214,7 +2374,7 @@ async function handleInitialize(req, res) {
 
     let checkout;
     try {
-      checkout = await resolveGuestCheckoutProducts(cartRows);
+      checkout = await resolveGuestCheckoutProducts(cartRows, shippingPaymentPreference);
     } catch (checkoutError) {
       sendJson(res, 409, {
         ok: false,
@@ -2222,7 +2382,7 @@ async function handleInitialize(req, res) {
       });
       return;
     }
-    const amount = Number(checkout.total) || 0;
+    const amount = Number(checkout.amountDueNow) || 0;
     const orderType = checkout.availabilityType === "preorder" ? "preorder" : "ready_stock";
 
     if (amount <= 0) {
@@ -2236,36 +2396,48 @@ async function handleInitialize(req, res) {
     const guestOrderNumber = buildOrderNumber();
     const providerReference = buildPaymentReference(guestOrderNumber);
     const guestOrderDetailsAvailable = await supportsGuestOrderDetails();
-    const guestOrderValues = {
-      order_number: guestOrderNumber,
-      user_id: null,
-      customer_name: guestName,
-      customer_email: guestEmail,
-      order_type: orderType,
-      status: orderType === "preorder" ? "preorder_received" : "pending_payment",
-      payment_status: "pending",
-      shipment_type: checkout.shipmentType ?? null,
-      batch_number: clean(body.batchNumber) || null,
-      shipping_address_id: null,
-      shipping_address_snapshot: shippingAddress,
-      subtotal: checkout.subtotal,
-      shipping_total: orderType === "preorder" ? 0 : checkout.shippingTotal,
-      total: checkout.total,
-      estimated_arrival: orderType === "preorder" ? clean(checkout.items?.[0]?.estimatedArrival ?? body.estimatedArrival) || null : null,
-      preorder_terms: orderType === "preorder" ? clean(checkout.items?.[0]?.preorderTerms ?? body.preorderTerms) || null : null,
-      ...(guestOrderDetailsAvailable
-        ? {
-            guest_email: guestEmail,
-            guest_full_name: guestName,
-          }
-        : {}),
-    };
+    const checkoutGroupId = checkout.hasReadyStock && checkout.hasPreorder ? crypto.randomUUID() : null;
+    const guestGroups = [
+      ...(checkout.hasReadyStock ? [{ type: "ready_stock", items: checkout.items.filter((item) => item.availabilityType === "ready_stock") }] : []),
+      ...(checkout.hasPreorder ? [{ type: "preorder", items: checkout.items.filter((item) => item.availabilityType === "preorder") }] : []),
+    ];
+    const guestOrderValues = guestGroups.map((group, index) => {
+      const subtotal = group.items.reduce((sum, item) => sum + (Number(item.lineSubtotal) || 0), 0);
+      const shippingTotal = group.items.reduce((sum, item) => sum + (Number(item.lineShipping) || 0), 0);
+      const hasPending = group.items.some((item) => item.shippingFeeStatus === "pending");
+      const shippingPaymentStatus = hasPending && shippingTotal === 0
+        ? "pending"
+        : shippingTotal > 0 ? "outstanding" : "not_due";
+      const amountDueNow = subtotal + (shippingPaymentPreference === "pay_now" ? shippingTotal : 0);
+      return {
+        order_number: index === 0 ? guestOrderNumber : buildOrderNumber(),
+        user_id: null,
+        customer_name: guestName,
+        customer_email: guestEmail,
+        order_type: group.type,
+        status: group.type === "preorder" ? "preorder_received" : "pending_payment",
+        payment_status: "pending",
+        shipment_type: group.items.map((item) => item.freightType).filter(Boolean)[0] ?? null,
+        batch_number: clean(body.batchNumber) || null,
+        checkout_group_id: checkoutGroupId,
+        shipping_address_id: null,
+        shipping_address_snapshot: shippingAddress,
+        subtotal,
+        shipping_total: shippingTotal,
+        total: subtotal + shippingTotal,
+        shipping_payment_mode: checkout.shippingPaymentMode,
+        shipping_payment_status: shippingPaymentStatus,
+        amount_due_now: amountDueNow,
+        estimated_arrival: group.type === "preorder" ? clean(group.items[0]?.estimatedArrival ?? body.estimatedArrival) || null : null,
+        preorder_terms: group.type === "preorder" ? clean(group.items[0]?.preorderTerms ?? body.preorderTerms) || null : null,
+        ...(guestOrderDetailsAvailable ? { guest_email: guestEmail, guest_full_name: guestName } : {}),
+      };
+    });
 
-    const { data: guestOrderRow, error: guestOrderError } = await supabaseAdmin
+    const { data: guestOrderRows, error: guestOrderError } = await supabaseAdmin
       .from("orders")
       .insert(guestOrderValues)
-      .select("*")
-      .single();
+      .select("*");
 
     if (guestOrderError) {
       sendJson(res, 500, {
@@ -2275,8 +2447,9 @@ async function handleInitialize(req, res) {
       return;
     }
 
+    const guestOrderRow = guestOrderRows[0];
     const guestItems = checkout.items.map((item) => ({
-      order_id: guestOrderRow.id,
+      order_id: guestOrderRows.find((order) => order.order_type === item.availabilityType)?.id ?? guestOrderRow.id,
       product_id: item.productId,
       product_name: item.productName,
       product_slug: item.productSlug,
@@ -2288,7 +2461,9 @@ async function handleInitialize(req, res) {
       selected_size: item.selectedSize ?? null,
       variant_key: clean(item.variantKey) || null,
       selected_options: Array.isArray(item.selectedOptions) ? item.selectedOptions : [],
-      shipping_fee: item.availabilityType === "preorder" ? 0 : item.shippingFee ?? 0,
+      shipping_fee: item.shippingFee ?? 0,
+      shipping_fee_status: item.shippingFeeStatus,
+      shipping_paid_amount: item.shippingPaidAmount ?? 0,
       line_subtotal: item.lineSubtotal,
       line_shipping: item.lineShipping,
       freight_type: item.freightType || item.shippingMethod || "air",
@@ -2340,9 +2515,13 @@ async function handleInitialize(req, res) {
         cartRows: checkout.items,
         totals: {
           subtotal: checkout.subtotal,
-          shippingTotal: orderType === "preorder" ? 0 : checkout.shippingTotal,
-          totalPrice: checkout.total,
+          shippingTotal: checkout.shippingTotal,
+          totalPrice: checkout.amountDueNow,
+          knownCommercialTotal: checkout.total,
+          amountPayableNow: checkout.amountDueNow,
+          shippingDueLater: shippingPaymentPreference === "pay_later" ? checkout.shippingTotal : 0,
         },
+        shippingPaymentPreference,
         paymentPurpose,
         paymentMethod,
         paymentNetwork,
@@ -2352,6 +2531,7 @@ async function handleInitialize(req, res) {
         availabilityType: orderType,
         estimatedArrival: checkout.items?.[0]?.estimatedArrival ?? "",
         preorderTerms: checkout.items?.[0]?.preorderTerms ?? "",
+        shippingPaymentPreference,
       }),
     };
 
@@ -2403,8 +2583,13 @@ async function handleInitialize(req, res) {
         paymentReference: reference,
         authorizationUrl: checkoutData.authorization_url ?? "",
         accessCode: checkoutData.access_code ?? "",
+        amountDueNow: checkout.amountDueNow,
+        shippingPaymentMode: checkout.shippingPaymentMode,
       },
-      order: mapOrderBundle(guestOrderRow, insertedGuestItems ?? []).order,
+      order: mapOrderBundle(
+        guestOrderRow,
+        (insertedGuestItems ?? []).filter((item) => item.order_id === guestOrderRow.id),
+      ).order,
       payment: updatedGuestPayment,
       data: checkoutData,
     });
@@ -2450,7 +2635,7 @@ async function handleInitialize(req, res) {
 
   const { data: orderRow, error: orderError } = await supabaseAdmin
     .from("orders")
-    .select("id, order_number, user_id, customer_name, customer_email, status, payment_status, shipment_type, batch_number, shipping_address_id, shipping_address_snapshot, subtotal, shipping_total, total, delivered_at, created_at, updated_at")
+    .select("*")
     .eq("id", orderId)
     .eq("user_id", authResult.user.id)
     .maybeSingle();
@@ -2471,13 +2656,29 @@ async function handleInitialize(req, res) {
     return;
   }
 
-  const orderOutstanding = Number(orderRow.total) - (await getOutstandingAmount(orderRow.id));
-  let amount = Number.isFinite(orderOutstanding) ? Math.max(orderOutstanding, 0) : 0;
+  const { data: linkedOrderRows, error: linkedOrderError } = orderRow.checkout_group_id
+    ? await supabaseAdmin
+        .from("orders")
+        .select("id, checkout_group_id, total, amount_due_now, user_id")
+        .eq("checkout_group_id", orderRow.checkout_group_id)
+        .eq("user_id", authResult.user.id)
+    : { data: [orderRow], error: null };
 
-  if (paymentPurpose === "shipping-balance" && amount <= 0) {
-    const legacyBalance = Number(body.shippingBalanceDue ?? 0);
-    amount = Number.isFinite(legacyBalance) && legacyBalance > 0 ? legacyBalance : amount;
+  if (linkedOrderError) {
+    sendJson(res, 500, { ok: false, message: linkedOrderError.message || "Unable to load linked checkout orders." });
+    return;
   }
+
+  const checkoutAmountDueNow = (Array.isArray(linkedOrderRows) ? linkedOrderRows : [orderRow]).reduce(
+    (sum, linkedOrder) => sum + (Number(linkedOrder.amount_due_now ?? linkedOrder.total) || 0),
+    0,
+  );
+  const authoritativeShippingBalance = paymentPurpose === "shipping-balance"
+    ? await getOutstandingShippingAmount(orderRow.id)
+    : 0;
+  const amount = paymentPurpose === "order"
+    ? checkoutAmountDueNow
+    : Math.max(authoritativeShippingBalance, 0);
 
   if (amount <= 0) {
     sendJson(res, 409, {
@@ -2500,6 +2701,7 @@ async function handleInitialize(req, res) {
       },
       payment: paymentRow,
       order: mapOrderBundle(orderRow, []),
+      amountDueNow: amount,
     });
     return;
   }
@@ -2576,6 +2778,7 @@ async function handleInitialize(req, res) {
     data: checkoutData,
     payment: updatedPayment,
     order: mapOrderBundle(orderRow, []),
+    amountDueNow: amount,
   });
 }
 
@@ -2648,7 +2851,7 @@ async function handleVerify(req, res, reference) {
       }
 
       try {
-        await syncOrderPaymentStatus(paymentRow.order_id, "paid");
+        await syncCheckoutPaymentStatus(paymentRow.order_id, "paid", paymentRow.amount, false);
       } catch {
         // Keep the finalization flow moving for already-completed guest payments.
       }
@@ -2706,9 +2909,12 @@ async function handleVerify(req, res, reference) {
       return;
     }
 
-    const expectedCheckout = await resolveGuestCheckoutProducts(guestCartRows);
+    const expectedShippingPaymentPreference = clean(metadata.shippingPaymentPreference || metadata.shipping_payment_mode).toLowerCase() === "pay_later"
+      ? "pay_later"
+      : "pay_now";
+    const expectedCheckout = await resolveGuestCheckoutProducts(guestCartRows, expectedShippingPaymentPreference);
     const guestBatchNumber = clean(metadata.batchNumber) || clean(expectedCheckout.batchNumber) || null;
-    const expectedAmountMinor = Math.round(Number(expectedCheckout.total) * 100);
+    const expectedAmountMinor = Math.round(Number(expectedCheckout.amountDueNow) * 100);
     const expectedCurrency = "GHS";
 
     if (upstreamAmountMinor !== expectedAmountMinor) {
@@ -2770,20 +2976,8 @@ async function handleVerify(req, res, reference) {
         guest_full_name: guestName,
         customer_name: guestCustomerName,
         customer_email: guestCustomerEmail,
-        order_type: guestOrderType,
         status: guestOrderStatus,
         payment_status: "paid",
-        shipment_type: expectedCheckout.shipmentType ?? null,
-        batch_number: guestBatchNumber,
-        shipping_address_snapshot: guestShippingAddress,
-        subtotal: Number(guestTotals.subtotal ?? expectedCheckout.subtotal) || expectedCheckout.subtotal,
-        shipping_total:
-          guestOrderType === "preorder"
-            ? 0
-            : Number(guestTotals.shippingTotal ?? expectedCheckout.shippingTotal) || expectedCheckout.shippingTotal,
-        total: Number(guestTotals.totalPrice ?? guestTotals.total ?? expectedCheckout.total) || expectedCheckout.total,
-        estimated_arrival: guestOrderType === "preorder" ? guestEstimatedArrival : null,
-        preorder_terms: guestOrderType === "preorder" ? guestPreorderTerms : null,
         ...(guestOrderDetailsAvailable
           ? {
               guest_email: guestEmail,
@@ -2793,6 +2987,8 @@ async function handleVerify(req, res, reference) {
       };
 
       const orderBundle = await updateGuestOrderBundle(paymentRow.order_id, orderValues);
+
+      await syncCheckoutPaymentStatus(paymentRow.order_id, "paid", paymentRow.amount);
 
       const paymentUpdateValues = {
         user_id: linkedUserId || undefined,
@@ -2882,6 +3078,8 @@ async function handleVerify(req, res, reference) {
     return;
   }
 
+  const wasPaymentSuccessful = normalizePaymentStatus(paymentRow.status) === "successful";
+
   const expectedAmountMinor = Number(paymentRow.amount_minor) || 0;
   const expectedCurrency = clean(paymentRow.currency).toUpperCase();
 
@@ -2924,7 +3122,12 @@ async function handleVerify(req, res, reference) {
   let orderBundle = null;
 
   if (normalizedStatus === "successful") {
-    orderBundle = await syncOrderPaymentStatus(paymentRow.order_id, "paid");
+    orderBundle = await syncCheckoutPaymentStatus(
+      paymentRow.order_id,
+      "paid",
+      paymentRow.amount,
+      !wasPaymentSuccessful,
+    );
   } else {
     const orderResult = await loadOrderBundle(paymentRow.order_id);
     if (orderResult.ok) {
@@ -3047,6 +3250,7 @@ async function handleWebhook(req, res) {
       });
 
       const normalizedStatus = normalizePaymentStatus(event?.data?.status ?? event.event);
+      const wasPaymentSuccessful = normalizePaymentStatus(paymentRow.status) === "successful";
 
       if (paymentRow.status !== normalizedStatus) {
         const paymentUpdate = {
@@ -3061,7 +3265,12 @@ async function handleWebhook(req, res) {
       }
 
       if (normalizedStatus === "successful") {
-        await syncOrderPaymentStatus(paymentRow.order_id, "paid");
+        await syncCheckoutPaymentStatus(
+          paymentRow.order_id,
+          "paid",
+          paymentRow.amount,
+          !wasPaymentSuccessful,
+        );
       }
     }
   }

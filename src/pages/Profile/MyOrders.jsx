@@ -174,6 +174,16 @@ function MyOrders({
               const delivered = isDeliveredOrder(order);
               const preorder = isPreorderOrder(order);
               const items = Array.isArray(order.items) ? order.items : [];
+              const hasPendingShipping = items.some((item) => item.shippingFeeStatus === "pending");
+              const shippingDue = items.reduce(
+                (sum, item) => sum + Math.max((Number(item.lineShipping) || 0) - (Number(item.shippingPaidAmount) || 0), 0),
+                0,
+              );
+              const shippingSummary = hasPendingShipping
+                ? shippingDue > 0 ? `Pending / ${formatMoney(shippingDue)} outstanding` : "Pending / To be confirmed"
+                : shippingDue > 0
+                  ? `Outstanding ${formatMoney(shippingDue)}`
+                  : (order.shippingTotal ?? 0) > 0 ? "Shipping paid" : "Free";
               const orderCount = items.reduce(
                 (sum, item) => sum + (item.quantity ?? 1),
                 0,
@@ -321,7 +331,7 @@ function MyOrders({
                         </div>
                         <div>
                           <span>Shipping</span>
-                          <strong>{preorder ? "To be confirmed" : formatMoney(order.shippingTotal ?? 0)}</strong>
+                          <strong>{shippingSummary}</strong>
                         </div>
                         <div>
                           <span>Estimated arrival</span>

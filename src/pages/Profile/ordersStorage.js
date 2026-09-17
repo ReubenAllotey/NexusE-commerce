@@ -131,6 +131,8 @@ function normalizeOrderItemRecord(item = {}) {
     variantKey: clean(readField(item, "variantKey", "variant_key")),
     selectedOptions,
     shippingFee,
+    shippingFeeStatus: clean(readField(item, "shippingFeeStatus", "shipping_fee_status")),
+    shippingPaidAmount: normalizeNumber(readField(item, "shippingPaidAmount", "shipping_paid_amount"), 0),
     availabilityType,
     estimatedArrival: toNullableText(readField(item, "estimatedArrival", "estimated_arrival")),
     preorderTerms: toNullableText(readField(item, "preorderTerms", "preorder_terms")),
@@ -177,6 +179,9 @@ function mapOrderBundleToLegacyViewModel(bundle = {}, fallbackItems = []) {
     subtotal: normalizeNumber(readField(order, "subtotal", "subtotal"), 0),
     shippingTotal: normalizeNumber(readField(order, "shippingTotal", "shipping_total"), 0),
     total: normalizeNumber(readField(order, "total", "total"), 0),
+    amountDueNow: normalizeNumber(readField(order, "amountDueNow", "amount_due_now"), 0),
+    shippingPaymentMode: clean(readField(order, "shippingPaymentMode", "shipping_payment_mode")),
+    shippingPaymentStatus: clean(readField(order, "shippingPaymentStatus", "shipping_payment_status")),
     estimatedArrival: toNullableText(readField(order, "estimatedArrival", "estimated_arrival")),
     preorderTerms: toNullableText(readField(order, "preorderTerms", "preorder_terms")),
     deliveredAt: readField(order, "deliveredAt", "delivered_at", null),
@@ -343,6 +348,7 @@ export async function loadOrders({ authUser = null } = {}) {
 export async function createOrderFromCart({
   shippingAddressId = "",
   batchNumber = "",
+  shippingPaymentPreference = "pay_now",
 } = {}) {
   const userResult = await getCurrentAuthUser();
 
@@ -363,6 +369,7 @@ export async function createOrderFromCart({
   const payload = {
     shipping_address_id: clean(shippingAddressId),
     batch_number: clean(batchNumber),
+    shippingPaymentPreference: shippingPaymentPreference === "pay_later" ? "pay_later" : "pay_now",
   };
 
   const { data, error } = await supabase.rpc("create_order_from_cart", { payload });
