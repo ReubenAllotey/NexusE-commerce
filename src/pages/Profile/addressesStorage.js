@@ -32,6 +32,7 @@ function normalizeAddressRecord(row = {}) {
     country: row.country ?? "",
     region: row.region ?? "",
     city: row.city ?? "",
+    deliveryLocation: row.city ?? "",
     streetAddress: row.street_address ?? "",
     houseNumber: row.house_number ?? "",
     landmark: row.landmark ?? "",

@@ -716,12 +716,15 @@ function AppShell({
           element={
             <Cart
               cartItems={cartItems}
+              authUser={authUser}
+              addresses={addresses}
               loading={cartLoading}
               error={cartError}
               onUpdateCartQuantity={onUpdateCartQuantity}
               onRemoveCartItem={onRemoveCartItem}
               onEditCartItem={onEditCartItem}
               onClearCart={onClearCart}
+              onAddToCart={onAddToCart}
             />
           }
         />
@@ -749,6 +752,8 @@ function AppShell({
               onClearCart={onClearCart}
               onReplaceOrders={onReplaceOrders}
               onUpdateOrder={onUpdateOrder}
+              onSaveAddress={onSaveAddress}
+              onAddToCart={onAddToCart}
             />
           }
         />

@@ -40,6 +40,7 @@ function normalizeShippingAddressSnapshot(snapshot = {}) {
     country: clean(readField(snapshot, "country", "country")),
     region: clean(readField(snapshot, "region", "region")),
     city: clean(readField(snapshot, "city", "city")),
+    deliveryLocation: clean(readField(snapshot, "deliveryLocation", "delivery_location")) || clean(readField(snapshot, "city", "city")),
     streetAddress: clean(readField(snapshot, "streetAddress", "street_address")),
     houseNumber: clean(readField(snapshot, "houseNumber", "house_number")),
     landmark: clean(readField(snapshot, "landmark", "landmark")),

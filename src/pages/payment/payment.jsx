@@ -39,6 +39,10 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function isReasonableEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(value));
+}
+
 function resolveAppUrl() {
   const configuredUrl = clean(import.meta.env.VITE_APP_URL);
 
@@ -231,12 +235,41 @@ function PaymentMethodCard({ value, selected, title, description, onClick, child
 
 function PaymentSummary({ shippingAddress, cartRows, totals }) {
   return (
-    <aside className="payment-summary">
+    <section className="payment-summary checkout-order-summary">
       <div className="payment-summary__header">
         <p>Order Summary</p>
         <strong>
-          {cartRows.length} item{cartRows.length === 1 ? "" : "s"}
+          {cartRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0)} item{cartRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0) === 1 ? "" : "s"}
         </strong>
+      </div>
+
+      <div className="payment-summary__items">
+        {cartRows.map((row) => {
+          const quantity = Number(row.quantity) || 1;
+          const unitPrice = (Number(row.lineSubtotal) || 0) / quantity;
+          const shipping = Number(row.lineShipping) || 0;
+          const shippingPending = row.hasPendingShipping || row.shippingFeeStatus === "pending";
+          const selectedOptions = Array.isArray(row.item?.selectedOptions ?? row.selectedOptions)
+            ? (row.item?.selectedOptions ?? row.selectedOptions)
+            : [];
+
+          return (
+            <article key={row.key} className="payment-summary__item checkout-order-summary__item">
+              <img src={row.product.image} alt={row.product.name} />
+              <div>
+                <strong>{row.product.name}</strong>
+                {selectedOptions.length > 0 ? (
+                  <span>{selectedOptions.map((option) => `${option.label || option.name || "Option"}: ${option.value || option.optionValue || ""}`).join(" · ")}</span>
+                ) : row.variant?.color || row.variant?.size ? (
+                  <span>{[row.variant.color, row.variant.size].filter(Boolean).join(" / ")}</span>
+                ) : null}
+                <span>{quantity} × {formatGhanaCedis(unitPrice)}</span>
+                <span>{shippingPending ? "Shipping: To be calculated later" : `Shipping: ${shipping > 0 ? formatGhanaCedis(shipping) : "Free"}`}</span>
+              </div>
+              <strong>{formatGhanaCedis(Number(row.lineSubtotal) || 0)}</strong>
+            </article>
+          );
+        })}
       </div>
 
       <div className="payment-summary__rows">
@@ -250,60 +283,21 @@ function PaymentSummary({ shippingAddress, cartRows, totals }) {
           <strong>{totals.shippingTotal > 0 ? formatGhanaCedis(totals.shippingTotal) : totals.hasPendingShipping ? "Calculated later" : "Free"}</strong>
         </div>
 
-        {totals.hasPendingShipping ? <div className="payment-summary__row"><span>Pending Shipping</span><strong>Calculated later</strong></div> : null}
-
         <div className="payment-summary__total">
           <span>Total Order Value</span>
           <strong>{formatGhanaCedis(totals.knownCommercialTotal ?? totals.totalPrice)}</strong>
         </div>
 
-        <div className="payment-summary__row">
-          <span>Pay Now</span>
+        <div className="payment-summary__row payment-summary__row--payable">
+          <span>Amount to Pay Now</span>
           <strong>{formatGhanaCedis(totals.amountPayableNow ?? totals.totalPrice)}</strong>
         </div>
 
         {(totals.shippingDueLater ?? 0) > 0 ? <div className="payment-summary__row"><span>Shipping Due Later</span><strong>{formatGhanaCedis(totals.shippingDueLater)}</strong></div> : null}
       </div>
 
-      <div className="payment-summary__address">
-        <p>Delivery Address</p>
-        {shippingAddress ? (
-          <div>
-            <strong>{shippingAddress.fullName}</strong>
-            <span>{shippingAddress.streetAddress}</span>
-            <span>{[shippingAddress.city, shippingAddress.region, shippingAddress.country].filter(Boolean).join(", ")}</span>
-            <span>{shippingAddress.phoneNumber}</span>
-          </div>
-        ) : (
-          <div>
-            <strong>No shipping address found.</strong>
-            <span>Please go back and complete shipping details.</span>
-          </div>
-        )}
-      </div>
-
-      <div className="payment-summary__items">
-        {cartRows.map((row) => (
-          <div key={row.key} className="payment-summary__item">
-            <img src={row.product.image} alt={row.product.name} />
-            <div>
-              <strong>{row.product.name}</strong>
-              <span>
-                {row.quantity} item{row.quantity === 1 ? "" : "s"}
-              </span>
-              {row.variant?.color || row.variant?.size ? (
-                <span>{[row.variant.color, row.variant.size].filter(Boolean).join(" / ")}</span>
-              ) : null}
-            </div>
-            <strong>{formatGhanaCedis((Number(row.lineSubtotal) || 0) + (Number(row.lineShipping) || 0))}</strong>
-          </div>
-        ))}
-      </div>
-
-      <p className="payment-summary__note">
-        Paystack will handle card and mobile money authorization securely.
-      </p>
-    </aside>
+      <p className="payment-summary__note">Shipping is calculated per item. Pending fees will be updated later.</p>
+    </section>
   );
 }
 
@@ -330,6 +324,7 @@ function PaymentCheckout({
   onClearCart = () => {},
   onReplaceOrders = () => {},
   onUpdateOrder = () => {},
+  onSaveAddress = async () => ({ ok: false }),
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -387,6 +382,11 @@ function PaymentCheckout({
       snapshot.shippingAddress?.phoneNumber ??
       "",
   );
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponMessage, setCouponMessage] = useState("");
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -410,6 +410,29 @@ function PaymentCheckout({
   const summaryAmount = formatGhanaCedis(summaryTotal);
   const checkoutEmail = getCheckoutEmail(authUser, shippingAddress, paymentIntent, targetOrder);
   const checkoutCustomer = getCheckoutCustomer(authUser, shippingAddress, paymentIntent, targetOrder);
+
+  useEffect(() => {
+    setCustomerName(
+      clean(location.state?.customerName) ||
+        (checkoutCustomer.name === "Guest" ? "" : checkoutCustomer.name),
+    );
+    setCustomerEmail(clean(location.state?.customerEmail) || checkoutEmail);
+    setCustomerPhone(
+      clean(location.state?.customerPhone) ||
+        shippingAddress?.phoneNumber ||
+        authUser?.phoneNumber ||
+        "",
+    );
+  }, [
+    authUser?.id,
+    authUser?.phoneNumber,
+    checkoutEmail,
+    checkoutCustomer.name,
+    location.state?.customerEmail,
+    location.state?.customerName,
+    location.state?.customerPhone,
+    shippingAddress?.phoneNumber,
+  ]);
 
   useEffect(() => {
     if (!isShippingBalancePayment && (!shippingAddress || cartRows.length === 0)) {
@@ -450,7 +473,9 @@ function PaymentCheckout({
   }
 
   const mobileReady = clean(mobileNetwork) && clean(mobileNumber).length >= 9;
-  const canSubmit = agreeToTerms && !isSubmitting && !processing && Boolean(checkoutEmail) && (paymentMethod === "card" || mobileReady);
+  const hasReadyStockItems = cartRows.some((row) => row.availabilityType === "ready_stock");
+  const hasPendingShipping = cartRows.some((row) => row.hasPendingShipping || row.shippingFeeStatus === "pending");
+  const canSubmit = agreeToTerms && !isSubmitting && !processing && Boolean(customerName.trim()) && Boolean(customerPhone.trim()) && isReasonableEmail(customerEmail) && (paymentMethod === "card" || mobileReady);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -460,8 +485,18 @@ function PaymentCheckout({
       return;
     }
 
-    if (!checkoutEmail) {
-      setError("Please add an email address in your shipping details before continuing.");
+    if (!customerName.trim() || !customerPhone.trim()) {
+      setError("Please add your full name and phone number before continuing.");
+      return;
+    }
+
+    if (!customerEmail.trim()) {
+      setError("Email address is required.");
+      return;
+    }
+
+    if (!isReasonableEmail(customerEmail)) {
+      setError("Enter a valid email address.");
       return;
     }
 
@@ -483,13 +518,17 @@ function PaymentCheckout({
     let authoritativeAmount = summaryTotal;
 
     try {
+      const checkoutCustomerName = customerName.trim();
+      const checkoutCustomerEmail = customerEmail.trim().toLowerCase();
+      const checkoutCustomerPhone = customerPhone.trim();
+
       if (!authUser) {
         const initResponse = await initializePaystackCheckout(
           {
             callbackUrl: getCallbackUrl(),
             guestCheckout: true,
-            guestCheckoutEmail: checkoutEmail,
-            guestCheckoutName: checkoutCustomer.name,
+            guestCheckoutEmail: checkoutCustomerEmail,
+            guestCheckoutName: checkoutCustomerName,
             guestCheckoutOwnerKey: checkoutOwnerKey,
             batchNumber: checkoutBatchNumber,
             shippingAddress,
@@ -520,8 +559,8 @@ function PaymentCheckout({
           id: guestCheckoutId,
           orderNumber: clean(guestCheckout?.orderNumber) || `GUEST-${Date.now()}`,
           customerId: "guest",
-          customerName: checkoutCustomer.name,
-          customerEmail: checkoutEmail,
+          customerName: checkoutCustomerName,
+          customerEmail: checkoutCustomerEmail,
           batchNumber: checkoutBatchNumber,
           shippingAddress,
           total: authoritativeAmount,
@@ -559,8 +598,8 @@ function PaymentCheckout({
             amount: authoritativeAmount,
             amountInPesewas: Math.round(authoritativeAmount * 100),
             topUpOrderId: "",
-            guestCheckoutEmail: checkoutEmail,
-            guestCheckoutName: checkoutCustomer.name,
+          guestCheckoutEmail: checkoutCustomerEmail,
+          guestCheckoutName: checkoutCustomerName,
             createdAt: session?.createdAt ?? new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },
@@ -597,8 +636,27 @@ function PaymentCheckout({
           updatedAt: new Date().toISOString(),
         };
       } else {
+        let resolvedShippingAddressId = shippingAddress?.id ?? "";
+        if (resolvedShippingAddressId && typeof onSaveAddress === "function") {
+          const addressResult = await onSaveAddress({
+            ...shippingAddress,
+            id: resolvedShippingAddressId,
+            fullName: checkoutCustomerName,
+            phoneNumber: checkoutCustomerPhone,
+            emailAddress: checkoutCustomerEmail,
+            country: "Ghana",
+            region: shippingAddress.region,
+            city: shippingAddress.city || shippingAddress.deliveryLocation,
+            landmark: shippingAddress.landmark ?? "",
+          });
+          if (!addressResult?.ok) {
+            throw new Error(addressResult?.message || "Unable to save your customer details.");
+          }
+          resolvedShippingAddressId = addressResult.address?.id || resolvedShippingAddressId;
+        }
+
         const createResult = await createOrderFromCart({
-          shippingAddressId: shippingAddress?.id ?? "",
+          shippingAddressId: resolvedShippingAddressId,
           batchNumber: checkoutBatchNumber,
           shippingPaymentPreference,
         });
@@ -691,17 +749,28 @@ function PaymentCheckout({
         <nav className="payment-breadcrumb" aria-label="Breadcrumb">
           <Link to="/">Home</Link>
           <span aria-hidden="true">&rsaquo;</span>
-          <Link to="/cart">Cart</Link>
+          <Link
+            to="/cart"
+            state={{
+              shippingAddress,
+              customerName,
+              customerPhone,
+              customerEmail,
+              shippingPaymentPreference,
+            }}
+          >
+            Back to Cart
+          </Link>
           <span aria-hidden="true">&rsaquo;</span>
-          <Link to="/shipping-address">Shipping</Link>
+          <Link to="/shipping-address">Delivery Location</Link>
           <span aria-hidden="true">&rsaquo;</span>
-          <span aria-current="page">Payment</span>
+          <span aria-current="page">Checkout</span>
         </nav>
 
         <header className="payment-header">
           <div>
             <p>Secure checkout</p>
-            <h1>Payment</h1>
+            <h1>Checkout</h1>
           </div>
 
           <div className="payment-header__meta">
@@ -721,8 +790,8 @@ function PaymentCheckout({
 
         <section className="payment-layout">
           <div className="payment-main">
-            <section className="payment-panel">
-              <div className="payment-panel__header">
+            <section className="checkout-card-flow">
+              <div className="payment-panel__header checkout-legacy-header">
                 <div>
                   <p className="payment-panel__eyebrow">Select a method</p>
                   <h2>Choose one payment option</h2>
@@ -732,7 +801,168 @@ function PaymentCheckout({
                 </span>
               </div>
 
-              <form className="payment-form" onSubmit={handleSubmit}>
+              <>
+                <section className="checkout-info-card checkout-info-card--location">
+                  <div className="checkout-info-card__heading">
+                    <span className="checkout-info-card__icon" aria-hidden="true">⌖</span>
+                    <div>
+                      <p className="payment-panel__eyebrow">Delivery Location</p>
+                      <h2>{shippingAddress?.region || "Region not selected"}</h2>
+                    </div>
+                  </div>
+                  <div className="checkout-info-card__details">
+                    <strong>{shippingAddress?.city || shippingAddress?.deliveryLocation || "Delivery location not selected"}</strong>
+                    {shippingAddress?.landmark ? <span>{shippingAddress.landmark}</span> : null}
+                    <span>{shippingAddress?.country || "Ghana"}</span>
+                  </div>
+                  <Link
+                    to="/shipping-address"
+                    state={{
+                      cartRows,
+                      shippingPaymentPreference,
+                      customerName,
+                      customerPhone,
+                      customerEmail,
+                    }}
+                    className="checkout-info-card__link"
+                  >
+                    Change
+                  </Link>
+                </section>
+
+                <section className="checkout-info-card checkout-info-card--customer">
+                  <div className="payment-panel__header">
+                    <div>
+                      <p className="payment-panel__eyebrow">Customer information</p>
+                      <h2>Who should we contact?</h2>
+                    </div>
+                  </div>
+                  <div className="payment-grid">
+                    <label className="payment-field">
+                      <span>Full Name *</span>
+                      <input
+                        type="text"
+                        value={customerName}
+                        onChange={(event) => setCustomerName(event.target.value)}
+                        autoComplete="name"
+                        required
+                      />
+                    </label>
+                    <label className="payment-field">
+                      <span>Phone / WhatsApp Number *</span>
+                      <input
+                        type="tel"
+                        value={customerPhone}
+                        onChange={(event) => setCustomerPhone(event.target.value)}
+                        autoComplete="tel"
+                        required
+                      />
+                    </label>
+                    <label className="payment-field payment-field--full">
+                      <span>Email Address *</span>
+                      <input
+                        type="email"
+                        value={customerEmail}
+                        onChange={(event) => setCustomerEmail(event.target.value)}
+                        autoComplete="email"
+                        placeholder="e.g. customer@example.com"
+                        required
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                {isShippingBalancePayment ? (
+                  <section className="payment-summary payment-summary--topup">
+                    <div className="payment-summary__header">
+                      <p>Shipping balance</p>
+                      <strong>{paymentIntent?.productName || targetOrder?.orderNumber || "Top-up"}</strong>
+                    </div>
+                    <div className="payment-summary__rows">
+                      <div className="payment-summary__row">
+                        <span>Remaining Balance</span>
+                        <strong>{formatGhanaCedis(summaryTotal)}</strong>
+                      </div>
+                    </div>
+                  </section>
+            ) : (
+              <PaymentSummary shippingAddress={shippingAddress} cartRows={cartRows} totals={totals} />
+            )}
+
+            <section className="checkout-info-card checkout-phase-card checkout-coupon-card">
+              <div className="checkout-phase-card__header">
+                <span className="checkout-phase-card__icon" aria-hidden="true">%</span>
+                <h2>Coupon Code</h2>
+              </div>
+              <div className="checkout-coupon-card__form">
+                <input
+                  type="text"
+                  value={couponCode}
+                  onChange={(event) => {
+                    setCouponCode(event.target.value);
+                    setCouponMessage("");
+                  }}
+                  placeholder="Enter coupon code"
+                  aria-label="Coupon code"
+                />
+                <button
+                  type="button"
+                  onClick={() => setCouponMessage("Coupon codes are not available yet.")}
+                >
+                  Apply
+                </button>
+              </div>
+              {couponMessage ? <p className="checkout-phase-card__message">{couponMessage}</p> : null}
+            </section>
+
+            <section className="checkout-info-card checkout-phase-card checkout-delivery-card">
+              <div className="checkout-phase-card__header">
+                <span className="checkout-phase-card__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M3 6.5h11v10H3zM14 10h3.5l3.5 3.5v3H14z" />
+                    <path d="M7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
+                  </svg>
+                </span>
+                <h2>Delivery &amp; Shipping</h2>
+              </div>
+              <div className="checkout-delivery-card__groups">
+                {hasReadyStockItems ? (
+                  <div className="checkout-delivery-card__group">
+                    <strong>Ready Stock</strong>
+                    <p>Available items will proceed to delivery after order processing and payment confirmation.</p>
+                  </div>
+                ) : null}
+                <div className="checkout-delivery-card__group checkout-delivery-card__group--preorder">
+                  <strong>Preorder Items</strong>
+                  <p>Delivery takes 6–9 weeks after monthly orders are closed.</p>
+                  <p>Air shipment: approximately 2 weeks.</p>
+                </div>
+              </div>
+              {hasPendingShipping ? <p className="checkout-phase-card__message">Shipping fees marked as pending will be communicated when available.</p> : null}
+              <p className="checkout-phase-card__note">Contact us for more information about delivery options.</p>
+            </section>
+
+            <section className="checkout-info-card checkout-phase-card checkout-payment-info-card">
+              <div className="checkout-phase-card__header">
+                <span className="checkout-phase-card__icon" aria-hidden="true">&#128274;</span>
+                <h2>Payment Method</h2>
+              </div>
+              <strong>Secure payment via Paystack</strong>
+              <p>Mobile Money and Cards</p>
+            </section>
+
+            </>
+
+                <section className="payment-panel">
+                  <div className="payment-panel__header">
+                    <div>
+                      <p className="payment-panel__eyebrow">Payment</p>
+                      <h2>Payment controls</h2>
+                    </div>
+                    <span className="payment-panel__secure">Secure and encrypted payment</span>
+                  </div>
+                  <form className="payment-form" onSubmit={handleSubmit}>
+
                 <div className="payment-methods">
                   <PaymentMethodCard
                     value="mobile-money"
@@ -817,9 +1047,10 @@ function PaymentCheckout({
                 </button>
               </form>
             </section>
+            </section>
           </div>
 
-          {isShippingBalancePayment ? (
+          {false ? (
             <aside className="payment-summary payment-summary--topup">
               <div className="payment-summary__header">
                 <p>Shipping balance</p>
@@ -853,9 +1084,7 @@ function PaymentCheckout({
                 Tap Pay to settle only the remaining shipping balance.
               </p>
             </aside>
-          ) : (
-            <PaymentSummary shippingAddress={shippingAddress} cartRows={cartRows} totals={totals} />
-          )}
+          ) : null}
         </section>
       </div>
     </main>

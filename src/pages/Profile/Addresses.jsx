@@ -495,6 +495,7 @@ function Addresses({
                     value={formData.country}
                     onChange={handleFieldChange}
                     required
+                    readOnly
                     autoComplete="country-name"
                     disabled={isSaving}
                   />
@@ -514,7 +515,7 @@ function Addresses({
                 </label>
 
                 <label className="address-modal__field">
-                  <span>City</span>
+                  <span>Delivery Location</span>
                   <input
                     type="text"
                     name="city"
@@ -522,31 +523,6 @@ function Addresses({
                     onChange={handleFieldChange}
                     required
                     autoComplete="address-level2"
-                    disabled={isSaving}
-                  />
-                </label>
-
-                <label className="address-modal__field address-modal__field--full">
-                  <span>Street Address</span>
-                  <input
-                    type="text"
-                    name="streetAddress"
-                    value={formData.streetAddress}
-                    onChange={handleFieldChange}
-                    required
-                    autoComplete="street-address"
-                    disabled={isSaving}
-                  />
-                </label>
-
-                <label className="address-modal__field">
-                  <span>House Number (Optional)</span>
-                  <input
-                    type="text"
-                    name="houseNumber"
-                    value={formData.houseNumber}
-                    onChange={handleFieldChange}
-                    autoComplete="address-line2"
                     disabled={isSaving}
                   />
                 </label>
@@ -562,17 +538,6 @@ function Addresses({
                   />
                 </label>
 
-                <label className="address-modal__field">
-                  <span>Postal Code (Optional)</span>
-                  <input
-                    type="text"
-                    name="postalCode"
-                    value={formData.postalCode}
-                    onChange={handleFieldChange}
-                    autoComplete="postal-code"
-                    disabled={isSaving}
-                  />
-                </label>
               </div>
 
               <label className="address-modal__check">

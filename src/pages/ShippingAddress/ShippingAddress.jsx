@@ -65,7 +65,7 @@ function createEmptyForm(authUser = null, address = null) {
     emailAddress: address?.emailAddress ?? authUser?.email ?? "",
     country: "Ghana",
     region: address?.region ?? "",
-    city: address?.city ?? "",
+    city: address?.deliveryLocation ?? address?.city ?? "",
     streetAddress: address?.streetAddress ?? "",
     houseNumber: address?.houseNumber ?? "",
     landmark: address?.landmark ?? "",
@@ -265,6 +265,9 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       guestCredentials,
       guestCheckoutEmail: clean(address?.emailAddress) || clean(formData.emailAddress),
       guestCheckoutName: clean(address?.fullName) || clean(formData.fullName),
+      customerName: clean(location.state?.customerName),
+      customerPhone: clean(location.state?.customerPhone),
+      customerEmail: clean(location.state?.customerEmail),
       updatedAt: new Date().toISOString(),
     };
 
@@ -280,6 +283,9 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
         guestCheckoutEmail: checkoutDraft.guestCheckoutEmail,
         guestCheckoutName: checkoutDraft.guestCheckoutName,
         guestCheckoutOwnerKey: ownerKey,
+        customerName: checkoutDraft.customerName,
+        customerPhone: checkoutDraft.customerPhone,
+        customerEmail: checkoutDraft.customerEmail,
         shippingPaymentPreference,
       },
     });
@@ -301,20 +307,15 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       country: "Ghana",
       region: clean(formData.region),
       city: clean(formData.city),
-      streetAddress: clean(formData.streetAddress),
-      houseNumber: clean(formData.houseNumber),
+      streetAddress: formData.id ? clean(formData.streetAddress) : "",
+      houseNumber: formData.id ? clean(formData.houseNumber) : "",
       landmark: clean(formData.landmark),
       postalCode: clean(formData.postalCode),
     };
 
     const nextFieldErrors = {};
-    if (!payload.fullName) nextFieldErrors.fullName = "Please enter the recipient's full name.";
-    if (!payload.phoneNumber || payload.phoneNumber.replace(/\D/g, "").length < 9 || payload.phoneNumber.replace(/\D/g, "").length > 15) {
-      nextFieldErrors.phoneNumber = "Please enter a valid phone number.";
-    }
     if (!payload.region || !GHANA_REGIONS.includes(payload.region)) nextFieldErrors.region = "Please select a region.";
-    if (!payload.city) nextFieldErrors.city = "Please enter your city or town.";
-    if (!payload.streetAddress) nextFieldErrors.streetAddress = "Please enter your delivery address.";
+    if (!payload.city) nextFieldErrors.city = "Please enter your delivery location.";
 
     if (Object.keys(nextFieldErrors).length > 0) {
       setFieldErrors(nextFieldErrors);
@@ -335,8 +336,8 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
           country: clean(payload.country),
           region: clean(payload.region),
           city: clean(payload.city),
-          streetAddress: clean(payload.streetAddress),
-          houseNumber: clean(payload.houseNumber),
+          streetAddress: "",
+          houseNumber: "",
           landmark: clean(payload.landmark),
           postalCode: clean(payload.postalCode),
           isDefault: false,
@@ -424,13 +425,13 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
           <span aria-hidden="true">&rsaquo;</span>
           <Link to="/cart">Cart</Link>
           <span aria-hidden="true">&rsaquo;</span>
-          <span aria-current="page">Shipping Address</span>
+          <span aria-current="page">Delivery Location</span>
         </nav>
 
         <header className="shipping-header">
           <div>
             <p>Checkout</p>
-            <h1>Shipping Address</h1>
+            <h1>Delivery Location</h1>
           </div>
 
           <span>{itemCount} item{itemCount === 1 ? "" : "s"} ready for delivery</span>
@@ -442,9 +443,9 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
               <div className="shipping-panel__header">
                 <div>
                   <p className="shipping-panel__eyebrow">
-                    {selectedAddress ? "Saved delivery address" : "Shipping details"}
+                    {selectedAddress ? "Saved delivery location" : "Delivery details"}
                   </p>
-                  <h2>{selectedAddress ? "Use a saved address for this order" : "Enter a shipping address"}</h2>
+                  <h2>{selectedAddress ? "Use this location for delivery" : "Where should we deliver?"}</h2>
                 </div>
 
                 {selectedAddress ? (
@@ -466,13 +467,12 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                   </div>
 
                   <div className="address-card__body">
-                    <p className="address-card__line">{selectedAddress.streetAddress}</p>
-                    {selectedAddress.houseNumber ? (
-                      <p className="address-card__line">{selectedAddress.houseNumber}</p>
-                    ) : null}
-                    <p className="address-card__line">{formatLocation(selectedAddress)}</p>
                     {selectedAddress.region ? (
                       <p className="address-card__line address-card__line--muted">{selectedAddress.region}</p>
+                    ) : null}
+                    <p className="address-card__line">{selectedAddress.deliveryLocation || selectedAddress.city}</p>
+                    {selectedAddress.country ? (
+                      <p className="address-card__line">{selectedAddress.country}</p>
                     ) : null}
 
                     <div className="address-card__contact">
@@ -493,12 +493,6 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                       </p>
                     ) : null}
 
-                    {selectedAddress.postalCode ? (
-                      <p className="address-card__line address-card__line--muted">
-                        GPS Code: {selectedAddress.postalCode}
-                      </p>
-                    ) : null}
-
                     <p className="address-card__default-note">
                       {savedCheckoutAddress ? "Previously entered shipping address" : "Pulled from your profile"}
                     </p>
@@ -516,57 +510,6 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                   ) : null}
 
                   <div className="address-modal__grid shipping-form__grid">
-                    <label className="address-modal__field address-modal__field--full">
-                      <span>Full Name <span className="shipping-required" aria-hidden="true">*</span></span>
-                      <input
-                        id="shipping-full-name"
-                        type="text"
-                        name="fullName"
-                        value={formData.fullName}
-                        onChange={handleFieldChange}
-                        required
-                        autoComplete="name"
-                        aria-invalid={Boolean(fieldErrors.fullName)}
-                        aria-describedby="shipping-full-name-help shipping-full-name-error"
-                      />
-                      <small id="shipping-full-name-help" className="shipping-form__helper">Enter the full name of the person who will receive the order.</small>
-                      {fieldErrors.fullName ? <small id="shipping-full-name-error" className="shipping-form__field-error">{fieldErrors.fullName}</small> : null}
-                    </label>
-
-                    <label className="address-modal__field">
-                      <span>Phone / WhatsApp Number <span className="shipping-required" aria-hidden="true">*</span></span>
-                      <input
-                        id="shipping-phone-number"
-                        type="tel"
-                        inputMode="tel"
-                        name="phoneNumber"
-                        value={formData.phoneNumber}
-                        onChange={handleFieldChange}
-                        required
-                        placeholder="e.g. 024 123 4567"
-                        autoComplete="tel"
-                        aria-invalid={Boolean(fieldErrors.phoneNumber)}
-                        aria-describedby="shipping-phone-help shipping-phone-error"
-                      />
-                      <small id="shipping-phone-help" className="shipping-form__helper">Enter a number we can use to contact you about delivery, preferably WhatsApp.</small>
-                      {fieldErrors.phoneNumber ? <small id="shipping-phone-error" className="shipping-form__field-error">{fieldErrors.phoneNumber}</small> : null}
-                    </label>
-
-                    <label className="address-modal__field">
-                      <span>Email Address</span>
-                      <input
-                        id="shipping-email-address"
-                        type="email"
-                        name="emailAddress"
-                        value={formData.emailAddress}
-                        onChange={handleFieldChange}
-                        placeholder="e.g. reuben@example.com"
-                        autoComplete="email"
-                        aria-describedby="shipping-email-help"
-                      />
-                      <small id="shipping-email-help" className="shipping-form__helper">Enter your email if you want delivery and order updates by email.</small>
-                    </label>
-
                     <label className="address-modal__field">
                       <span>Country <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
@@ -597,12 +540,12 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                         <option value="">Select your region</option>
                         {GHANA_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
                       </select>
-                      <small id="shipping-region-help" className="shipping-form__helper">Select the region where the delivery address is located.</small>
+                      <small id="shipping-region-help" className="shipping-form__helper">Select the region where your order should be delivered.</small>
                       {fieldErrors.region ? <small id="shipping-region-error" className="shipping-form__field-error">{fieldErrors.region}</small> : null}
                     </label>
 
                     <label className="address-modal__field">
-                      <span>City <span className="shipping-required" aria-hidden="true">*</span></span>
+                      <span>Delivery Location <span className="shipping-required" aria-hidden="true">*</span></span>
                       <input
                         id="shipping-city"
                         type="text"
@@ -610,71 +553,26 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                         value={formData.city}
                         onChange={handleFieldChange}
                         required
-                        placeholder="e.g. Amasaman"
-                        autoComplete="address-level2"
+                        placeholder="Tema Community 25 or Amasaman-Pokuase"
                         aria-invalid={Boolean(fieldErrors.city)}
                         aria-describedby="shipping-city-help shipping-city-error"
                       />
-                      <small id="shipping-city-help" className="shipping-form__helper">Enter the city, town, or community where the order should be delivered.</small>
+                      <small id="shipping-city-help" className="shipping-form__helper">Enter the area or community where you want your order delivered.</small>
                       {fieldErrors.city ? <small id="shipping-city-error" className="shipping-form__field-error">{fieldErrors.city}</small> : null}
                     </label>
 
-                    <label className="address-modal__field address-modal__field--full">
-                      <span>Street Address <span className="shipping-required" aria-hidden="true">*</span></span>
-                      <input
-                        id="shipping-street-address"
-                        type="text"
-                        name="streetAddress"
-                        value={formData.streetAddress}
-                        onChange={handleFieldChange}
-                        required
-                        placeholder="e.g. Amasaman Main Road, near XYZ Pharmacy"
-                        autoComplete="street-address"
-                        aria-invalid={Boolean(fieldErrors.streetAddress)}
-                        aria-describedby="shipping-street-help shipping-street-error"
-                      />
-                      <small id="shipping-street-help" className="shipping-form__helper">Enter your street, area, house number, landmark, or other locating details.</small>
-                      {fieldErrors.streetAddress ? <small id="shipping-street-error" className="shipping-form__field-error">{fieldErrors.streetAddress}</small> : null}
-                    </label>
-
                     <label className="address-modal__field">
-                      <span>House Number</span>
-                      <input
-                        id="shipping-house-number"
-                        type="text"
-                        name="houseNumber"
-                        value={formData.houseNumber}
-                        onChange={handleFieldChange}
-                        autoComplete="address-line2"
-                      />
-                      <small className="shipping-form__helper">Add the house or building number if available.</small>
-                    </label>
-
-                    <label className="address-modal__field">
-                      <span>Landmark</span>
-                      <input
-                        id="shipping-landmark"
-                        type="text"
-                        name="landmark"
-                        value={formData.landmark}
-                        onChange={handleFieldChange}
-                        placeholder="e.g. Opposite Melcom"
-                      />
-                      <small className="shipping-form__helper">Enter a nearby landmark that will make your location easier to find.</small>
-                    </label>
-
-                    <label className="address-modal__field">
-                      <span>GhanaPost GPS / Digital Address</span>
-                      <input
-                        id="shipping-postal-code"
-                        type="text"
-                        name="postalCode"
-                        value={formData.postalCode}
-                        onChange={handleFieldChange}
-                        placeholder="e.g. GA-123-4567"
-                        autoComplete="postal-code"
-                      />
-                      <small className="shipping-form__helper">Enter your GhanaPost GPS digital address if available.</small>
+                      <span>Landmark <span className="shipping-form__optional">(Optional)</span></span>
+                        <input
+                          id="shipping-landmark"
+                          type="text"
+                          name="landmark"
+                          value={formData.landmark}
+                          onChange={handleFieldChange}
+                          placeholder="Opposite Community School or near a filling station"
+                          aria-describedby="shipping-landmark-help"
+                        />
+                      <small id="shipping-landmark-help" className="shipping-form__helper">Add a nearby landmark to help us locate your delivery point.</small>
                     </label>
                   </div>
 
@@ -764,7 +662,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
             onClick={!isFormOpen ? handleProceed : undefined}
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Saving..." : isFormOpen ? "Save and Proceed" : "Proceed to Payment"}
+            {isSubmitting ? "Saving..." : isFormOpen ? "Save Delivery Location" : "Continue to Checkout"}
           </button>
         </footer>
       </div>

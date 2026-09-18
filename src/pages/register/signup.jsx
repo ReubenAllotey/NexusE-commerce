@@ -606,7 +606,7 @@ function Signup() {
                         isVerifying || isResending || resendCountdown > 0
                       }
                     >
-                      {isResending
+                      {isResending2
                         ? "Resending..."
                         : resendCountdown > 0
                           ? `Resend in ${Math.floor(resendCountdown / 60)}:${String(

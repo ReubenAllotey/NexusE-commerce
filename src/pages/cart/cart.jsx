@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import CartEditModal from "../../components/CartEditModal";
+import ProductCard from "../Products/ProductCard";
 import { isProductOutOfStock, useProducts } from "../Products/productData";
 import {
   calculateShippingCheckoutSummary,
@@ -63,12 +64,14 @@ function NoteIcon() {
 
 function Cart({
   cartItems = [],
+  addresses = [],
   loading = false,
   error = "",
   onUpdateCartQuantity = () => {},
   onRemoveCartItem = () => {},
   onEditCartItem = async () => ({ ok: false }),
   onClearCart = () => {},
+  onAddToCart = () => {},
 }) {
   const [editingItem, setEditingItem] = useState(null);
   const [shippingPaymentPreference, setShippingPaymentPreference] = useState(SHIPPING_PAYMENT_MODES.PAY_LATER);
@@ -140,6 +143,11 @@ function Cart({
   const taxEstimate = 0;
   const totalPrice = summary.amountPayableNow + taxEstimate;
   const hasOutOfStock = rows.some((row) => row.outOfStock);
+  const savedLocation = (Array.isArray(addresses) ? addresses : []).find((address) => address.isDefault)
+    ?? (Array.isArray(addresses) ? addresses[0] : null);
+  const recommendationProducts = products
+    .filter((product) => !rows.some((row) => String(row.product.id) === String(product.id)))
+    .slice(0, 4);
 
   useEffect(() => {
     const defaultMode = getDefaultShippingPaymentMode(baseSummary);
@@ -215,20 +223,27 @@ function Cart({
   };
 
   const handleCheckout = () => {
-    navigate("/shipping-address", {
-      state: {
-        cartRows: rows,
-        totals: {
-          subtotal,
-          shippingTotal,
-          knownCommercialTotal: summary.knownCommercialTotal,
-          amountPayableNow: summary.amountPayableNow,
-          shippingDueLater: summary.shippingDueLater,
-          taxEstimate,
-          totalPrice,
-        },
-        shippingPaymentPreference,
+    const checkoutState = {
+      cartRows: rows,
+      totals: {
+        subtotal,
+        shippingTotal,
+        knownCommercialTotal: summary.knownCommercialTotal,
+        amountPayableNow: summary.amountPayableNow,
+        shippingDueLater: summary.shippingDueLater,
+        taxEstimate,
+        totalPrice,
       },
+      shippingPaymentPreference,
+    };
+
+    if (savedLocation) {
+      navigate("/payment", { state: { ...checkoutState, shippingAddress: savedLocation } });
+      return;
+    }
+
+    navigate("/shipping-address", {
+      state: checkoutState,
     });
   };
 
@@ -439,8 +454,27 @@ function Cart({
                 onClick={handleCheckout}
                 disabled={hasOutOfStock}
               >
-                {hasOutOfStock ? "Remove out-of-stock items" : "Proceed to Payment"}
+                {hasOutOfStock ? "Remove out-of-stock items" : "Proceed to Checkout"}
               </button>
+
+              <section className={`cart-location-card${savedLocation ? " is-saved" : ""}`}>
+                <div>
+                  <p className="cart-location-card__eyebrow">Delivery location</p>
+                  <h3>{savedLocation ? "Ready for delivery" : "Add a delivery location"}</h3>
+                  <p>
+                    {savedLocation
+                      ? [savedLocation.region, savedLocation.deliveryLocation || savedLocation.city, savedLocation.landmark].filter(Boolean).join(" · ")
+                      : "Choose where your order should be delivered before checkout."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="cart-location-card__action"
+                  onClick={() => navigate("/shipping-address", { state: { cartRows: rows, shippingPaymentPreference } })}
+                >
+                  {savedLocation ? "Change" : "Add location"}
+                </button>
+              </section>
 
               {hasOutOfStock ? (
                 <p className="cart-summary__stock-warning">
@@ -478,6 +512,23 @@ function Cart({
             </Link>
           </section>
         )}
+
+        {rows.length > 0 && recommendationProducts.length > 0 ? (
+          <section className="cart-recommendations" aria-labelledby="cart-recommendations-title">
+            <div className="cart-recommendations__header">
+              <div>
+                <p>Keep browsing</p>
+                <h2 id="cart-recommendations-title">You may also like</h2>
+              </div>
+              <Link to="/products">View all products</Link>
+            </div>
+            <div className="cart-recommendations__grid">
+              {recommendationProducts.map((product) => (
+                <ProductCard key={product.id ?? product.slug} product={product} onAddToCart={onAddToCart} />
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
       {editingItem ? (
         <CartEditModal
