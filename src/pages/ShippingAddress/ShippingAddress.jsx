@@ -577,75 +577,9 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
             </section>
           </div>
 
-          <aside className="cart-summary shipping-summary">
-            <h2>Order Summary</h2>
-
-            <div className="cart-summary__line">
-              <span>Items</span>
-              <strong>{itemCount}</strong>
-            </div>
-
-            <div className="cart-summary__line">
-              <span>Subtotal</span>
-              <strong>{formatMoney(subtotal)}</strong>
-            </div>
-
-            <div className="cart-summary__line">
-              <span>Known Shipping</span>
-              <strong>{shippingTotal > 0 ? formatMoney(shippingTotal) : summary.hasPendingShipping ? "Calculated later" : "Free"}</strong>
-            </div>
-
-            {summary.hasPendingShipping ? (
-              <div className="cart-summary__line">
-                <span>Pending Shipping</span>
-                <strong>Calculated later</strong>
-              </div>
-            ) : null}
-
-            <div className="cart-summary__total">
-              <span>Total Order Value</span>
-              <strong>{formatMoney(summary.knownCommercialTotal)}</strong>
-            </div>
-
-            <div className="cart-summary__line">
-              <span>Pay Now</span>
-              <strong>{formatMoney(summary.amountPayableNow)}</strong>
-            </div>
-            {summary.shippingDueLater > 0 ? (
-              <div className="cart-summary__line">
-                <span>Shipping Due Later</span>
-                <strong>{formatMoney(summary.shippingDueLater)}</strong>
-              </div>
-            ) : null}
-
-            <div className="shipping-summary__items">
-                {cartRows.slice(0, 3).map((row) => (
-                  <div key={row.key} className="shipping-summary__item">
-                    <div>
-                      <strong>{row.product.name}</strong>
-                      <span>{row.quantity} item{row.quantity === 1 ? "" : "s"}</span>
-                    </div>
-                  <strong>{formatMoney(row.lineSubtotal + row.lineShipping)}</strong>
-                  </div>
-                ))}
-            </div>
-
-            <p className="cart-summary__note">
-              The shipping address you choose here will be attached to the next payment step.
-            </p>
-          </aside>
         </section>
 
         <footer className="shipping-footer">
-          <div className="shipping-footer__copy">
-            <p>Ready to continue?</p>
-            <strong>
-              {selectedAddress
-                ? selectedAddress.addressLabel || selectedAddress.fullName || "Saved shipping address"
-                : "Complete the form to continue to payment"}
-            </strong>
-          </div>
-
           <button
             type={isFormOpen ? "submit" : "button"}
             form={isFormOpen ? "shipping-address-form" : undefined}

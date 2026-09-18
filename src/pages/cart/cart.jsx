@@ -531,7 +531,7 @@ function Cart({
             </div>
             <div className="cart-recommendations__grid">
               {recommendationProducts.map((product) => (
-                <ProductCard key={product.id ?? product.slug} product={product} onAddToCart={onAddToCart} />
+                <ProductCard key={product.id ?? product.slug} item={product} onAddToCart={onAddToCart} />
               ))}
             </div>
           </section>
