@@ -167,7 +167,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
 
     setSavedCheckoutAddress(nextSavedCheckoutAddress);
     setSelectedAddress(nextInitialAddress ? { ...nextInitialAddress } : null);
-    setIsFormOpen(!nextInitialAddress);
+    setIsFormOpen(true);
     setFormData(createEmptyForm(authUser, nextInitialAddress));
     setFormError("");
     setFieldErrors({});
@@ -228,7 +228,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
 
   function closeForm() {
     setFormError("");
-    setIsFormOpen(false);
+    setIsFormOpen(true);
   }
 
   function handleFieldChange(event) {
@@ -500,15 +500,6 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                 </article>
               ) : (
                 <form id="shipping-address-form" className="shipping-form" onSubmit={handleSubmit}>
-                  {selectedAddress ? (
-                    <div className="shipping-panel__header shipping-panel__header--compact">
-                      <p className="shipping-panel__eyebrow">Editing for this order</p>
-                      <button type="button" className="shipping-panel__link" onClick={closeForm}>
-                        Use saved address
-                      </button>
-                    </div>
-                  ) : null}
-
                   <div className="address-modal__grid shipping-form__grid">
                     <label className="address-modal__field">
                       <span>Country <span className="shipping-required" aria-hidden="true">*</span></span>

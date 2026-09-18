@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import CartEditModal from "../../components/CartEditModal";
 import ProductCard from "../Products/ProductCard";
@@ -145,9 +145,16 @@ function Cart({
   const hasOutOfStock = rows.some((row) => row.outOfStock);
   const savedLocation = (Array.isArray(addresses) ? addresses : []).find((address) => address.isDefault)
     ?? (Array.isArray(addresses) ? addresses[0] : null);
-  const recommendationProducts = products
-    .filter((product) => !rows.some((row) => String(row.product.id) === String(product.id)))
-    .slice(0, 4);
+  const cartProductIds = rows.map((row) => String(row.product.id ?? row.product.slug));
+  const recommendationProducts = useMemo(() => {
+    const eligibleProducts = products.filter(
+      (product) => !cartProductIds.includes(String(product.id ?? product.slug)),
+    );
+
+    return [...eligibleProducts]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 6);
+  }, [products, cartItems.map((item) => item.productId ?? item.product_id ?? item.slug).join("|")]);
 
   useEffect(() => {
     const defaultMode = getDefaultShippingPaymentMode(baseSummary);
