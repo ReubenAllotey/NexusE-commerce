@@ -31079,3 +31079,78 @@ body[data-theme="dark"] .checkout-info-card--location p {
     margin-left: 0;
   }
 }
+.admin-orders-shipping-status {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.admin-orders-shipping-status:enabled {
+  cursor: pointer;
+}
+
+.admin-orders-shipping-status--unpaid,
+.admin-orders-shipping-status--partial {
+  color: #9f1d2d;
+  background: #fee2e2;
+}
+
+.admin-orders-shipping-status--pending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.admin-orders-shipping-status--paid {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.admin-orders-shipping-status--free {
+  color: #334155;
+  background: #e2e8f0;
+}
+
+.admin-orders-shipping-status + small {
+  display: block;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+
+.admin-orders-shipping-facts {
+  margin: 0;
+}
+
+.admin-orders-modal__success {
+  color: #15803d;
+  font-weight: 700;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-status--unpaid,
+body[data-theme="dark"] .admin-orders-shipping-status--partial {
+  color: #fecaca;
+  background: rgba(153, 27, 27, 0.35);
+}
+
+body[data-theme="dark"] .admin-orders-shipping-status--pending {
+  color: #fde68a;
+  background: rgba(146, 64, 14, 0.35);
+}
+
+body[data-theme="dark"] .admin-orders-shipping-status--paid {
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.35);
+}
+
+body[data-theme="dark"] .admin-orders-shipping-status--free {
+  color: #cbd5e1;
+  background: rgba(71, 85, 105, 0.45);
+}
+
+body[data-theme="dark"] .admin-orders-modal__success {
+  color: #86efac;
+}

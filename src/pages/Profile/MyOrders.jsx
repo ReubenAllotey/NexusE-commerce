@@ -13,6 +13,7 @@ import {
   getShipmentProgressPercent,
   useShipmentBatches,
 } from "../../shared/shipmentStorage";
+import { getShippingAccounting } from "../../shared/shippingPayment";
 
 function formatMoney(value) {
   return new Intl.NumberFormat("en-GH", {
@@ -184,6 +185,7 @@ function MyOrders({
                 : shippingDue > 0
                   ? `Outstanding ${formatMoney(shippingDue)}`
                   : (order.shippingTotal ?? 0) > 0 ? "Shipping paid" : "Free";
+              const shippingAccounting = getShippingAccounting(order);
               const orderCount = items.reduce(
                 (sum, item) => sum + (item.quantity ?? 1),
                 0,
@@ -267,6 +269,14 @@ function MyOrders({
                         className="orders-card__button orders-card__button--ghost"
                       >
                         Track shipment
+                      </Link>
+                    ) : null}
+                    {shippingAccounting.status === "unpaid" || shippingAccounting.status === "partial" ? (
+                      <Link
+                        to={`/payment?purpose=shipping-balance&orderId=${encodeURIComponent(order.id)}&orderNumber=${encodeURIComponent(order.orderNumber ?? "")}`}
+                        className="orders-card__button orders-card__button--primary"
+                      >
+                        Pay Shipping Fee
                       </Link>
                     ) : null}
                   </div>

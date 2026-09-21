@@ -1619,11 +1619,12 @@ async function getOutstandingShippingAmount(orderId) {
   );
 }
 
-async function findOpenPayment(orderId, amount) {
+async function findOpenPayment(orderId, amount, paymentPurpose = "order") {
   const { data, error } = await supabaseAdmin
     .from("payments")
-    .select("id, order_id, user_id, provider, payment_method, payment_network, payment_phone_number, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
+    .select("id, order_id, user_id, provider, payment_method, payment_network, payment_phone_number, payment_purpose, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
     .eq("order_id", orderId)
+    .eq("payment_purpose", paymentPurpose)
     .eq("amount", amount)
     .in("status", ["pending", "processing"])
     .order("created_at", { ascending: false })
@@ -1645,6 +1646,7 @@ async function createPendingPaymentRecord({
   paymentMethod,
   paymentNetwork,
   paymentPhoneNumber,
+  paymentPurpose = "order",
 }) {
   const amountValue = Number(amount) || 0;
 
@@ -1657,13 +1659,14 @@ async function createPendingPaymentRecord({
       payment_method: paymentMethod || null,
       payment_network: paymentNetwork || null,
       payment_phone_number: paymentPhoneNumber || null,
+      payment_purpose: paymentPurpose === "shipping" ? "shipping" : "order",
       provider_reference: providerReference,
       status: "pending",
       amount: amountValue,
       currency: "GHS",
       amount_minor: Math.round(amountValue * 100),
     })
-    .select("id, order_id, user_id, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
+    .select("id, order_id, user_id, payment_purpose, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
     .single();
 
   if (error) {
@@ -1682,7 +1685,7 @@ async function updatePaymentRow(paymentId, values = {}) {
     .from("payments")
     .update(safeValues)
     .eq("id", paymentId)
-    .select("id, order_id, user_id, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
+    .select("id, order_id, user_id, payment_purpose, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
     .single();
 
   if (error) {
@@ -1766,6 +1769,130 @@ async function handleChangePassword(req, res) {
     message: "Your password requirement was cleared successfully.",
     profile: clearResult.data ?? null,
   });
+}
+
+function getServerShippingAccounting(items = []) {
+  let knownShipping = 0;
+  let paidShipping = 0;
+  let outstandingShipping = 0;
+  let hasPendingShipping = false;
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const lineShipping = Math.max(Number(item.line_shipping) || 0, 0);
+    const paidAmount = Math.min(Math.max(Number(item.shipping_paid_amount) || 0, 0), lineShipping);
+    const feeStatus = clean(item.shipping_fee_status).toLowerCase();
+
+    knownShipping += lineShipping;
+    paidShipping += paidAmount;
+    outstandingShipping += Math.max(lineShipping - paidAmount, 0);
+    hasPendingShipping ||= feeStatus === "pending";
+  }
+
+  const status = hasPendingShipping && outstandingShipping <= 0
+    ? "pending"
+    : outstandingShipping > 0
+      ? paidShipping > 0 ? "partial" : "unpaid"
+      : knownShipping > 0 ? "paid" : "free";
+
+  return { knownShipping, paidShipping, outstandingShipping, hasPendingShipping, status };
+}
+
+async function handleAdminShippingPaymentNotice(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can send shipping payment notices." });
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  const orderId = clean(body?.orderId);
+  if (!orderId) {
+    sendJson(res, 400, { ok: false, message: "An order is required." });
+    return;
+  }
+
+  const { data: order, error: orderError } = await supabaseAdmin
+    .from("orders")
+    .select("id, order_number, user_id, customer_name, customer_email")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (orderError) {
+    sendJson(res, 500, { ok: false, message: orderError.message || "Unable to load the order." });
+    return;
+  }
+  if (!order) {
+    sendJson(res, 404, { ok: false, message: "Order not found." });
+    return;
+  }
+  if (!order.user_id) {
+    sendJson(res, 409, { ok: false, message: "Guest orders do not have an in-app notification recipient." });
+    return;
+  }
+
+  const { data: items, error: itemError } = await supabaseAdmin
+    .from("order_items")
+    .select("line_shipping, shipping_paid_amount, shipping_fee_status")
+    .eq("order_id", order.id);
+  if (itemError) {
+    sendJson(res, 500, { ok: false, message: itemError.message || "Unable to calculate the shipping balance." });
+    return;
+  }
+
+  const accounting = getServerShippingAccounting(items);
+  if (accounting.status !== "unpaid" && accounting.status !== "partial") {
+    sendJson(res, 409, {
+      ok: false,
+      message: accounting.status === "pending"
+        ? "Shipping is still being calculated for this order."
+        : accounting.status === "paid" ? "This shipping balance is already paid." : "This order has no shipping balance.",
+      accounting,
+    });
+    return;
+  }
+
+  const sourceKey = `shipping-payment-request:${order.id}`;
+  const notificationValues = {
+    user_id: order.user_id,
+    category: "shipping",
+    title: "Shipping Fee Payment Required",
+    message: `Shipping payment of ${formatGhanaCedis(accounting.outstandingShipping)} is required for order ${order.order_number || order.id}.`,
+    order_id: order.id,
+    payment_id: null,
+    source_type: "payment_status",
+    source_key: sourceKey,
+    action_url: `/payment?purpose=shipping-balance&orderId=${encodeURIComponent(order.id)}&orderNumber=${encodeURIComponent(order.order_number || "")}`,
+    action_label: "Pay Shipping Fee",
+    action_description: "Complete the remaining shipping payment for this order.",
+    is_read: false,
+    read_at: null,
+  };
+
+  const { data: inserted, error: notificationError } = await supabaseAdmin
+    .from("notifications")
+    .insert(notificationValues)
+    .select("*")
+    .maybeSingle();
+
+  if (notificationError && notificationError.code !== "23505") {
+    sendJson(res, 500, { ok: false, message: notificationError.message || "Unable to send the shipping payment notice." });
+    return;
+  }
+
+  const existing = inserted ?? (await supabaseAdmin
+    .from("notifications")
+    .select("*")
+    .eq("user_id", order.user_id)
+    .eq("source_type", "payment_status")
+    .eq("source_key", sourceKey)
+    .maybeSingle()).data;
+
+  sendJson(res, 200, { ok: true, notification: existing ?? null, accounting });
 }
 
 async function handleGenerateProductContent(req, res) {
@@ -2098,7 +2225,7 @@ async function updateGuestOrderBundle(orderId, values = {}) {
 async function getPaymentByReference(reference) {
   const { data, error } = await supabaseAdmin
     .from("payments")
-    .select("id, order_id, user_id, provider, payment_method, payment_network, payment_phone_number, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
+    .select("id, order_id, user_id, provider, payment_method, payment_network, payment_phone_number, payment_purpose, provider_reference, status, amount, currency, amount_minor, authorization_url, access_code, paid_at, created_at, updated_at")
     .eq("provider_reference", clean(reference))
     .maybeSingle();
 
@@ -2342,7 +2469,9 @@ async function handleInitialize(req, res) {
 
   const body = normalizePayload(await readRequestBody(req));
   const isGuestCheckout = Boolean(body.guestCheckout);
-  const paymentPurpose = clean(body.paymentPurpose) || "order";
+  const paymentPurpose = clean(body.paymentPurpose).toLowerCase() === "shipping-balance"
+    ? "shipping-balance"
+    : "order";
   const paymentMethod = clean(body.paymentMethod) || "mobile-money";
   const paymentNetwork = clean(body.paymentNetwork) || "";
   const paymentPhoneNumber = clean(body.paymentPhoneNumber) || "";
@@ -2495,6 +2624,7 @@ async function handleInitialize(req, res) {
       paymentMethod,
       paymentNetwork,
       paymentPhoneNumber,
+      paymentPurpose: "order",
     });
 
     const requestBody = {
@@ -2688,8 +2818,11 @@ async function handleInitialize(req, res) {
     return;
   }
 
-  let paymentRow = await findOpenPayment(orderRow.id, amount);
-  const providerReference = clean(paymentRow?.provider_reference) || buildPaymentReference(orderRow.order_number);
+  const isShippingPayment = paymentPurpose === "shipping-balance";
+  let paymentRow = isShippingPayment ? null : await findOpenPayment(orderRow.id, amount, "order");
+  const providerReference = isShippingPayment
+    ? buildPaymentReference(`${orderRow.order_number}-shipping`)
+    : clean(paymentRow?.provider_reference) || buildPaymentReference(orderRow.order_number);
 
   if (paymentRow?.authorization_url && paymentRow?.access_code) {
     sendJson(res, 200, {
@@ -2715,6 +2848,7 @@ async function handleInitialize(req, res) {
       paymentMethod,
       paymentNetwork,
       paymentPhoneNumber,
+      paymentPurpose: isShippingPayment ? "shipping" : "order",
     });
   }
 
@@ -3106,22 +3240,56 @@ async function handleVerify(req, res, reference) {
     payload: paystackData,
   });
 
-  const paymentUpdate = {
-    status: normalizedStatus,
-    amount: verifiedAmount,
-    amount_minor: upstreamAmountMinor,
-    currency: upstreamCurrency,
-  };
-
-  if (normalizedStatus === "successful") {
-    paymentUpdate.paid_at = paystackData.paid_at ?? new Date().toISOString();
-  }
-
-  const updatedPayment = await updatePaymentRow(paymentRow.id, paymentUpdate);
-
   let orderBundle = null;
+  let updatedPayment = paymentRow;
 
   if (normalizedStatus === "successful") {
+    if (paymentRow.payment_purpose === "shipping") {
+      const { data: finalizedShipping, error: shippingFinalizeError } = await supabaseAdmin.rpc(
+        "finalize_shipping_payment",
+        {
+          p_payment_id: paymentRow.id,
+          p_verified_amount: verifiedAmount,
+          p_verified_currency: upstreamCurrency,
+        },
+      );
+
+      if (shippingFinalizeError) {
+        sendJson(res, 409, {
+          ok: false,
+          message: shippingFinalizeError.message || "This shipping balance could not be finalized.",
+          payment: paymentRow,
+        });
+        return;
+      }
+
+      const refreshedPayment = await getPaymentByReference(cleanReference);
+      updatedPayment = refreshedPayment ?? paymentRow;
+      const orderResult = await loadOrderBundle(paymentRow.order_id);
+      if (orderResult.ok) {
+        orderBundle = mapOrderBundle(orderResult.order, orderResult.items);
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        data: paystackData,
+        payment: updatedPayment,
+        order: orderBundle?.order ?? null,
+        items: orderBundle?.items ?? [],
+        shippingPayment: true,
+        alreadyFinalized: Boolean(finalizedShipping?.already_finalized || finalizedShipping?.alreadyFinalized),
+      });
+      return;
+    }
+
+    const paymentUpdate = {
+      status: normalizedStatus,
+      amount: verifiedAmount,
+      amount_minor: upstreamAmountMinor,
+      currency: upstreamCurrency,
+      paid_at: paystackData.paid_at ?? new Date().toISOString(),
+    };
+    updatedPayment = await updatePaymentRow(paymentRow.id, paymentUpdate);
     orderBundle = await syncCheckoutPaymentStatus(
       paymentRow.order_id,
       "paid",
@@ -3129,6 +3297,12 @@ async function handleVerify(req, res, reference) {
       !wasPaymentSuccessful,
     );
   } else {
+    updatedPayment = await updatePaymentRow(paymentRow.id, {
+      status: normalizedStatus,
+      amount: verifiedAmount,
+      amount_minor: upstreamAmountMinor,
+      currency: upstreamCurrency,
+    });
     const orderResult = await loadOrderBundle(paymentRow.order_id);
     if (orderResult.ok) {
       orderBundle = mapOrderBundle(orderResult.order, orderResult.items);
@@ -3252,7 +3426,9 @@ async function handleWebhook(req, res) {
       const normalizedStatus = normalizePaymentStatus(event?.data?.status ?? event.event);
       const wasPaymentSuccessful = normalizePaymentStatus(paymentRow.status) === "successful";
 
-      if (paymentRow.status !== normalizedStatus) {
+      const isShippingPayment = paymentRow.payment_purpose === "shipping";
+
+      if (paymentRow.status !== normalizedStatus && !(isShippingPayment && normalizedStatus === "successful")) {
         const paymentUpdate = {
           status: normalizedStatus,
         };
@@ -3265,12 +3441,26 @@ async function handleWebhook(req, res) {
       }
 
       if (normalizedStatus === "successful") {
-        await syncCheckoutPaymentStatus(
-          paymentRow.order_id,
-          "paid",
-          paymentRow.amount,
-          !wasPaymentSuccessful,
-        );
+        if (isShippingPayment) {
+          const verifiedAmount = Number(event?.data?.amount ?? paymentRow.amount_minor ?? 0) / 100;
+          const verifiedCurrency = clean(event?.data?.currency || paymentRow.currency || "GHS").toUpperCase();
+          const { error: shippingFinalizeError } = await supabaseAdmin.rpc("finalize_shipping_payment", {
+            p_payment_id: paymentRow.id,
+            p_verified_amount: verifiedAmount,
+            p_verified_currency: verifiedCurrency,
+          });
+          if (shippingFinalizeError) {
+            sendJson(res, 500, { ok: false, message: shippingFinalizeError.message || "Shipping payment finalization failed." });
+            return;
+          }
+        } else {
+          await syncCheckoutPaymentStatus(
+            paymentRow.order_id,
+            "paid",
+            paymentRow.amount,
+            !wasPaymentSuccessful,
+          );
+        }
       }
     }
   }
@@ -3364,6 +3554,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/ai/product-analysis" && req.method === "POST") {
     await handleAnalyzeProduct(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/shipping-payment-notice" && req.method === "POST") {
+    await handleAdminShippingPaymentNotice(req, res);
     return;
   }
 

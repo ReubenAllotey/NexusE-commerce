@@ -4,6 +4,8 @@ import electronicsImage from "../../assets/images/electronic-set.png";
 import { loadAdminSession } from "./Auth/adminAuthStorage";
 import { formatMoney, formatShortDate } from "./adminHelpers";
 import { getOrderStatusLabel } from "../Profile/ordersStorage";
+import { supabase } from "../../lib/supabaseClient";
+import { getShippingAccounting, getShippingPaymentLabel } from "../../shared/shippingPayment";
 import {
   getShipmentProgressPercent,
   useShipmentBatches,
@@ -253,6 +255,10 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   const [statusDraft, setStatusDraft] = useState("processing");
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState("");
+  const [shippingPaymentOrderId, setShippingPaymentOrderId] = useState(null);
+  const [shippingNoticeSaving, setShippingNoticeSaving] = useState(false);
+  const [shippingNoticeError, setShippingNoticeError] = useState("");
+  const [shippingNoticeSuccess, setShippingNoticeSuccess] = useState("");
 
   const session = authUser ?? loadAdminSession();
   const activeStatusOrder = useMemo(
@@ -262,6 +268,10 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   const activeViewOrder = useMemo(
     () => orders.find((order) => order.id === openOrderId) ?? null,
     [orders, openOrderId],
+  );
+  const activeShippingOrder = useMemo(
+    () => orders.find((order) => order.id === shippingPaymentOrderId) ?? null,
+    [orders, shippingPaymentOrderId],
   );
   const {
     shipmentsByOrderId,
@@ -356,6 +366,49 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     setStatusDraft("processing");
     setStatusSaving(false);
     setStatusError("");
+  };
+
+  const closeShippingModal = () => {
+    setShippingPaymentOrderId(null);
+    setShippingNoticeSaving(false);
+    setShippingNoticeError("");
+    setShippingNoticeSuccess("");
+  };
+
+  const handleSendShippingNotice = async () => {
+    if (!activeShippingOrder || shippingNoticeSaving) {
+      return;
+    }
+
+    setShippingNoticeSaving(true);
+    setShippingNoticeError("");
+    setShippingNoticeSuccess("");
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error(sessionError?.message || "Please sign in again to send this notice.");
+      }
+
+      const response = await fetch("/api/admin/shipping-payment-notice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ orderId: activeShippingOrder.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Unable to send the shipping payment notice.");
+      }
+
+      setShippingNoticeSuccess("Payment notice sent to the customer.");
+    } catch (error) {
+      setShippingNoticeError(error instanceof Error ? error.message : "Unable to send the shipping payment notice.");
+    } finally {
+      setShippingNoticeSaving(false);
+    }
   };
 
   const handleApplyStatus = async () => {
@@ -569,6 +622,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                     <th>Items</th>
                     <th>Amount</th>
                     <th>Payment</th>
+                    <th>Shipping fee</th>
                     <th>Order Type</th>
                     <th>Shipment</th>
                     <th>Order Status</th>
@@ -582,6 +636,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                     const shipmentType = getShipmentType(order);
                     const shipment = shipmentsByOrderId.get(order.id) ?? null;
                     const orderCount = getOrderItemCount(order);
+                    const shippingAccounting = getShippingAccounting(order);
 
                     return (
                         <tr key={order.id} className="admin-orders-row">
@@ -600,6 +655,25 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                               <Pill tone={normalizeText(order.paymentStatus) === "paid" ? "green" : "amber"}>
                                 {getPaymentStatusLabel(order)}
                               </Pill>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className={`admin-orders-shipping-status admin-orders-shipping-status--${shippingAccounting.status}`}
+                                onClick={() => {
+                                  if (shippingAccounting.status === "unpaid" || shippingAccounting.status === "partial") {
+                                    setShippingPaymentOrderId(order.id);
+                                    setShippingNoticeError("");
+                                    setShippingNoticeSuccess("");
+                                  }
+                                }}
+                                disabled={!['unpaid', 'partial'].includes(shippingAccounting.status)}
+                              >
+                                {getShippingPaymentLabel(shippingAccounting.status)}
+                              </button>
+                              {shippingAccounting.outstandingShipping > 0 ? (
+                                <small>{formatMoney(shippingAccounting.outstandingShipping)} due</small>
+                              ) : null}
                             </td>
                             <td>
                               <Pill tone={getOrderTypeValue(order) === "preorder" ? "amber" : "blue"}>
@@ -866,6 +940,48 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                 disabled={statusSaving}
               >
                 {statusSaving ? "Saving..." : "Save status"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {activeShippingOrder ? (
+        <div className="admin-orders-modal" role="dialog" aria-modal="true" aria-labelledby="shipping-payment-modal-title">
+          <button
+            type="button"
+            className="admin-orders-modal__scrim"
+            aria-label="Close shipping payment modal"
+            onClick={closeShippingModal}
+          />
+          <div className="admin-orders-modal__panel">
+            <header className="admin-orders-modal__header">
+              <div>
+                <p>Shipping payment</p>
+                <h2 id="shipping-payment-modal-title">{activeShippingOrder.orderNumber ?? activeShippingOrder.id}</h2>
+                <span>{activeShippingOrder.customerName || "Guest checkout"}</span>
+              </div>
+              <button type="button" className="admin-orders-modal__close" onClick={closeShippingModal}>Close</button>
+            </header>
+            <div className="admin-orders-modal__body">
+              {(() => {
+                const accounting = getShippingAccounting(activeShippingOrder);
+                return (
+                  <dl className="admin-orders-modal__facts admin-orders-shipping-facts">
+                    <div><dt>Shipping total</dt><dd>{formatMoney(accounting.knownShipping)}</dd></div>
+                    <div><dt>Paid</dt><dd>{formatMoney(accounting.paidShipping)}</dd></div>
+                    <div><dt>Balance due</dt><dd>{formatMoney(accounting.outstandingShipping)}</dd></div>
+                  </dl>
+                );
+              })()}
+              {shippingNoticeError ? <p className="admin-orders-modal__error">{shippingNoticeError}</p> : null}
+              {shippingNoticeSuccess ? <p className="admin-orders-modal__success">{shippingNoticeSuccess}</p> : null}
+              <p className="admin-orders-modal__section-label">The customer will receive an in-app notice with a secure payment action. The amount is recalculated by the server.</p>
+            </div>
+            <footer className="admin-orders-modal__actions">
+              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={closeShippingModal}>Cancel</button>
+              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--primary" onClick={handleSendShippingNotice} disabled={shippingNoticeSaving || Boolean(shippingNoticeSuccess)}>
+                {shippingNoticeSaving ? "Sending..." : shippingNoticeSuccess ? "Notice sent" : "Send Payment Notice"}
               </button>
             </footer>
           </div>

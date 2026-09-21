@@ -13,6 +13,7 @@ import {
   resolveShippingLine,
   SHIPPING_PAYMENT_MODES,
 } from "../../shared/shippingCheckout";
+import { getShippingAccounting } from "../../shared/shippingPayment";
 import {
   clearCheckoutDraft,
   clearPaymentSession,
@@ -362,13 +363,17 @@ function PaymentCheckout({
     );
   }, [orders, paymentIntent]);
   const isShippingBalancePayment = paymentIntent?.purpose === "shipping-balance";
+  const targetShippingAccounting = getShippingAccounting(targetOrder ?? {});
+  const displayedShippingBalance = targetShippingAccounting.outstandingShipping > 0
+    ? targetShippingAccounting.outstandingShipping
+    : paymentIntent?.amount ?? 0;
   const checkoutShippingAddress = isShippingBalancePayment ? targetOrder?.shippingAddress ?? null : snapshot.shippingAddress;
   const checkoutCartRows = isShippingBalancePayment ? [] : snapshot.cartRows;
   const checkoutTotals = isShippingBalancePayment
     ? {
         subtotal: 0,
-        shippingTotal: paymentIntent?.amount ?? 0,
-        totalPrice: paymentIntent?.amount ?? 0,
+        shippingTotal: displayedShippingBalance,
+        totalPrice: displayedShippingBalance,
       }
     : snapshot.totals;
   const shippingPaymentPreference = snapshot.shippingPaymentPreference;
@@ -406,7 +411,7 @@ function PaymentCheckout({
   const shippingAddress = checkoutShippingAddress;
   const cartRows = checkoutCartRows;
   const totals = checkoutTotals;
-  const summaryTotal = isShippingBalancePayment ? paymentIntent?.amount ?? 0 : totals.totalPrice ?? totals.total ?? 0;
+  const summaryTotal = isShippingBalancePayment ? displayedShippingBalance : totals.totalPrice ?? totals.total ?? 0;
   const summaryAmount = formatGhanaCedis(summaryTotal);
   const checkoutEmail = getCheckoutEmail(authUser, shippingAddress, paymentIntent, targetOrder);
   const checkoutCustomer = getCheckoutCustomer(authUser, shippingAddress, paymentIntent, targetOrder);
