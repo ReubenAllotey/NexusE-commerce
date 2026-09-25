@@ -688,7 +688,7 @@ function AppShell({
         />
         <Route
           path="/contact"
-          element={<Contact />}
+          element={<Contact authUser={authUser} />}
         />
         <Route
           path="/products/:productSlug"
@@ -698,6 +698,7 @@ function AppShell({
               onToggleWishlist={onToggleWishlist}
               wishlistItems={wishlistItems}
               siteBanner={siteBanner}
+              authUser={authUser}
             />
           }
         />

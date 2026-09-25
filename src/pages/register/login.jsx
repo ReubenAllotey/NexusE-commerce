@@ -195,11 +195,18 @@ function Login() {
         ...profile,
         must_change_password: data.session.user.user_metadata?.must_change_password ?? false,
       });
+      const requestedReturnTo = String(location.state?.returnTo ?? "");
+      const returnTo = requestedReturnTo.startsWith("/") && !requestedReturnTo.startsWith("//")
+        ? requestedReturnTo
+        : "";
+      const returnState = location.state?.returnState && typeof location.state.returnState === "object"
+        ? location.state.returnState
+        : undefined;
       navigate(
         (data.session.user.user_metadata?.must_change_password ?? profile.must_change_password)
           ? "/profile/settings"
-          : "/profile/dashboard",
-        { replace: true },
+          : returnTo || "/profile/dashboard",
+        { replace: true, state: returnTo ? returnState : undefined },
       );
     } catch (authError) {
       setError(authError.message || "Unable to log you in right now.");

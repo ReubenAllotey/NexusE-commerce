@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
 import NexusProductCard from "./ProductCard";
 import UnavailableStockButton from "./UnavailableStockButton";
@@ -110,8 +110,10 @@ function ProductView({
   onToggleWishlist = () => {},
   wishlistItems = [],
   siteBanner = defaultSiteBanner,
+  authUser = null,
 }) {
   const { productSlug } = useParams();
+  const navigate = useNavigate();
   const { product, loading } = useProductBySlug(productSlug);
   const { products: catalogProducts = [] } = useProducts();
   const safeSiteBanner = useMemo(
@@ -123,6 +125,8 @@ function ProductView({
   const [selectedOptions, setSelectedOptions] = useState([]);
   const [variationError, setVariationError] = useState("");
   const [quantity, setQuantity] = useState(1);
+  const [isInquiryAuthOpen, setIsInquiryAuthOpen] = useState(false);
+  const [shareMessage, setShareMessage] = useState("");
 
   const gallery = useMemo(
     () => (product && Array.isArray(product.gallery) ? product.gallery.filter(Boolean) : []),
@@ -142,6 +146,21 @@ function ProductView({
     setVariationError("");
     setQuantity(1);
   }, [productSlug]);
+
+  useEffect(() => {
+    if (!isInquiryAuthOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsInquiryAuthOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isInquiryAuthOpen]);
 
   const stars = renderStars(product?.rating ?? 0);
   const reviewCount = Number(product?.reviews) || 0;
@@ -244,6 +263,61 @@ function ProductView({
     });
   };
 
+  const getProductInquiry = () => ({
+    id: product.id,
+    name: product.name,
+    image: product.primaryImageUrl || product.image || gallery[0]?.src || "",
+    url: `/products/${encodeURIComponent(product.slug || productSlug)}`,
+    price: activePrice,
+  });
+
+  const handleShareProduct = async () => {
+    const productUrl = window.location.href;
+    const shareData = {
+      title: product.name,
+      text: `Check out ${product.name} on Nexus Import Hub.`,
+      url: productUrl,
+    };
+
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share(shareData);
+        setShareMessage("Product shared");
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(productUrl);
+        setShareMessage("Product link copied");
+      } else {
+        throw new Error("Clipboard is unavailable.");
+      }
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        setShareMessage("We could not share this product. Please copy the page URL.");
+      }
+    }
+  };
+
+  const handleAskAboutProduct = () => {
+    const inquiry = getProductInquiry();
+
+    if (authUser) {
+      navigate("/contact", { state: { productInquiry: inquiry } });
+      return;
+    }
+
+    setIsInquiryAuthOpen(true);
+  };
+
+  const continueToProductSupport = (destination) => {
+    const inquiry = getProductInquiry();
+    navigate(destination, {
+      state: {
+        returnTo: "/contact",
+        returnState: { productInquiry: inquiry },
+      },
+    });
+    setIsInquiryAuthOpen(false);
+  };
+
   return (
     <main className="product-view">
       <div className="product-view__shell">
@@ -317,15 +391,6 @@ function ProductView({
               >
                 {availabilityMeta.badge}
               </span>
-            </div>
-
-            <div className="product-view__rating" aria-label={`${product.rating} out of 5 stars`}>
-              <div className="product-view__stars">
-                {stars.map((filled, index) => (
-                  <StarIcon key={`${index}-${filled}`} filled={filled} />
-                ))}
-              </div>
-              <span>({reviewCount.toLocaleString()} reviews)</span>
             </div>
 
             <div className="product-view__pricing">
@@ -441,6 +506,13 @@ function ProductView({
               </p>
             ) : null}
 
+            {product.description?.trim() ? (
+              <section className="product-view__details-card product-view__description-inline">
+                <h2>Product Description</h2>
+                <p>{product.description}</p>
+              </section>
+            ) : null}
+
             <div className="product-view__buybar">
               <div className="product-view__quantity" aria-label="Quantity selector">
                 <button
@@ -513,13 +585,6 @@ function ProductView({
 
             <p className="product-view__stock">{product.stockStatus}</p>
 
-            {product.description?.trim() ? (
-              <section className="product-view__details-card product-view__description-inline">
-                <h2>Product Description</h2>
-                <p>{product.description}</p>
-              </section>
-            ) : null}
-
             <div className="product-view__perks">
               <article className="product-view__perk product-view__perk--shipping">
                 <TruckIcon />
@@ -543,10 +608,15 @@ function ProductView({
               </article>
             </div>
 
-            <p className="product-view__disclaimer">
-              Disclaimer: Shipping fees are estimated prices only. The final shipping cost will be
-              confirmed when the product arrives in Ghana.
-            </p>
+            <div className="product-view__support-actions" aria-label="Product actions">
+              <button type="button" className="product-view__secondary-action" onClick={handleShareProduct}>
+                Share Product
+              </button>
+              <button type="button" className="product-view__secondary-action" onClick={handleAskAboutProduct}>
+                Ask About Product
+              </button>
+            </div>
+            {shareMessage ? <p className="product-view__share-feedback" role="status">{shareMessage}</p> : null}
           </div>
         </section>
 
@@ -603,7 +673,59 @@ function ProductView({
             </div>
           </section>
         ) : null}
+
+        <section className="product-view__reviews" aria-labelledby="product-reviews-title">
+          <div className="product-view__details-card">
+            <p className="section-heading__eyebrow">Customer feedback</p>
+            <h2 id="product-reviews-title">Reviews</h2>
+            <div className="product-view__rating" aria-label={`${product.rating} out of 5 stars`}>
+              <div className="product-view__stars">
+                {stars.map((filled, index) => (
+                  <StarIcon key={`${index}-${filled}`} filled={filled} />
+                ))}
+              </div>
+              <span>{reviewCount.toLocaleString()} reviews</span>
+            </div>
+          </div>
+        </section>
       </div>
+
+      {isInquiryAuthOpen ? (
+        <div className="product-inquiry-modal" role="dialog" aria-modal="true" aria-labelledby="product-inquiry-title">
+          <button
+            type="button"
+            className="product-inquiry-modal__scrim"
+            aria-label="Close product inquiry sign-in dialog"
+            onClick={() => setIsInquiryAuthOpen(false)}
+          />
+          <section className="product-inquiry-modal__panel">
+            <button
+              type="button"
+              className="product-inquiry-modal__close"
+              aria-label="Close"
+              onClick={() => setIsInquiryAuthOpen(false)}
+            >
+              X
+            </button>
+            <p className="product-inquiry-modal__eyebrow">Nexus Support</p>
+            <h2 id="product-inquiry-title">Ask About This Product</h2>
+            <p>Sign in to contact Nexus Support and ask a question about this item.</p>
+            <div className="product-inquiry-modal__product">
+              <img src={product.primaryImageUrl || product.image || gallery[0]?.src || FALLBACK_IMAGE} alt="" />
+              <strong>{product.name}</strong>
+            </div>
+            <button type="button" className="product-inquiry-modal__primary" onClick={() => continueToProductSupport("/register/login")}>
+              Sign In to Continue
+            </button>
+            <p className="product-inquiry-modal__signup">
+              Don&apos;t have an account? <button type="button" onClick={() => continueToProductSupport("/register")}>Create Account</button>
+            </p>
+            <button type="button" className="product-inquiry-modal__cancel" onClick={() => setIsInquiryAuthOpen(false)}>
+              Cancel
+            </button>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

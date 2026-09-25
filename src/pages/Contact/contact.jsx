@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { recordContactMessage } from "./contactStorage";
 
 const contactInfo = [
@@ -80,12 +80,14 @@ const faqs = [
 ];
 
 function Contact() {
+  const location = useLocation();
+  const productInquiry = location.state?.productInquiry ?? null;
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
     phone: "",
-    subject: "",
-    message: "",
+    subject: productInquiry?.name ? `Product Inquiry - ${productInquiry.name}` : "",
+    message: productInquiry?.name ? "I would like to ask about this product..." : "",
   });
   const [statusMessage, setStatusMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -110,12 +112,15 @@ function Contact() {
     setIsSubmitting(true);
     setStatusMessage("");
 
+    const productReference = productInquiry?.name
+      ? `\n\nProduct reference:\nID: ${productInquiry.id || "Not available"}\nName: ${productInquiry.name}\nURL: ${productInquiry.url || "Not available"}`
+      : "";
     const result = await recordContactMessage({
       fullName: formData.fullName,
       email: formData.email,
       phoneNumber: formData.phone,
       subject: formData.subject,
-      message: formData.message,
+      message: `${formData.message}${productReference}`,
     });
 
     if (!result.ok) {
@@ -137,6 +142,22 @@ function Contact() {
 
   return (
     <main className="contact-page">
+      {productInquiry?.name ? (
+        <section className="site-shell product-inquiry-context" aria-label="Product inquiry">
+          <div>
+            <p className="contact-panel__label">Product Inquiry</p>
+            <h2>{productInquiry.name}</h2>
+            <p>Ask Nexus Support about this product using the form below.</p>
+          </div>
+          <div className="product-inquiry-context__product">
+            <img src={productInquiry.image} alt="" />
+            <div>
+              {productInquiry.price ? <strong>{new Intl.NumberFormat("en-GH", { style: "currency", currency: "GHS" }).format(productInquiry.price)}</strong> : null}
+              <Link to={productInquiry.url || "/products"}>View Product</Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
       <section className="contact-hero">
         <div className="site-shell contact-hero__grid">
           <div className="contact-hero__copy">

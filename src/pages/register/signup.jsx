@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { saveSessionUser } from "./authStorage";
 
@@ -56,6 +56,7 @@ function EyeOffIcon() {
 
 function Signup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const codeInputRefs = useRef([]);
   const [formData, setFormData] = useState({
     name: "",
@@ -77,6 +78,21 @@ function Signup() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
+
+  const completeSignupRedirect = () => {
+    const requestedReturnTo = String(location.state?.returnTo ?? "");
+    const returnTo = requestedReturnTo.startsWith("/") && !requestedReturnTo.startsWith("//")
+      ? requestedReturnTo
+      : "";
+    const returnState = location.state?.returnState && typeof location.state.returnState === "object"
+      ? location.state.returnState
+      : undefined;
+
+    navigate(returnTo || "/profile/dashboard", {
+      replace: true,
+      state: returnTo ? returnState : undefined,
+    });
+  };
 
   const verificationToken = useMemo(
     () => verificationCode.join("").trim(),
@@ -299,7 +315,7 @@ function Signup() {
         Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
       );
       setResendCountdown(0);
-      navigate("/profile/dashboard", { replace: true });
+      completeSignupRedirect();
     } catch (verifyErr) {
       setVerificationError(
         verifyErr.message || "Unable to verify your account right now.",
@@ -375,7 +391,7 @@ function Signup() {
       }
 
       saveSessionUser(profile);
-      navigate("/profile/dashboard", { replace: true });
+      completeSignupRedirect();
     } catch (authError) {
       setError(authError.message || "Unable to create your account right now.");
     } finally {
