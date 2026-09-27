@@ -8,10 +8,22 @@
   "description": "Shop products and manage your Nexus Import Hub orders.",
   "icons": [
     {
-      "src": "/nexuslogo.png",
-      "sizes": "1693x929",
+      "src": "/nexus-pwa-192.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/nexus-pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/nexus-pwa-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
