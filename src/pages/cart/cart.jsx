@@ -381,7 +381,7 @@ function Cart({
               </div>
 
               <div className="cart-summary__line">
-                <span>Known Shipping</span>
+                <span>Estimated Shipping Fee</span>
                 <strong>{shippingTotal > 0 ? formatMoney(shippingTotal) : summary.hasPendingShipping ? "Calculated later" : "Free"}</strong>
               </div>
 

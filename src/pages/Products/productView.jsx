@@ -152,7 +152,6 @@ function ProductView({
   const [isInquiryAuthOpen, setIsInquiryAuthOpen] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
-  const [isDeliveryExpanded, setIsDeliveryExpanded] = useState(false);
   const [openInfoSections, setOpenInfoSections] = useState({});
 
   const gallery = useMemo(
@@ -178,7 +177,6 @@ function ProductView({
     setVariationError("");
     setQuantity(1);
     setIsDescriptionExpanded(false);
-    setIsDeliveryExpanded(false);
     setOpenInfoSections({});
   }, [productSlug]);
 
@@ -684,16 +682,7 @@ function ProductView({
               </div>
             ) : null}
 
-            <section className={`product-view__delivery-section${isDeliveryExpanded ? " is-expanded" : ""}`}>
-              <button
-                type="button"
-                className="product-view__accordion-trigger"
-                aria-expanded={isDeliveryExpanded}
-                onClick={() => setIsDeliveryExpanded((current) => !current)}
-              >
-                <span><TruckIcon /> Delivery &amp; Shipping</span>
-                <ChevronIcon direction={isDeliveryExpanded ? "up" : "down"} />
-              </button>
+            <section className="product-view__delivery-section">
               <div className="product-view__delivery-content">
                 <article className="product-view__perk product-view__perk--shipping">
                   <TruckIcon />
