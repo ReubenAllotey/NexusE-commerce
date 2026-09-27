@@ -69,16 +69,27 @@ function BellIcon() {
   );
 }
 
+function ShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" />
+      <path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" />
+    </svg>
+  );
+}
+
 function CustomerOnboarding({ authReady = false, authUser = null }) {
   const location = useLocation();
   const navigate = useNavigate();
   const pwa = usePwaInstall();
   const [modal, setModal] = useState(null);
+  const [installHelp, setInstallHelp] = useState(null);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [signinDismissedAt, setSigninDismissedAt] = useState(() => readTimestamp(SIGN_IN_DISMISSAL_KEY));
   const [installDismissedAt, setInstallDismissedAt] = useState(() => readTimestamp(INSTALL_DISMISSAL_KEY));
   const [notificationDismissedAt, setNotificationDismissedAt] = useState(() => readTimestamp(NOTIFICATION_DISMISSAL_KEY));
   const closeButtonRef = useRef(null);
+  const installHelpCloseRef = useRef(null);
 
   const isExcluded = isCriticalPath(location.pathname);
   const returnTo = `${location.pathname}${location.search}${location.hash}`;
@@ -127,9 +138,18 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
       return undefined;
     }
 
-    closeButtonRef.current?.focus();
+    if (installHelp) {
+      installHelpCloseRef.current?.focus();
+    } else {
+      closeButtonRef.current?.focus();
+    }
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
+        if (installHelp) {
+          setInstallHelp(null);
+          return;
+        }
+
         if (modal === "signin") dismissSignin();
         if (modal === "install") dismissInstall();
         if (modal === "notifications") dismissNotifications();
@@ -138,7 +158,7 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modal]);
+  }, [installHelp, modal]);
 
   useEffect(() => {
     const handleFooterInstall = () => {
@@ -184,29 +204,29 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
   }, [authReady, authUser, isExcluded, signinDismissedAt]);
 
   const handleInstall = async () => {
+    if (pwa.deferredPromptAvailable) {
+      const result = await requestPwaInstall();
+
+      if (!result.ok) {
+        return;
+      }
+
+      setModal(
+        typeof Notification !== "undefined" &&
+          Notification.permission === "default" &&
+          !isRecent(notificationDismissedAt, NOTIFICATION_COOLDOWN)
+          ? "notifications"
+          : null,
+      );
+      return;
+    }
+
     if (pwa.isIos) {
-      dismissInstall();
+      setInstallHelp("ios");
       return;
     }
 
-    const result = await requestPwaInstall();
-
-    if (result.manual) {
-      return;
-    }
-
-    if (!result.ok) {
-      dismissInstall();
-      return;
-    }
-
-    setModal(
-      typeof Notification !== "undefined" &&
-        Notification.permission === "default" &&
-        !isRecent(notificationDismissedAt, NOTIFICATION_COOLDOWN)
-        ? "notifications"
-        : null,
-    );
+    setInstallHelp("desktop");
   };
 
   const handleNotificationPermission = async () => {
@@ -237,7 +257,6 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
     : modal === "install"
       ? "Add Nexus to your Home Screen"
       : "Stay updated with Nexus";
-  const installPromptUnavailable = modal === "install" && !pwa.isIos && !pwa.deferredPromptAvailable;
 
   return (
     <div className="customer-onboarding" role="presentation">
@@ -279,28 +298,10 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
 
         {modal === "install" ? (
           <>
-            <p>
-              Get faster access to Nexus and stay closer to your orders, shipping updates and account.
-              {installPromptUnavailable ? " Your browser has not made a direct install option available yet." : ""}
-            </p>
-            {pwa.isIos ? (
-              <ol className="customer-onboarding__instructions">
-                <li>Tap the Share button in your browser.</li>
-                <li>Choose Add to Home Screen.</li>
-                <li>Tap Add.</li>
-              </ol>
-            ) : null}
-            {installPromptUnavailable ? (
-              <ol className="customer-onboarding__instructions">
-                <li>Look for the install icon in your browser address bar.</li>
-                <li>Or open the browser menu and choose its install-app option.</li>
-              </ol>
-            ) : null}
-            {!installPromptUnavailable ? (
-              <button type="button" className="customer-onboarding__primary" onClick={handleInstall}>
-                {pwa.isIos ? "Done" : "Install Nexus"}
-              </button>
-            ) : null}
+            <p>Get faster access to Nexus and stay closer to your orders, shipping updates and account.</p>
+            <button type="button" className="customer-onboarding__primary" onClick={handleInstall}>
+              Install App
+            </button>
             <button type="button" className="customer-onboarding__secondary" onClick={dismissInstall}>Not now</button>
           </>
         ) : null}
@@ -319,6 +320,33 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
           </>
         ) : null}
       </section>
+      {modal === "install" && installHelp ? (
+        <div className="customer-onboarding__help-layer" role="presentation">
+          <button
+            type="button"
+            className="customer-onboarding__help-scrim"
+            aria-label="Close installation instructions"
+            onClick={() => setInstallHelp(null)}
+          />
+          <section className="customer-onboarding__help-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-install-help-title">
+            <h3 id="customer-install-help-title">Install Nexus</h3>
+            {installHelp === "ios" ? (
+              <ol className="customer-onboarding__help-list">
+                <li>Tap the <ShareIcon /> Share button at the bottom of Safari.</li>
+                <li>Scroll down and tap “Add to Home Screen”.</li>
+                <li>Tap “Add”.</li>
+              </ol>
+            ) : (
+              <p className="customer-onboarding__help-copy">
+                Direct installation is not available from this browser right now. When your browser offers installation, use its install icon or browser menu.
+              </p>
+            )}
+            <button ref={installHelpCloseRef} type="button" className="customer-onboarding__help-close" onClick={() => setInstallHelp(null)}>
+              Close
+            </button>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

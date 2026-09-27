@@ -31909,6 +31909,83 @@ body[data-theme="dark"] .admin-orders-modal__success {
   background: transparent;
 }
 
+.customer-onboarding__help-layer {
+  position: fixed;
+  z-index: 3;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.customer-onboarding__help-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: rgba(7, 15, 32, 0.3);
+}
+
+.customer-onboarding__help-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 500px);
+  padding: 1.5rem;
+  border: 1px solid rgba(28, 63, 183, 0.2);
+  border-radius: 20px;
+  color: #0f172a;
+  background: #ffffff;
+  box-shadow: 0 20px 55px rgba(7, 15, 32, 0.26);
+  text-align: left;
+}
+
+.customer-onboarding__help-dialog h3 {
+  margin: 0;
+  color: #1c3fb7;
+  font-size: 1.15rem;
+}
+
+.customer-onboarding__help-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 1.25rem;
+  padding-left: 1.4rem;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.customer-onboarding__help-list svg {
+  width: 1rem;
+  height: 1rem;
+  margin: 0 0.12rem;
+  vertical-align: -0.15rem;
+  fill: none;
+  stroke: #1c3fb7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.customer-onboarding__help-copy {
+  margin: 1rem 0 1.25rem;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.customer-onboarding__help-close {
+  display: block;
+  min-width: 5.5rem;
+  min-height: 2.6rem;
+  margin-left: auto;
+  padding: 0 1rem;
+  border: 1px solid #1c3fb7;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #1c3fb7;
+  font: inherit;
+  font-weight: 800;
+}
+
 .customer-onboarding__instructions,
 .customer-onboarding__list {
   max-width: 25rem;
@@ -31987,6 +32064,17 @@ body[data-theme="dark"] .customer-onboarding__secondary {
 body[data-theme="dark"] .customer-onboarding__message {
   color: #fecdd3 !important;
   background: rgba(159, 18, 57, 0.22);
+}
+
+body[data-theme="dark"] .customer-onboarding__help-dialog {
+  border-color: rgba(143, 171, 255, 0.26);
+  color: #f8fafc;
+  background: #111a2c;
+}
+
+body[data-theme="dark"] .customer-onboarding__help-list,
+body[data-theme="dark"] .customer-onboarding__help-copy {
+  color: #b8c1d6;
 }
 
 @media (max-width: 600px) {
