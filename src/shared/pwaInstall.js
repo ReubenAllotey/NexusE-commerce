@@ -45,10 +45,16 @@ if (typeof window !== "undefined") {
 }
 
 export function getPwaInstallState() {
+  const ios = isIosDevice();
+
   return {
-    canInstall: Boolean(deferredInstallPrompt) || isIosDevice(),
+    canInstall: Boolean(deferredInstallPrompt) || ios,
     deferredPromptAvailable: Boolean(deferredInstallPrompt),
-    isIos: isIosDevice(),
+    isIos: ios,
+    manualGuidanceAvailable: Boolean(deferredInstallPrompt) || ios || (
+      typeof navigator !== "undefined" &&
+      ("serviceWorker" in navigator || "BeforeInstallPromptEvent" in window)
+    ),
     installed: installed || isStandaloneDisplay(),
   };
 }

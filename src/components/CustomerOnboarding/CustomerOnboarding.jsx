@@ -152,7 +152,16 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
   }, [isExcluded, modal, pwa.canInstall, pwa.installed]);
 
   useEffect(() => {
-    if (!authReady || authUser || isExcluded || pwa.installed || !pwa.canInstall) {
+    const signinIsSuppressed = isRecent(signinDismissedAt, SIGN_IN_COOLDOWN);
+
+    if (
+      !authReady ||
+      isExcluded ||
+      pwa.installed ||
+      !pwa.manualGuidanceAvailable ||
+      modal === "signin" ||
+      (!authUser && !signinIsSuppressed)
+    ) {
       return undefined;
     }
 
@@ -163,7 +172,7 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
     }, 6000);
 
     return () => window.clearTimeout(timer);
-  }, [authReady, authUser, isExcluded, modal, pwa.canInstall, pwa.installed, installDismissedAt]);
+  }, [authReady, authUser, isExcluded, modal, pwa.installed, pwa.manualGuidanceAvailable, installDismissedAt, signinDismissedAt]);
 
   useEffect(() => {
     if (!authReady || authUser || isExcluded || isRecent(signinDismissedAt, SIGN_IN_COOLDOWN)) {
@@ -175,6 +184,11 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
   }, [authReady, authUser, isExcluded, signinDismissedAt]);
 
   const handleInstall = async () => {
+    if (pwa.isIos) {
+      dismissInstall();
+      return;
+    }
+
     const result = await requestPwaInstall();
 
     if (result.manual) {
@@ -276,9 +290,15 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
                 <li>Tap Add.</li>
               </ol>
             ) : null}
+            {installPromptUnavailable ? (
+              <ol className="customer-onboarding__instructions">
+                <li>Look for the install icon in your browser address bar.</li>
+                <li>Or open the browser menu and choose its install-app option.</li>
+              </ol>
+            ) : null}
             {!installPromptUnavailable ? (
               <button type="button" className="customer-onboarding__primary" onClick={handleInstall}>
-                {pwa.isIos ? "I’ve added Nexus" : "Install Nexus"}
+                {pwa.isIos ? "Done" : "Install Nexus"}
               </button>
             ) : null}
             <button type="button" className="customer-onboarding__secondary" onClick={dismissInstall}>Not now</button>
