@@ -20,14 +20,6 @@ const FALLBACK_IMAGE =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><rect width="800" height="800" fill="#f7fbff"/><rect x="160" y="180" width="480" height="440" rx="40" fill="#e2eaf5"/><rect x="220" y="240" width="360" height="300" rx="28" fill="#cdd8ea"/><path d="M280 420h240" stroke="#9eb0ca" stroke-width="24" stroke-linecap="round"/><path d="M400 300v240" stroke="#9eb0ca" stroke-width="24" stroke-linecap="round"/><circle cx="400" cy="420" r="54" fill="#b6c7df"/></svg>',
   );
 
-function StarIcon({ filled = false }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={filled ? "is-filled" : ""}>
-      <path d="m12 3 2.9 5.9 6.5.9-4.7 4.5 1.1 6.4L12 17.6 6.2 20.7l1.1-6.4L2.6 9.8l6.5-.9L12 3Z" />
-    </svg>
-  );
-}
-
 function TruckIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -55,6 +47,42 @@ function CartIcon() {
       <path d="M8.4 15h9.9" />
       <circle cx="10.4" cy="20" r="1.4" />
       <circle cx="18.1" cy="20" r="1.4" />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled = false }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20.8 8.8c0 5.2-8.8 10.4-8.8 10.4S3.2 14 3.2 8.8A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 8.8 1.8Z" fill={filled ? "currentColor" : "none"} />
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="18" cy="5" r="2.5" />
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" />
+    </svg>
+  );
+}
+
+function MessageIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 5.5h16v11H9l-5 3v-14Z" />
+      <path d="M8 10h8M8 13h5" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ direction = "down" }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={`product-view__chevron product-view__chevron--${direction}`}>
+      <path d="m7 10 5 5 5-5" />
     </svg>
   );
 }
@@ -101,10 +129,6 @@ function formatShippingMethod(value) {
   return "Air freight";
 }
 
-function renderStars(score) {
-  return Array.from({ length: 5 }, (_, index) => index < Math.round(score));
-}
-
 function ProductView({
   onAddToCart = () => {},
   onToggleWishlist = () => {},
@@ -127,6 +151,9 @@ function ProductView({
   const [quantity, setQuantity] = useState(1);
   const [isInquiryAuthOpen, setIsInquiryAuthOpen] = useState(false);
   const [shareMessage, setShareMessage] = useState("");
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [isDeliveryExpanded, setIsDeliveryExpanded] = useState(false);
+  const [openInfoSections, setOpenInfoSections] = useState({});
 
   const gallery = useMemo(
     () => (product && Array.isArray(product.gallery) ? product.gallery.filter(Boolean) : []),
@@ -138,6 +165,11 @@ function ProductView({
   );
   const categoryTrail = Array.isArray(product?.categoryTrail) ? product.categoryTrail : [];
   const features = Array.isArray(product?.features) ? product.features : [];
+  const specifications = Array.isArray(product?.specifications)
+    ? product.specifications
+    : product?.specifications && typeof product.specifications === "object"
+      ? Object.entries(product.specifications).map(([label, value]) => ({ label, value }))
+      : [];
 
   useEffect(() => {
     setActiveImage(null);
@@ -145,6 +177,9 @@ function ProductView({
     setSelectedOptions([]);
     setVariationError("");
     setQuantity(1);
+    setIsDescriptionExpanded(false);
+    setIsDeliveryExpanded(false);
+    setOpenInfoSections({});
   }, [productSlug]);
 
   useEffect(() => {
@@ -162,8 +197,6 @@ function ProductView({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isInquiryAuthOpen]);
 
-  const stars = renderStars(product?.rating ?? 0);
-  const reviewCount = Number(product?.reviews) || 0;
   const selectionLookup = new Map(selectedOptions.map((option) => [option.groupId, option]));
   const activeSelection = variationGroups
     .map((group) => {
@@ -190,13 +223,13 @@ function ProductView({
     .filter(Boolean);
 
   const selectedImage = activeImage == null ? null : gallery[activeImage] ?? null;
+  const activeGalleryIndex = activeImage == null ? 0 : activeImage;
   const selectedImageSrc =
     selectedImage?.src || selectedVariationImage || product?.primaryImageUrl || product?.image || gallery[0]?.src || FALLBACK_IMAGE;
   const isWishlisted = wishlistItems.includes(product?.name);
   const categoryHref = product?.categorySlug ? `/products?category=${product.categorySlug}` : "/products";
   const shippingFee = getShippingFee(product);
-  const shippingFeeLabel = shippingFee == null ? "Pending" : formatMoney(shippingFee);
-  const shippingMethodLabel = formatShippingMethod(product?.shippingMethod);
+  const shippingFeeLabel = shippingFee == null ? "To be calculated" : shippingFee === 0 ? "Free" : formatMoney(shippingFee);
   const activePrice = resolveProductPrice(product, activeSelection);
   const activeCompareAt = resolveProductCompareAt(product, activeSelection);
   const previewTint =
@@ -214,6 +247,13 @@ function ProductView({
   const activeSelectionLabel =
     activeSelection.map((option) => option.label).filter(Boolean).join(" / ") || "Default";
   const safeQuantity = Math.max(Number(quantity) || 0, 1);
+  const availabilityLabel = isPreorderProduct
+    ? "Pre-order"
+    : isComingSoonProduct
+      ? "Coming Soon"
+      : availabilityMeta.outOfStock
+        ? "Out of Stock"
+        : "In Stock & Ready to Ship";
   const relatedProducts = useMemo(() => {
     if (!Array.isArray(catalogProducts) || catalogProducts.length === 0) {
       return [];
@@ -296,6 +336,15 @@ function ProductView({
     }
   };
 
+  const handleGalleryNavigation = (direction) => {
+    if (gallery.length < 2) {
+      return;
+    }
+
+    const nextIndex = (activeGalleryIndex + direction + gallery.length) % gallery.length;
+    setActiveImage(nextIndex);
+  };
+
   const handleAskAboutProduct = () => {
     const inquiry = getProductInquiry();
 
@@ -356,6 +405,29 @@ function ProductView({
                 alt={product.name}
                 className={product.imageClassName ?? ""}
               />
+              {gallery.length > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    className="product-view__gallery-arrow product-view__gallery-arrow--prev"
+                    onClick={() => handleGalleryNavigation(-1)}
+                    aria-label="Previous product image"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    className="product-view__gallery-arrow product-view__gallery-arrow--next"
+                    onClick={() => handleGalleryNavigation(1)}
+                    aria-label="Next product image"
+                  >
+                    ›
+                  </button>
+                  <span className="product-view__image-count" aria-live="polite">
+                    {activeGalleryIndex + 1} / {gallery.length}
+                  </span>
+                </>
+              ) : null}
               {availabilityMeta.outOfStock ? (
                 <span className="product-view__out-of-stock-badge">OUT OF STOCK</span>
               ) : null}
@@ -408,7 +480,10 @@ function ProductView({
                   return (
                     <div key={group.id ?? group.groupName} className="product-view__sizes">
                       <div className="product-view__swatch-label">
-                        <span>{group.groupName}</span>
+                        <span>
+                          {group.groupName}
+                          {group.isRequired ? <em aria-label="required">*</em> : null}
+                        </span>
                         <strong>{activeGroupOption?.label ?? "Select an option"}</strong>
                       </div>
                       <div
@@ -507,9 +582,21 @@ function ProductView({
             ) : null}
 
             {product.description?.trim() ? (
-              <section className="product-view__details-card product-view__description-inline">
-                <h2>Product Description</h2>
-                <p>{product.description}</p>
+              <section className={`product-view__description-section${isDescriptionExpanded ? " is-expanded" : ""}`}>
+                <button
+                  type="button"
+                  className="product-view__accordion-trigger"
+                  aria-expanded={isDescriptionExpanded}
+                  onClick={() => setIsDescriptionExpanded((current) => !current)}
+                >
+                  <span><span className="product-view__accordion-icon" aria-hidden="true">i</span>Product Details</span>
+                  <ChevronIcon direction={isDescriptionExpanded ? "up" : "down"} />
+                </button>
+                <p className="product-view__description-preview">{product.description}</p>
+                <div className="product-view__description-full">
+                  <h2>Product Description</h2>
+                  <p>{product.description}</p>
+                </div>
               </section>
             ) : null}
 
@@ -563,7 +650,21 @@ function ProductView({
               </button>
             </div>
 
-            <p className="product-view__shipping">Shipping fee {shippingFeeLabel}</p>
+            <div className="product-view__support-actions" aria-label="Product actions">
+              <button type="button" className="product-view__secondary-action" onClick={() => onToggleWishlist(product.name)} aria-pressed={isWishlisted}>
+                <HeartIcon filled={isWishlisted} /> {isWishlisted ? "Wishlisted" : "Wishlist"}
+              </button>
+              <button type="button" className="product-view__secondary-action" onClick={handleShareProduct}>
+                <ShareIcon /> Share Product
+              </button>
+              <button type="button" className="product-view__secondary-action" onClick={handleAskAboutProduct}>
+                <MessageIcon /> Ask About Product
+              </button>
+            </div>
+            {shareMessage ? <p className="product-view__share-feedback" role="status">{shareMessage}</p> : null}
+
+            <p className="product-view__shipping">Estimated shipping fee: {shippingFeeLabel}</p>
+            <p className="product-view__stock">{availabilityLabel}</p>
 
             {isPreorderProduct ? (
               <div className="product-view__preorder-banner">
@@ -583,60 +684,86 @@ function ProductView({
               </div>
             ) : null}
 
-            <p className="product-view__stock">{product.stockStatus}</p>
-
-            <div className="product-view__perks">
-              <article className="product-view__perk product-view__perk--shipping">
-                <TruckIcon />
-                <div>
-                  <strong>Shipping fee</strong>
-                  <span>
-                    {shippingFee == null
-                      ? `${shippingMethodLabel} pending until the fee is added`
-                      : `${shippingMethodLabel} from ${formatMoney(shippingFee)} on this item`}
-                  </span>
-                </div>
-              </article>
-
-              <article className="product-view__perk product-view__perk--batch">
-                <ShieldIcon />
-                <div>
-                  <strong>Batch Number</strong>
-                  <span>{bannerBatchNumber}</span>
-                  <span className="product-view__perk-note">{batchWindowLabel}</span>
-                </div>
-              </article>
-            </div>
-
-            <div className="product-view__support-actions" aria-label="Product actions">
-              <button type="button" className="product-view__secondary-action" onClick={handleShareProduct}>
-                Share Product
+            <section className={`product-view__delivery-section${isDeliveryExpanded ? " is-expanded" : ""}`}>
+              <button
+                type="button"
+                className="product-view__accordion-trigger"
+                aria-expanded={isDeliveryExpanded}
+                onClick={() => setIsDeliveryExpanded((current) => !current)}
+              >
+                <span><TruckIcon /> Delivery &amp; Shipping</span>
+                <ChevronIcon direction={isDeliveryExpanded ? "up" : "down"} />
               </button>
-              <button type="button" className="product-view__secondary-action" onClick={handleAskAboutProduct}>
-                Ask About Product
-              </button>
-            </div>
-            {shareMessage ? <p className="product-view__share-feedback" role="status">{shareMessage}</p> : null}
+              <div className="product-view__delivery-content">
+                <article className="product-view__perk product-view__perk--shipping">
+                  <TruckIcon />
+                  <div>
+                    <strong>Shipping Fee</strong>
+                    <span>
+                      {shippingFee == null
+                        ? "The estimated shipping fee for this item will be calculated later."
+                        : shippingFee === 0
+                          ? "The estimated shipping fee on this item is Free."
+                          : `The estimated shipping fee on this item is ${formatMoney(shippingFee)}.`}
+                    </span>
+                  </div>
+                </article>
+                <article className="product-view__perk product-view__perk--batch">
+                  <ShieldIcon />
+                  <div>
+                    <strong>Batch Number</strong>
+                    <span>{bannerBatchNumber}</span>
+                    <span className="product-view__perk-note">{batchWindowLabel}</span>
+                  </div>
+                </article>
+              </div>
+            </section>
           </div>
         </section>
 
         <section className="product-view__details-panel">
           <div className="product-view__details">
-            <div className="product-view__details-card">
-              <h2>Overview</h2>
-              <p>{product.overview}</p>
-            </div>
+            {[
+              { key: "overview", label: "Overview", icon: "i", content: product.overview ? <p>{product.overview}</p> : null },
+              {
+                key: "features",
+                label: "Features",
+                icon: "✓",
+                content: features.length > 0 ? <ul>{features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null,
+              },
+              {
+                key: "specifications",
+                label: "Specifications",
+                icon: "◆",
+                content: specifications.length > 0 ? (
+                  <dl className="product-view__specifications">
+                    {specifications.map((specification, index) => (
+                      <div key={`${specification.label ?? "specification"}-${index}`}>
+                        <dt>{specification.label ?? specification.name ?? "Specification"}</dt>
+                        <dd>{specification.value ?? specification.text ?? ""}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null,
+              },
+            ].filter((section) => section.content).map((section) => {
+              const isOpen = Boolean(openInfoSections[section.key]);
 
-            {features.length > 0 ? (
-              <div className="product-view__details-card">
-                <h2>Features</h2>
-                <ul>
-                  {features.map((feature) => (
-                    <li key={feature}>{feature}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+              return (
+                <article className={`product-view__info-section${isOpen ? " is-open" : ""}`} key={section.key}>
+                  <button
+                    type="button"
+                    className="product-view__accordion-trigger"
+                    aria-expanded={isOpen}
+                    onClick={() => setOpenInfoSections((current) => ({ ...current, [section.key]: !current[section.key] }))}
+                  >
+                    <span><span className="product-view__accordion-icon" aria-hidden="true">{section.icon}</span>{section.label}</span>
+                    <ChevronIcon direction={isOpen ? "up" : "down"} />
+                  </button>
+                  <div className="product-view__info-section-body">{section.content}</div>
+                </article>
+              );
+            })}
           </div>
         </section>
 
@@ -654,7 +781,7 @@ function ProductView({
                 </span>
                 <div>
                   <p className="section-heading__eyebrow">Recommended</p>
-                  <h2>More products you may like</h2>
+                  <h2>You May Also Like</h2>
                 </div>
               </div>
             </div>
@@ -674,20 +801,6 @@ function ProductView({
           </section>
         ) : null}
 
-        <section className="product-view__reviews" aria-labelledby="product-reviews-title">
-          <div className="product-view__details-card">
-            <p className="section-heading__eyebrow">Customer feedback</p>
-            <h2 id="product-reviews-title">Reviews</h2>
-            <div className="product-view__rating" aria-label={`${product.rating} out of 5 stars`}>
-              <div className="product-view__stars">
-                {stars.map((filled, index) => (
-                  <StarIcon key={`${index}-${filled}`} filled={filled} />
-                ))}
-              </div>
-              <span>{reviewCount.toLocaleString()} reviews</span>
-            </div>
-          </div>
-        </section>
       </div>
 
       {isInquiryAuthOpen ? (
