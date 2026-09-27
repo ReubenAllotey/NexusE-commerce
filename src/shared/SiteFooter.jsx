@@ -1,3 +1,4 @@
+import { usePwaInstall } from "./pwaInstall";
 import { Link } from "react-router-dom";
 
 const footerLinks = {
@@ -35,6 +36,12 @@ const socialLinks = [
 ];
 
 function SiteFooter({ logoSrc, logoAlt = "Nexus logo" }) {
+  const pwa = usePwaInstall();
+
+  const openInstall = () => {
+    window.dispatchEvent(new CustomEvent("nexus:open-install"));
+  };
+
   return (
     <footer className="site-footer" id="footer">
       <div className="site-shell site-footer__inner">
@@ -105,7 +112,20 @@ function SiteFooter({ logoSrc, logoAlt = "Nexus logo" }) {
                 {item.short}
               </a>
             ))}
-          </div>
+          {pwa.installed ? (
+            <span className="site-footer__install-status">Nexus App Installed</span>
+          ) : (
+            <button type="button" className="site-footer__install" onClick={openInstall}>
+              <strong>Add Nexus to Home Screen</strong>
+              <span>
+                {pwa.isIos
+                  ? "Use your browser menu to install Nexus."
+                  : "Install Nexus for faster access and order updates."}
+              </span>
+              <em>Install</em>
+            </button>
+          )}
+        </div>
         </div>
       </div>
 

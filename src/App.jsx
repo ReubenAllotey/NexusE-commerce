@@ -4,6 +4,7 @@ import "./App.css";
 import AppLoader from "./components/AppLoader/AppLoader";
 import CartEditModal from "./components/CartEditModal";
 import WhatsAppWidget from "./components/WhatsAppWidget/WhatsAppWidget";
+import CustomerOnboarding from "./components/CustomerOnboarding/CustomerOnboarding";
 import Header from "./assets/components/Header/header";
 import { supabase } from "./lib/supabaseClient";
 import Home from "./pages/Home/home";
@@ -892,6 +893,7 @@ function AppShell({
         <Route path="/register/login" element={<Login onLogin={onLogin} />} />
         <Route path="/account/set-password" element={<PasswordSetup />} />
       </Routes>
+      <CustomerOnboarding authReady={authReady} authUser={authUser} />
       <WhatsAppWidget />
     </>
   );

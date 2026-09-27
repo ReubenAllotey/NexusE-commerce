@@ -1,0 +1,17 @@
+{
+  "name": "Nexus Import Hub",
+  "short_name": "Nexus",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1C3FB7",
+  "background_color": "#f7f9fc",
+  "description": "Shop products and manage your Nexus Import Hub orders.",
+  "icons": [
+    {
+      "src": "/nexuslogo.png",
+      "sizes": "1693x929",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
