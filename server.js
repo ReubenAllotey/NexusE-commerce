@@ -4,6 +4,7 @@ import path from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import webpush from "web-push";
 import { analyzeProduct } from "./server/services/aiProductService.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -575,6 +576,14 @@ const openaiModel =
   clean(process.env.OPENAI_MODEL) ||
   clean(fileEnv.OPENAI_MODEL) ||
   "gpt-5.6-luna";
+const vapidPublicKey = clean(process.env.VAPID_PUBLIC_KEY) || clean(fileEnv.VAPID_PUBLIC_KEY);
+const vapidPrivateKey = clean(process.env.VAPID_PRIVATE_KEY) || clean(fileEnv.VAPID_PRIVATE_KEY);
+const vapidSubject = clean(process.env.VAPID_SUBJECT) || clean(fileEnv.VAPID_SUBJECT);
+const webPushConfigured = Boolean(vapidPublicKey && vapidPrivateKey && vapidSubject);
+
+if (webPushConfigured) {
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+}
 
 const supabaseAdmin =
   normalizedSupabaseUrl && supabaseServiceRoleKey
@@ -1215,6 +1224,211 @@ async function getAuthenticatedUser(req) {
   }
 
   return { ok: true, user: data.user };
+}
+
+function isValidPushEndpoint(value) {
+  try {
+    const parsed = new URL(clean(value));
+    return parsed.protocol === "https:" && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function handlePushPublicKey(req, res) {
+  if (!webPushConfigured) {
+    sendJson(res, 503, { ok: false, message: "Push notifications are not configured." });
+    return;
+  }
+
+  sendJson(res, 200, { ok: true, publicKey: vapidPublicKey });
+}
+
+async function handlePushSubscribe(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  if (!supabaseAdmin) {
+    sendJson(res, 503, { ok: false, message: "Push notifications are not configured." });
+    return;
+  }
+
+  const body = normalizePayload(await readJsonBody(req));
+  const endpoint = clean(body.endpoint);
+  const keys = normalizePayload(body.keys);
+  const p256dh = clean(keys.p256dh);
+  const auth = clean(keys.auth);
+
+  if (!isValidPushEndpoint(endpoint) || !p256dh || !auth) {
+    sendJson(res, 400, { ok: false, message: "A valid push subscription is required." });
+    return;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("push_subscriptions")
+    .upsert({
+      user_id: authResult.user.id,
+      endpoint,
+      p256dh,
+      auth,
+      user_agent: clean(body.userAgent).slice(0, 500) || null,
+      platform: clean(body.platform).slice(0, 120) || null,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+      last_used_at: new Date().toISOString(),
+    }, { onConflict: "endpoint" })
+    .select("id, endpoint, is_active")
+    .single();
+
+  if (error) {
+    sendJson(res, 500, { ok: false, message: error.message || "Unable to save the push subscription." });
+    return;
+  }
+
+  sendJson(res, 200, { ok: true, subscription: data });
+}
+
+async function handlePushUnsubscribe(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  if (!supabaseAdmin) {
+    sendJson(res, 503, { ok: false, message: "Push notifications are not configured." });
+    return;
+  }
+
+  const body = normalizePayload(await readJsonBody(req));
+  const endpoint = clean(body.endpoint);
+  if (!isValidPushEndpoint(endpoint)) {
+    sendJson(res, 400, { ok: false, message: "A valid push subscription is required." });
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("push_subscriptions")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("user_id", authResult.user.id)
+    .eq("endpoint", endpoint);
+
+  if (error) {
+    sendJson(res, 500, { ok: false, message: error.message || "Unable to disable the push subscription." });
+    return;
+  }
+
+  sendJson(res, 200, { ok: true });
+}
+
+function safeNotificationUrl(value) {
+  const candidate = clean(value);
+  if (!candidate) {
+    return "/profile/notifications";
+  }
+
+  try {
+    const parsed = new URL(candidate, "http://nexus.local");
+    if (parsed.origin !== "http://nexus.local" || !parsed.pathname.startsWith("/")) {
+      return "/profile/notifications";
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/profile/notifications";
+  }
+}
+
+let pushWorkerRunning = false;
+
+async function drainPushDeliveryQueue() {
+  if (!webPushConfigured || !supabaseAdmin) {
+    return;
+  }
+
+  const { data: pendingRows, error: pendingError } = await supabasePrivate.rpc("claim_push_delivery_jobs", {
+    p_limit: 25,
+    p_lease_timeout: "2 minutes",
+  });
+
+  if (pendingError) {
+    if (!/does not exist|relation/i.test(pendingError.message || "")) {
+      console.error("Push queue lookup failed:", pendingError.message);
+    }
+    return;
+  }
+
+  for (const row of pendingRows ?? []) {
+    const { data: notification } = await supabaseAdmin
+      .from("notifications")
+      .select("title, message, action_url, action_label")
+      .eq("id", row.notification_id)
+      .maybeSingle();
+    const { data: subscriptions, error: subscriptionError } = await supabaseAdmin
+      .from("push_subscriptions")
+      .select("id, endpoint, p256dh, auth")
+      .eq("user_id", row.user_id)
+      .eq("is_active", true);
+
+    if (subscriptionError) {
+      await supabaseAdmin.from("push_delivery_queue").update({ status: "failed", claimed_at: null, last_error: subscriptionError.message, updated_at: new Date().toISOString() }).eq("id", row.id);
+      continue;
+    }
+
+    let lastError = "";
+    let deliveredCount = 0;
+    for (const subscription of subscriptions ?? []) {
+      try {
+        await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, JSON.stringify({
+          title: notification?.title || "Nexus Import Hub",
+          body: notification?.message || "You have a new Nexus notification.",
+          url: safeNotificationUrl(notification?.action_url),
+          actionLabel: notification?.action_label || "Open notification",
+          tag: `nexus-${row.notification_id}`,
+        }));
+        await supabaseAdmin.from("push_subscriptions").update({ last_used_at: new Date().toISOString() }).eq("id", subscription.id);
+        deliveredCount += 1;
+      } catch (error) {
+        lastError = error.message || "Push delivery failed.";
+        if (error.statusCode === 404 || error.statusCode === 410) {
+          await supabaseAdmin.from("push_subscriptions").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", subscription.id);
+        }
+      }
+    }
+
+    await supabaseAdmin.from("push_delivery_queue").update({
+      status: deliveredCount > 0 || !(subscriptions ?? []).length ? "sent" : "failed",
+      delivered_at: deliveredCount > 0 || !(subscriptions ?? []).length ? new Date().toISOString() : null,
+      claimed_at: null,
+      last_error: deliveredCount > 0 || !(subscriptions ?? []).length ? null : lastError || "Push delivery failed.",
+      updated_at: new Date().toISOString(),
+    }).eq("id", row.id);
+  }
+}
+
+async function runPushWorkerCycle() {
+  if (pushWorkerRunning) {
+    return;
+  }
+
+  pushWorkerRunning = true;
+  try {
+    await drainPushDeliveryQueue();
+  } finally {
+    pushWorkerRunning = false;
+  }
+}
+
+function startPushDeliveryWorker() {
+  if (!webPushConfigured || !supabaseAdmin) {
+    return;
+  }
+  const timer = setInterval(() => {
+    void runPushWorkerCycle().catch((error) => console.error("Push delivery worker failed:", error));
+  }, 5000);
+  timer.unref?.();
 }
 
 async function loadProfile(userId) {
@@ -2244,7 +2458,7 @@ function sendJson(res, statusCode, payload) {
     "Content-Length": Buffer.byteLength(body),
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, x-paystack-signature",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   });
   res.end(body);
 }
@@ -2255,7 +2469,7 @@ function sendText(res, statusCode, payload, contentType = "text/plain; charset=u
     "Content-Length": Buffer.byteLength(payload),
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, x-paystack-signature",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   });
   res.end(payload);
 }
@@ -3548,6 +3762,21 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === "/api/push/public-key" && req.method === "GET") {
+    await handlePushPublicKey(req, res);
+    return;
+  }
+
+  if (pathname === "/api/push/subscribe" && req.method === "POST") {
+    await handlePushSubscribe(req, res);
+    return;
+  }
+
+  if (pathname === "/api/push/unsubscribe" && req.method === "DELETE") {
+    await handlePushUnsubscribe(req, res);
+    return;
+  }
+
   if (pathname === "/api/admin/products/generate-content" && req.method === "POST") {
     await handleGenerateProductContent(req, res);
     return;
@@ -3608,4 +3837,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Paystack server running on port ${PORT}`);
+  startPushDeliveryWorker();
 });

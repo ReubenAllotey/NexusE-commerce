@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { disablePushNotifications, enablePushNotifications, getPushSupport } from "../../shared/pushSubscription";
 
 function getInitials(name = "") {
   return String(name)
@@ -63,6 +64,9 @@ function AccountSettings({ authUser = null, onUpdateAuthUser = () => {} }) {
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [pushStatus, setPushStatus] = useState("unknown");
+  const [pushMessage, setPushMessage] = useState("");
+  const [isUpdatingPush, setIsUpdatingPush] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -144,6 +148,32 @@ function AccountSettings({ authUser = null, onUpdateAuthUser = () => {} }) {
   }, [authUser?.id]);
 
   const isAccountEditable = profile?.status === "active";
+  const pushSupport = getPushSupport();
+
+  useEffect(() => {
+    let isActive = true;
+    if (!pushSupport.supported) {
+      setPushStatus("unsupported");
+      return () => {
+        isActive = false;
+      };
+    }
+
+    navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then((subscription) => {
+        if (isActive) {
+          setPushStatus(subscription ? "enabled" : Notification.permission === "denied" ? "blocked" : "disabled");
+        }
+      })
+      .catch(() => {
+        if (isActive) setPushStatus("disabled");
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [pushSupport.supported]);
   const passwordResetRequired = Boolean(authUser?.mustChangePassword);
   const statusMessage =
     profile?.status && profile.status !== "active"
@@ -339,6 +369,39 @@ function AccountSettings({ authUser = null, onUpdateAuthUser = () => {} }) {
     }
   };
 
+  const handleEnablePush = async () => {
+    setIsUpdatingPush(true);
+    setPushMessage("");
+    try {
+      const result = await enablePushNotifications();
+      if (!result.ok) {
+        setPushStatus(result.reason || "disabled");
+        setPushMessage(result.message || "Notifications could not be enabled.");
+        return;
+      }
+      setPushStatus("enabled");
+      setPushMessage("Notifications are enabled on this device.");
+    } catch (pushError) {
+      setPushMessage(pushError.message || "Unable to enable notifications right now.");
+    } finally {
+      setIsUpdatingPush(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    setIsUpdatingPush(true);
+    setPushMessage("");
+    try {
+      await disablePushNotifications();
+      setPushStatus("disabled");
+      setPushMessage("Notifications are disabled on this device.");
+    } catch (pushError) {
+      setPushMessage(pushError.message || "Unable to disable notifications right now.");
+    } finally {
+      setIsUpdatingPush(false);
+    }
+  };
+
   return (
     <main className="account-settings-page">
       <section className="account-settings-shell">
@@ -470,6 +533,44 @@ function AccountSettings({ authUser = null, onUpdateAuthUser = () => {} }) {
         </section>
 
         <div className="account-settings-grid--two">
+          <section className="account-settings-panel account-settings-push-panel">
+            <div className="account-settings-panel__header">
+              <div>
+                <p>Notifications</p>
+                <h2>Push notifications</h2>
+              </div>
+              <span className={`account-settings-status${pushStatus === "enabled" ? " is-active" : ""}`}>
+                {pushStatus === "enabled" ? "Enabled" : pushStatus === "blocked" ? "Blocked" : "Off"}
+              </span>
+            </div>
+
+            <p className="account-settings-message account-settings-push-panel__copy">
+              Get important order, payment, and shipment updates on this device. Your browser permission stays under your control.
+            </p>
+            {pushStatus === "unsupported" ? (
+              <p className="account-settings-error">This browser does not support push notifications.</p>
+            ) : null}
+            {pushMessage ? <p className={pushStatus === "enabled" || pushStatus === "disabled" ? "account-settings-message" : "account-settings-error"}>{pushMessage}</p> : null}
+            <div className="account-settings-actions">
+              <button
+                type="button"
+                className="account-settings-button"
+                onClick={handleEnablePush}
+                disabled={isUpdatingPush || pushStatus === "enabled" || pushStatus === "unsupported" || pushStatus === "blocked"}
+              >
+                {isUpdatingPush ? "Updating..." : "Enable Notifications"}
+              </button>
+              <button
+                type="button"
+                className="account-settings-button account-settings-button--ghost"
+                onClick={handleDisablePush}
+                disabled={isUpdatingPush || pushStatus !== "enabled"}
+              >
+                Disable on This Device
+              </button>
+            </div>
+          </section>
+
           <section className="account-settings-panel">
             <div className="account-settings-panel__header">
               <div>

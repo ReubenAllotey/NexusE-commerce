@@ -73,6 +73,7 @@ import {
   saveStoredSiteBanner,
 } from "./shared/siteBannerStorage";
 import { loadCurrentBatch } from "./shared/batchStorage";
+import { disablePushNotifications } from "./shared/pushSubscription";
 
 const AdminDashboard = lazy(() => import("./pages/Admin/dashboard/adminDashboard"));
 const AdminOrdersPage = lazy(() => import("./pages/Admin/AdminOrdersPage"));
@@ -1378,6 +1379,13 @@ function App() {
   const handleAdminLogin = handleAuthProfileUpdate;
 
   const handleLogout = async () => {
+    try {
+      await disablePushNotifications();
+    } catch (pushError) {
+      if (import.meta.env.DEV) {
+        console.warn("Unable to disable this device's push subscription during logout:", pushError);
+      }
+    }
     clearSessionUser();
     clearAdminSession();
     clearPaymentSession();

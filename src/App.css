@@ -18841,6 +18841,14 @@ body[data-theme="dark"] .admin-product-form__modal input {
   color: #ffffff;
 }
 
+.account-settings-push-panel__copy {
+  max-width: 42rem;
+}
+
+.account-settings-push-panel .account-settings-actions {
+  align-items: center;
+}
+
 .account-settings-message {
   color: #166534;
   font-weight: 700;
