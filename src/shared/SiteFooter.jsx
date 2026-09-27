@@ -55,22 +55,6 @@ function SiteFooter({ logoSrc, logoAlt = "Nexus logo" }) {
               <p>Subscribe</p>
             </div>
           </div>
-          <span>Connect with us on social media</span>
-
-          <div className="site-footer__social-links" aria-label="Social media links">
-            {socialLinks.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={item.label}
-                className="site-footer__social-link"
-              >
-                {item.short}
-              </a>
-            ))}
-          </div>
         </div>
 
         <div className="site-footer__column">
@@ -112,20 +96,22 @@ function SiteFooter({ logoSrc, logoAlt = "Nexus logo" }) {
                 {item.short}
               </a>
             ))}
-          {pwa.installed ? (
-            <span className="site-footer__install-status">Nexus App Installed</span>
-          ) : (
-            <button type="button" className="site-footer__install" onClick={openInstall}>
-              <strong>Add Nexus to Home Screen</strong>
-              <span>
-                {pwa.isIos
-                  ? "Use your browser menu to install Nexus."
-                  : "Install Nexus for faster access and order updates."}
-              </span>
-              <em>Install</em>
-            </button>
-          )}
-        </div>
+          </div>
+          <div className="site-footer__install-section">
+            {pwa.installed ? (
+              <span className="site-footer__install-status">Nexus App Installed</span>
+            ) : (
+              <button type="button" className="site-footer__install" onClick={openInstall}>
+                <strong>Add Nexus to Home Screen</strong>
+                <span>
+                  {pwa.isIos
+                    ? "Use your browser menu to install Nexus."
+                    : "Install Nexus for faster access and order updates."}
+                </span>
+                <em>Install Nexus</em>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

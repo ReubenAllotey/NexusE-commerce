@@ -3152,13 +3152,13 @@ body[data-theme="dark"] .site-footer {
 .site-footer__socials {
   display: flex;
   gap: 0.65rem;
-  margin-top: 1rem;
+  margin-top: 0.6rem;
 }
 
 .site-footer__social-link,
 .site-footer__socials a {
-  width: 2rem;
-  height: 2rem;
+  width: 2.5rem;
+  height: 2.5rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3168,6 +3168,14 @@ body[data-theme="dark"] .site-footer {
   font-size: 0.8rem;
   text-decoration: none;
   background: rgba(255, 255, 255, 0.04);
+  transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+}
+
+.site-footer__socials a:hover,
+.site-footer__socials a:focus-visible {
+  border-color: #8fabff;
+  color: #ffffff;
+  background: rgba(28, 63, 183, 0.55);
 }
 
 .site-footer__social-links {
@@ -31922,13 +31930,17 @@ body[data-theme="dark"] .admin-orders-modal__success {
 .site-footer__install {
   display: grid;
   gap: 0.2rem;
-  margin-top: 0.8rem;
+  margin-top: 0;
   padding: 0;
   border: 0;
   color: rgba(255, 255, 255, 0.78);
   background: transparent;
   font: inherit;
   text-align: left;
+}
+
+.site-footer__install-section {
+  margin-top: 1.45rem;
 }
 
 .site-footer__install strong {
