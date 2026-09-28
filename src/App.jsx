@@ -195,7 +195,13 @@ function resolveDrawerItem(item, productLookup = new Map()) {
 }
 
 function getCartItemKey(item, fallbackSlug = "") {
-  return item?.cartKey ?? item?.variantKey ?? item?.slug ?? fallbackSlug;
+  if (item?.cartKey) {
+    return item.cartKey;
+  }
+
+  const productIdentity = item?.productId ?? item?.product_id ?? item?.id ?? item?.slug ?? fallbackSlug;
+  const variantIdentity = item?.variantKey ?? item?.variant_key ?? item?.slug ?? "default";
+  return `${productIdentity}::${variantIdentity}`;
 }
 
 function getVariantLabel(item = {}) {
@@ -1526,12 +1532,6 @@ function App() {
   };
 
   const handleAddToCart = (productOrSlug, quantity = 1, variantSelection = {}) => {
-    console.log("[NEXUS PREORDER TRACE] 4 APP HANDLER", {
-      product: productOrSlug,
-      quantity,
-      variantSelection,
-    });
-
     if (!productOrSlug) {
       return;
     }
@@ -1575,7 +1575,6 @@ function App() {
         setCartItems(result.items ?? []);
         setCartError("");
         setIsCartDrawerOpen(true);
-        console.log("[NEXUS PREORDER TRACE] 10 CART REFRESH");
         return;
       }
 

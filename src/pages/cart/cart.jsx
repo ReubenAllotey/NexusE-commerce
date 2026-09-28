@@ -118,7 +118,7 @@ function Cart({
       const outOfStock = isProductOutOfStock(product);
 
       return {
-        key: item.cartKey ?? item.slug ?? product.slug ?? product.name,
+        key: item.cartKey ?? `${item.productId ?? item.product_id ?? product.id ?? product.slug}::${item.variantKey ?? item.variant_key ?? item.slug ?? "default"}`,
         product,
         quantity,
         shippingFee,

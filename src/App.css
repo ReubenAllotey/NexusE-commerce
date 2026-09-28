@@ -21997,11 +21997,44 @@ body[data-theme="dark"] .site-actions__signin--ghost {
 
   .cart-table-wrap {
     width: 100%;
-    overflow-x: auto;
+    min-width: 0;
+    overflow-x: visible;
   }
 
   .cart-table {
-    min-width: 620px;
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .cart-table tbody td,
+  .cart-table__product,
+  .cart-table__product div,
+  .cart-table__actions {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .cart-table__product strong,
+  .cart-table__product span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .cart-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .cart-actions .cart-link,
+  .cart-actions .cart-clear {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 0.65rem;
+    white-space: normal;
   }
 
   .cart-summary {
