@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { requestPwaInstall, usePwaInstall } from "../../shared/pwaInstall";
+import { enablePushNotifications, getPushSupport } from "../../shared/pushSubscription";
 
 const SIGN_IN_DISMISSAL_KEY = "nexus:onboarding:signin-dismissed-at";
 const INSTALL_DISMISSAL_KEY = "nexus:onboarding:install-dismissed-at";
@@ -85,6 +86,7 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
   const [modal, setModal] = useState(null);
   const [installHelp, setInstallHelp] = useState(null);
   const [notificationMessage, setNotificationMessage] = useState("");
+  const [isEnablingNotifications, setIsEnablingNotifications] = useState(false);
   const [signinDismissedAt, setSigninDismissedAt] = useState(() => readTimestamp(SIGN_IN_DISMISSAL_KEY));
   const [installDismissedAt, setInstallDismissedAt] = useState(() => readTimestamp(INSTALL_DISMISSAL_KEY));
   const [notificationDismissedAt, setNotificationDismissedAt] = useState(() => readTimestamp(NOTIFICATION_DISMISSAL_KEY));
@@ -92,6 +94,7 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
   const installHelpCloseRef = useRef(null);
 
   const isExcluded = isCriticalPath(location.pathname);
+  const pushSupport = getPushSupport();
   const returnTo = `${location.pathname}${location.search}${location.hash}`;
   const isRecent = (timestamp, cooldown) => timestamp > 0 && Date.now() - timestamp < cooldown;
 
@@ -203,6 +206,32 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
     return () => window.clearTimeout(timer);
   }, [authReady, authUser, isExcluded, signinDismissedAt]);
 
+  useEffect(() => {
+    if (
+      !authReady ||
+      !authUser ||
+      isExcluded ||
+      !pwa.installed ||
+      modal ||
+      !pushSupport.supported ||
+      Notification.permission === "denied" ||
+      isRecent(notificationDismissedAt, NOTIFICATION_COOLDOWN)
+    ) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setModal("notifications"), 1400);
+    return () => window.clearTimeout(timer);
+  }, [
+    authReady,
+    authUser,
+    isExcluded,
+    modal,
+    notificationDismissedAt,
+    pwa.installed,
+    pushSupport.supported,
+  ]);
+
   const handleInstall = async () => {
     if (pwa.deferredPromptAvailable) {
       const result = await requestPwaInstall();
@@ -211,13 +240,7 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
         return;
       }
 
-      setModal(
-        typeof Notification !== "undefined" &&
-          Notification.permission === "default" &&
-          !isRecent(notificationDismissedAt, NOTIFICATION_COOLDOWN)
-          ? "notifications"
-          : null,
-      );
+      setModal(null);
       return;
     }
 
@@ -230,21 +253,27 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
   };
 
   const handleNotificationPermission = async () => {
-    if (typeof Notification === "undefined") {
-      setNotificationMessage("Browser notifications are not supported here.");
+    if (!authUser) {
+      setNotificationMessage("Sign in to enable notifications for your Nexus account.");
       return;
     }
 
-    if (Notification.permission === "denied") {
-      setNotificationMessage("Notifications are currently blocked in your browser settings.");
-      return;
-    }
+    setIsEnablingNotifications(true);
+    setNotificationMessage("");
+    try {
+      const result = await enablePushNotifications();
+      if (!result.ok) {
+        setNotificationMessage(result.message || "Notifications could not be enabled.");
+        return;
+      }
 
-    const permission = await Notification.requestPermission();
-    if (permission === "denied") {
-      setNotificationMessage("Notifications are currently blocked in your browser settings.");
-    } else {
+      writeTimestamp(NOTIFICATION_DISMISSAL_KEY);
+      setNotificationDismissedAt(Date.now());
       setModal(null);
+    } catch (error) {
+      setNotificationMessage(error.message || "Unable to enable notifications right now.");
+    } finally {
+      setIsEnablingNotifications(false);
     }
   };
 
@@ -308,14 +337,17 @@ function CustomerOnboarding({ authReady = false, authUser = null }) {
 
         {modal === "notifications" ? (
           <>
-            <p>Allow browser notifications for important Nexus updates when browser delivery is available.</p>
+            <p>Get important updates from Nexus wherever you are.</p>
             <ul className="customer-onboarding__list">
-              <li>Order and shipment updates</li>
-              <li>Shipping fee reminders</li>
-              <li>Important account notices</li>
+              <li>Order updates</li>
+              <li>Shipment tracking</li>
+              <li>Shipping fees</li>
+              <li>Important announcements</li>
             </ul>
             {notificationMessage ? <p className="customer-onboarding__message" role="status">{notificationMessage}</p> : null}
-            <button type="button" className="customer-onboarding__primary" onClick={handleNotificationPermission}>Allow Notifications</button>
+            <button type="button" className="customer-onboarding__primary" onClick={handleNotificationPermission} disabled={isEnablingNotifications}>
+              {isEnablingNotifications ? "Enabling..." : "Enable Notifications"}
+            </button>
             <button type="button" className="customer-onboarding__secondary" onClick={dismissNotifications}>Maybe later</button>
           </>
         ) : null}
