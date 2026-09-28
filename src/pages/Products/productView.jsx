@@ -599,6 +599,28 @@ function ProductView({
             ) : null}
 
             <div className="product-view__buybar">
+              {availabilityMeta.outOfStock ? (
+                <UnavailableStockButton
+                  className="product-view__add is-disabled"
+                  aria-label={`${product.name} is out of stock`}
+                >
+                  <CartIcon />
+                  {availabilityMeta.buttonLabel}
+                </UnavailableStockButton>
+              ) : (
+                <button
+                  type="button"
+                  className={`product-view__add${availabilityMeta.disabled ? " is-disabled" : ""}`}
+                  onClick={handleAddToCart}
+                  disabled={availabilityMeta.disabled}
+                >
+                  <CartIcon />
+                  {availabilityMeta.buttonLabel}
+                </button>
+              )}
+            </div>
+
+            <div className="product-view__secondary-row">
               <div className="product-view__quantity" aria-label="Quantity selector">
                 <button
                   type="button"
@@ -616,27 +638,6 @@ function ProductView({
                   +
                 </button>
               </div>
-
-              {availabilityMeta.outOfStock ? (
-                <UnavailableStockButton
-                  className="product-view__add is-disabled"
-                  aria-label={`${product.name} is out of stock`}
-                >
-                  <CartIcon />
-                  {availabilityMeta.buttonLabel}
-                </UnavailableStockButton>
-              ) : (
-                <button
-                  type="button"
-                  className={`product-view__add${availabilityMeta.disabled ? " is-disabled" : ""}`}
-                  onClick={handleAddToCart}
-                  disabled={availabilityMeta.disabled}
-                >
-                  <CartIcon />
-                  {availabilityMeta.buttonLabel} • {formatMoney(activePrice * safeQuantity)}
-                </button>
-              )}
-
               <button
                 type="button"
                 className={`product-view__wishlist${isWishlisted ? " is-active" : ""}`}
@@ -644,19 +645,21 @@ function ProductView({
                 aria-label={`${isWishlisted ? "Remove" : "Save"} ${product.name}`}
                 onClick={() => onToggleWishlist(product.name)}
               >
-                ♥
+                <HeartIcon filled={isWishlisted} />
+                <span>{isWishlisted ? "Wishlisted" : "Wishlist"}</span>
               </button>
             </div>
 
             <div className="product-view__support-actions" aria-label="Product actions">
-              <button type="button" className="product-view__secondary-action" onClick={() => onToggleWishlist(product.name)} aria-pressed={isWishlisted}>
-                <HeartIcon filled={isWishlisted} /> {isWishlisted ? "Wishlisted" : "Wishlist"}
-              </button>
               <button type="button" className="product-view__secondary-action" onClick={handleShareProduct}>
-                <ShareIcon /> Share Product
+                <ShareIcon />
+                <span className="product-view__secondary-label--full">Share Product</span>
+                <span className="product-view__secondary-label--compact">Share</span>
               </button>
               <button type="button" className="product-view__secondary-action" onClick={handleAskAboutProduct}>
-                <MessageIcon /> Ask About Product
+                <MessageIcon />
+                <span className="product-view__secondary-label--full">Ask About Product</span>
+                <span className="product-view__secondary-label--compact">Ask Admin</span>
               </button>
             </div>
             {shareMessage ? <p className="product-view__share-feedback" role="status">{shareMessage}</p> : null}
