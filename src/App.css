@@ -32618,3 +32618,21 @@ body[data-theme="dark"] .product-view__main-image {
   box-shadow: none;
   outline: none;
 }
+
+/* Keep the desktop hero subject visually grounded on the service banner. */
+@media (min-width: 769px) {
+  .hero-banner {
+    position: relative;
+    z-index: 2;
+  }
+
+  .hero-banner__visual img {
+    z-index: 3;
+    transform: translate(8%, clamp(3.75rem, 6vw, 7rem));
+  }
+
+  .service-strip {
+    position: relative;
+    z-index: 1;
+  }
+}
