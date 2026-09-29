@@ -245,6 +245,7 @@ function ProductView({
   const shippingFeeLabel = shippingFee == null ? "To be calculated" : shippingFee === 0 ? "Free" : formatMoney(shippingFee);
   const activePrice = resolveProductPrice(product, activeSelection);
   const activeCompareAt = resolveProductCompareAt(product, activeSelection);
+  const hasActiveCompareAt = Number.isFinite(Number(activeCompareAt)) && Number(activeCompareAt) > 0;
   const previewTint =
     activeSelection.find((option) => option.swatchColor)?.swatchColor || selectedImage?.tint || "#dfe7f3";
   const availabilityMeta = getProductPurchaseMeta(product);
@@ -482,7 +483,7 @@ function ProductView({
 
             <div className="product-view__pricing">
               <strong>{formatMoney(activePrice)}</strong>
-              <span>{activeCompareAt ? formatMoney(activeCompareAt) : "-"}</span>
+              {hasActiveCompareAt ? <span>{formatMoney(activeCompareAt)}</span> : null}
             </div>
 
             {variationGroups.length > 0 ? (

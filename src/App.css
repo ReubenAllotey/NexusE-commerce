@@ -32589,3 +32589,25 @@ body[data-theme="dark"] .product-view__freight-estimates p > strong {
 body[data-theme="dark"] .product-view__freight-estimates p > span {
   color: var(--nexus-text-secondary);
 }
+
+/* Let the uploaded product image sit directly in the gallery area. */
+.product-view__main-image {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.product-view__main-image-wash {
+  display: none;
+}
+
+.product-view__main-image img {
+  width: 100%;
+  height: auto;
+  max-height: min(70vh, 34rem);
+  padding: 0;
+  object-fit: contain;
+}
