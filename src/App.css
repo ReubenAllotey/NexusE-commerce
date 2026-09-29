@@ -32611,3 +32611,10 @@ body[data-theme="dark"] .product-view__freight-estimates p > span {
   padding: 0;
   object-fit: contain;
 }
+
+body[data-theme="dark"] .product-view__main-image {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
