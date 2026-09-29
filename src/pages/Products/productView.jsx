@@ -117,6 +117,21 @@ function formatDate(value) {
   }).format(date);
 }
 
+function addCalendarDays(value, days) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  date.setDate(date.getDate() + days);
+  return formatDate(date);
+}
+
 function formatShippingMethod(value) {
   if (value === "sea-freight") {
     return "Sea freight";
@@ -238,6 +253,8 @@ function ProductView({
   const bannerBatchNumber = safeSiteBanner?.announcement?.batchNumber?.trim() || "Pending";
   const batchWindowStart = formatDate(safeSiteBanner?.announcement?.batchWindowStart);
   const batchWindowEnd = formatDate(safeSiteBanner?.announcement?.batchWindowEnd);
+  const airArrivalDate = addCalendarDays(safeSiteBanner?.announcement?.batchWindowEnd, 20);
+  const seaArrivalDate = addCalendarDays(safeSiteBanner?.announcement?.batchWindowEnd, 70);
   const batchWindowLabel =
     batchWindowStart || batchWindowEnd
       ? [batchWindowStart, batchWindowEnd].filter(Boolean).join(" - ")
@@ -598,28 +615,6 @@ function ProductView({
               </section>
             ) : null}
 
-            <div className="product-view__buybar">
-              {availabilityMeta.outOfStock ? (
-                <UnavailableStockButton
-                  className="product-view__add is-disabled"
-                  aria-label={`${product.name} is out of stock`}
-                >
-                  <CartIcon />
-                  {availabilityMeta.buttonLabel}
-                </UnavailableStockButton>
-              ) : (
-                <button
-                  type="button"
-                  className={`product-view__add${availabilityMeta.disabled ? " is-disabled" : ""}`}
-                  onClick={handleAddToCart}
-                  disabled={availabilityMeta.disabled}
-                >
-                  <CartIcon />
-                  {availabilityMeta.buttonLabel}
-                </button>
-              )}
-            </div>
-
             <div className="product-view__secondary-row">
               <div className="product-view__quantity" aria-label="Quantity selector">
                 <button
@@ -646,8 +641,29 @@ function ProductView({
                 onClick={() => onToggleWishlist(product.name)}
               >
                 <HeartIcon filled={isWishlisted} />
-                <span>{isWishlisted ? "Wishlisted" : "Wishlist"}</span>
               </button>
+            </div>
+
+            <div className="product-view__buybar">
+              {availabilityMeta.outOfStock ? (
+                <UnavailableStockButton
+                  className="product-view__add is-disabled"
+                  aria-label={`${product.name} is out of stock`}
+                >
+                  <CartIcon />
+                  {availabilityMeta.buttonLabel}
+                </UnavailableStockButton>
+              ) : (
+                <button
+                  type="button"
+                  className={`product-view__add${availabilityMeta.disabled ? " is-disabled" : ""}`}
+                  onClick={handleAddToCart}
+                  disabled={availabilityMeta.disabled}
+                >
+                  <CartIcon />
+                  {availabilityMeta.buttonLabel}
+                </button>
+              )}
             </div>
 
             <div className="product-view__support-actions" aria-label="Product actions">
@@ -706,6 +722,18 @@ function ProductView({
                     <strong>Batch Number</strong>
                     <span>{bannerBatchNumber}</span>
                     <span className="product-view__perk-note">{batchWindowLabel}</span>
+                    <div className="product-view__freight-estimates" aria-label="Estimated freight arrivals">
+                      <p>
+                        <strong>Air Freight</strong>
+                        <span>20 days after batch closes</span>
+                        {airArrivalDate ? <span>Estimated: {airArrivalDate}</span> : null}
+                      </p>
+                      <p>
+                        <strong>Sea Freight</strong>
+                        <span>70 days after batch closes</span>
+                        {seaArrivalDate ? <span>Estimated: {seaArrivalDate}</span> : null}
+                      </p>
+                    </div>
                   </div>
                 </article>
               </div>
