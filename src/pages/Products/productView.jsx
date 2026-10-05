@@ -267,8 +267,14 @@ function ProductView({
     batchWindowStart || batchWindowEnd
       ? [batchWindowStart, batchWindowEnd].filter(Boolean).join(" - ")
       : "Batch window pending";
-  const activeSelectionLabel =
-    activeSelection.map((option) => option.label).filter(Boolean).join(" / ") || "Default";
+  const activeSelectionLabel = activeSelection.map((option) => option.label).filter(Boolean).join(" / ");
+  const descriptionIsLong = (product?.description?.trim().length ?? 0) > 120;
+  const overviewIsLong = (product?.overview?.trim().length ?? 0) > 120;
+  const featuresIsLong = features.length > 1 || features.join(" ").length > 120;
+  const specificationsIsLong = specifications.length > 3 || specifications
+    .map((specification) => `${specification.label ?? specification.name ?? ""} ${specification.value ?? specification.text ?? ""}`)
+    .join(" ")
+    .length > 120;
   const safeQuantity = Math.max(Number(quantity) || 0, 1);
   const availabilityLabel = isPreorderProduct
     ? "Preorder"
@@ -429,7 +435,9 @@ function ProductView({
               }}
             >
               <span className="product-view__main-image-wash" aria-hidden="true" />
-              <span className="product-view__color-badge">{activeSelectionLabel}</span>
+              {activeSelectionLabel ? (
+                <span className="product-view__color-badge">{activeSelectionLabel}</span>
+              ) : null}
               <img
                 src={selectedImageSrc}
                 alt={product.name}
@@ -612,25 +620,40 @@ function ProductView({
             ) : null}
 
             {product.description?.trim() ? (
-              <section className={`product-view__description-section${isDescriptionExpanded ? " is-expanded" : ""}`}>
-                <button
-                  type="button"
-                  className="product-view__accordion-trigger"
-                  aria-expanded={isDescriptionExpanded}
-                  onClick={() => setIsDescriptionExpanded((current) => !current)}
-                >
-                  <span><span className="product-view__accordion-icon" aria-hidden="true">i</span>Product Details</span>
-                  <ChevronIcon direction={isDescriptionExpanded ? "up" : "down"} />
-                </button>
-                <p className="product-view__description-preview">{product.description}</p>
-                <div className="product-view__description-full">
+              descriptionIsLong ? (
+                <section className={`product-view__description-section${isDescriptionExpanded ? " is-expanded" : ""}`}>
+                  <button
+                    type="button"
+                    className="product-view__accordion-trigger"
+                    aria-expanded={isDescriptionExpanded}
+                    onClick={() => setIsDescriptionExpanded((current) => !current)}
+                  >
+                    <span><span className="product-view__accordion-icon" aria-hidden="true">i</span>Product Description</span>
+                    <ChevronIcon direction={isDescriptionExpanded ? "up" : "down"} />
+                  </button>
+                  <p className="product-view__description-preview">{product.description}</p>
+                  <div className="product-view__description-full">
+                    <p>{product.description}</p>
+                  </div>
+                </section>
+              ) : (
+                <section className="product-view__description-section product-view__description-section--static">
                   <h2>Product Description</h2>
                   <p>{product.description}</p>
-                </div>
-              </section>
+                </section>
+              )
             ) : null}
 
             <div className="product-view__secondary-row">
+              <button
+                type="button"
+                className={`product-view__wishlist${isWishlisted ? " is-active" : ""}`}
+                aria-pressed={isWishlisted}
+                aria-label={`${isWishlisted ? "Remove" : "Save"} ${product.name}`}
+                onClick={() => onToggleWishlist(product.name)}
+              >
+                <HeartIcon filled={isWishlisted} />
+              </button>
               <div className="product-view__quantity" aria-label="Quantity selector">
                 <button
                   type="button"
@@ -648,15 +671,6 @@ function ProductView({
                   +
                 </button>
               </div>
-              <button
-                type="button"
-                className={`product-view__wishlist${isWishlisted ? " is-active" : ""}`}
-                aria-pressed={isWishlisted}
-                aria-label={`${isWishlisted ? "Remove" : "Save"} ${product.name}`}
-                onClick={() => onToggleWishlist(product.name)}
-              >
-                <HeartIcon filled={isWishlisted} />
-              </button>
             </div>
 
             <div className="product-view__buybar">
@@ -748,17 +762,19 @@ function ProductView({
         <section className="product-view__details-panel">
           <div className="product-view__details">
             {[
-              { key: "overview", label: "Overview", icon: "i", content: product.overview ? <p>{product.overview}</p> : null },
+              { key: "overview", label: "Overview", icon: "i", isLong: overviewIsLong, content: product.overview ? <p>{product.overview}</p> : null },
               {
                 key: "features",
                 label: "Features",
                 icon: "✓",
+                isLong: featuresIsLong,
                 content: features.length > 0 ? <ul>{features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null,
               },
               {
                 key: "specifications",
                 label: "Specifications",
                 icon: "◆",
+                isLong: specificationsIsLong,
                 content: specifications.length > 0 ? (
                   <dl className="product-view__specifications">
                     {specifications.map((specification, index) => (
@@ -772,6 +788,15 @@ function ProductView({
               },
             ].filter((section) => section.content).map((section) => {
               const isOpen = Boolean(openInfoSections[section.key]);
+
+              if (!section.isLong) {
+                return (
+                  <article className="product-view__info-section product-view__info-section--static" key={section.key}>
+                    <h2><span className="product-view__accordion-icon" aria-hidden="true">{section.icon}</span>{section.label}</h2>
+                    <div className="product-view__info-section-body">{section.content}</div>
+                  </article>
+                );
+              }
 
               return (
                 <article className={`product-view__info-section${isOpen ? " is-open" : ""}`} key={section.key}>
