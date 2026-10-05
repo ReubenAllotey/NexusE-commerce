@@ -271,12 +271,19 @@ function ProductView({
     activeSelection.map((option) => option.label).filter(Boolean).join(" / ") || "Default";
   const safeQuantity = Math.max(Number(quantity) || 0, 1);
   const availabilityLabel = isPreorderProduct
-    ? "Pre-order"
+    ? "Preorder"
+    : isComingSoonProduct
+      ? "Coming Soon"
+        : availabilityMeta.outOfStock
+          ? "Out of Stock"
+          : "Available in Ghana & Ready to Ship";
+  const productAvailabilityLabel = isPreorderProduct
+    ? "Preorder"
     : isComingSoonProduct
       ? "Coming Soon"
       : availabilityMeta.outOfStock
         ? "Out of Stock"
-        : "In Stock & Ready to Ship";
+        : "Available in Ghana";
   const relatedProducts = useMemo(() => {
     if (!Array.isArray(catalogProducts) || catalogProducts.length === 0) {
       return [];
@@ -484,7 +491,7 @@ function ProductView({
               <span
                 className={`product-view__availability product-view__availability--${availabilityMeta.tone ?? "green"}`}
               >
-                {availabilityMeta.badge}
+                {productAvailabilityLabel}
               </span>
             </div>
 
@@ -507,7 +514,7 @@ function ProductView({
                           {group.groupName}
                           {group.isRequired ? <em aria-label="required">*</em> : null}
                         </span>
-                        <strong>{activeGroupOption?.label ?? "Select an option"}</strong>
+                        {activeGroupOption?.label ? <strong>{activeGroupOption.label}</strong> : null}
                       </div>
                       <div
                         className={
@@ -688,7 +695,10 @@ function ProductView({
             </div>
             {shareMessage ? <p className="product-view__share-feedback" role="status">{shareMessage}</p> : null}
 
-            <p className="product-view__shipping">Estimated shipping fee: {shippingFeeLabel}</p>
+            <p className="product-view__shipping">
+              <TruckIcon />
+              <span>Estimated shipping fee: {shippingFeeLabel}</span>
+            </p>
             <p className="product-view__stock">{availabilityLabel}</p>
 
             {isPreorderProduct ? (
@@ -711,35 +721,21 @@ function ProductView({
 
             <section className="product-view__delivery-section">
               <div className="product-view__delivery-content">
-                <article className="product-view__perk product-view__perk--shipping">
-                  <TruckIcon />
-                  <div>
-                    <strong>Shipping Fee</strong>
-                    <span>
-                      {shippingFee == null
-                        ? "The estimated shipping fee for this item will be calculated later."
-                        : shippingFee === 0
-                          ? "The estimated shipping fee on this item is Free."
-                          : `The estimated shipping fee on this item is ${formatMoney(shippingFee)}.`}
-                    </span>
-                  </div>
-                </article>
                 <article className="product-view__perk product-view__perk--batch">
                   <ShieldIcon />
                   <div>
                     <strong>Batch Number</strong>
                     <span>{bannerBatchNumber}</span>
                     <span className="product-view__perk-note">{batchWindowLabel}</span>
+                    <strong className="product-view__arrival-heading">Estimated arrivals</strong>
                     <div className="product-view__freight-estimates" aria-label="Estimated freight arrivals">
                       <p>
                         <strong>Air Freight</strong>
-                        <span>20 days after batch closes</span>
-                        {airArrivalDate ? <span>Estimated: {airArrivalDate}</span> : null}
+                        <span>{airArrivalDate || "To be calculated"}</span>
                       </p>
                       <p>
                         <strong>Sea Freight</strong>
-                        <span>70 days after batch closes</span>
-                        {seaArrivalDate ? <span>Estimated: {seaArrivalDate}</span> : null}
+                        <span>{seaArrivalDate || "To be calculated"}</span>
                       </p>
                     </div>
                   </div>
@@ -814,15 +810,17 @@ function ProductView({
               </div>
             </div>
 
-            <div className="shop-grid shop-grid--recommendations">
+            <div className="product-view__recommendations-rail">
               {relatedProducts.map((item) => (
                 <NexusProductCard
                   key={item.id}
                   item={item}
-                  classNamePrefix="shop-card"
+                  classNamePrefix="product-card"
                   onAddToCart={onAddToCart}
                   onToggleWishlist={onToggleWishlist}
                   isWishlisted={wishlistItems.includes(item.name)}
+                  showAddToCart={false}
+                  compact
                 />
               ))}
             </div>
