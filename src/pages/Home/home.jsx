@@ -261,46 +261,6 @@ function CategoryIcon({ kind }) {
   );
 }
 
-function formatCountdownValue(value) {
-  return String(value).padStart(2, "0");
-}
-
-function getCountdownParts(targetTime) {
-  const remaining = Math.max(targetTime - Date.now(), 0);
-  const totalSeconds = Math.floor(remaining / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  return [
-    [formatCountdownValue(days), "Days"],
-    [formatCountdownValue(hours), "Hours"],
-    [formatCountdownValue(minutes), "Minutes"],
-    [formatCountdownValue(seconds), "Seconds"],
-  ];
-}
-
-function Countdown({ targetTime }) {
-  const [parts, setParts] = useState(() => getCountdownParts(targetTime));
-
-  useEffect(() => {
-    const updateCountdown = () => setParts(getCountdownParts(targetTime));
-
-    updateCountdown();
-    const timer = window.setInterval(updateCountdown, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [targetTime]);
-
-  return parts.map(([value, label]) => (
-    <div className="countdown__item" key={label}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  ));
-}
-
 function Rating({ score, reviews }) {
   const stars = Array.from(
     { length: 5 },
@@ -717,6 +677,8 @@ const heroContent = {
 function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   const navigate = useNavigate();
   const recentlyViewedRailRef = useRef(null);
+  const flashSalesRailRef = useRef(null);
+  const bestSellingRailRef = useRef(null);
   const {
     records: categoryRecords,
     loading: categoriesLoading,
@@ -740,9 +702,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   } = useProducts();
   const [activeCategory, setActiveCategory] = useState("");
   const [recentlyViewedEntries, setRecentlyViewedEntries] = useState(() => getRecentlyViewed());
-  const [flashSaleDeadline] = useState(
-    () => Date.now() + 7 * 24 * 60 * 60 * 1000,
-  );
   const categoryCards = useMemo(
     () => getDiscoverCategoryCards(categoryRecords, liveCatalogProducts),
     [categoryRecords, liveCatalogProducts],
@@ -811,8 +770,12 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   }, [liveCatalogProducts, productsLoading]);
 
   const scrollRecentlyViewed = (direction) => {
-    recentlyViewedRailRef.current?.scrollBy({
-      left: direction * Math.max(recentlyViewedRailRef.current.clientWidth * 0.82, 240),
+    scrollProductRail(recentlyViewedRailRef, direction);
+  };
+
+  const scrollProductRail = (railRef, direction) => {
+    railRef.current?.scrollBy({
+      left: direction * Math.max(railRef.current.clientWidth * 0.82, 240),
       behavior: "smooth",
     });
   };
@@ -900,6 +863,8 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
                 classNamePrefix="product-card"
+                showAddToCart={false}
+                compact
               />
             ))}
           </div>
@@ -914,18 +879,17 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
           </div>
 
           <div className="section-header__tools">
-            <div className="countdown" aria-label="Flash sale countdown">
-              <Countdown targetTime={flashSaleDeadline} />
-            </div>
-
             <div className="section-controls">
-              <button type="button" aria-label="Previous products">
+              <Link className="home-product-browse-link" to="/products">
+                Browse all
+              </Link>
+              <button type="button" aria-label="Previous Flash Sale products" onClick={() => scrollProductRail(flashSalesRailRef, -1)}>
                 &larr;
               </button>
               <button
                 type="button"
-                aria-label="Go to products page"
-                onClick={goToProducts}
+                aria-label="Next Flash Sale products"
+                onClick={() => scrollProductRail(flashSalesRailRef, 1)}
               >
                 &rarr;
               </button>
@@ -933,7 +897,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
           </div>
         </div>
 
-        <div className="product-row product-row--wide">
+        <div className="home-product-rail" ref={flashSalesRailRef}>
           {flashyError ? (
             <div className="shop-empty">
               <h3>Unable to load flashy sale products right now.</h3>
@@ -953,16 +917,13 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
                 classNamePrefix="product-card"
+                showAddToCart={false}
+                compact
               />
             ))
           )}
         </div>
 
-        <div className="section-center">
-          <a href="#best-selling" className="primary-button">
-            View All Products
-          </a>
-        </div>
       </section>
 
       <hr className="section-divider" />
@@ -1047,12 +1008,22 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             <h2>Best Selling Products</h2>
           </div>
 
-          <a href="#featured" className="view-all-link">
-            View All
-          </a>
+          <div className="section-header__tools">
+            <Link className="home-product-browse-link" to="/products">
+              Browse all
+            </Link>
+            <div className="section-controls">
+              <button type="button" aria-label="Previous Best Selling products" onClick={() => scrollProductRail(bestSellingRailRef, -1)}>
+                &larr;
+              </button>
+              <button type="button" aria-label="Next Best Selling products" onClick={() => scrollProductRail(bestSellingRailRef, 1)}>
+                &rarr;
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="product-row">
+        <div className="home-product-rail" ref={bestSellingRailRef}>
           {flashyError ? (
             <div className="shop-empty">
               <h3>Unable to load best-selling products right now.</h3>
@@ -1072,6 +1043,8 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
                 classNamePrefix="product-card"
+                showAddToCart={false}
+                compact
               />
             ))
           )}
@@ -1121,6 +1094,8 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                   onToggleWishlist={onToggleWishlist}
                   isWishlisted={wishlistItems.includes(item.name)}
                   classNamePrefix="product-card"
+                  showAddToCart={false}
+                  compact
                 />
             ))
           )}

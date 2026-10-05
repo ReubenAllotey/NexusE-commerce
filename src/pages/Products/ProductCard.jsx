@@ -58,6 +58,8 @@ function ProductCard({
   onToggleWishlist = () => {},
   isWishlisted = false,
   classNamePrefix = "product-card",
+  showAddToCart = true,
+  compact = false,
 }) {
   const prefix = classNamePrefix === "shop-card" ? "shop-card" : "product-card";
   const navigate = useNavigate();
@@ -84,7 +86,7 @@ function ProductCard({
   };
 
   return (
-    <article className={prefix}>
+    <article className={`${prefix}${compact ? " product-card--compact" : ""}`}>
       <div className={`${prefix}__media`}>
         <div className={`${prefix}__actions`}>
           <button
@@ -123,11 +125,13 @@ function ProductCard({
       </div>
 
       <div className={`${prefix}__body`}>
-        <div className={`${prefix}__topline`}>
-          <span className={`${prefix}__availability ${prefix}__availability--${availabilityMeta.tone ?? "green"}`}>
-            {availabilityMeta.badge}
-          </span>
-        </div>
+        {!compact ? (
+          <div className={`${prefix}__topline`}>
+            <span className={`${prefix}__availability ${prefix}__availability--${availabilityMeta.tone ?? "green"}`}>
+              {availabilityMeta.badge}
+            </span>
+          </div>
+        ) : null}
 
         <Link to={detailHref} className={`${prefix}__title-link`}>
           <h3>{item.name}</h3>
@@ -140,27 +144,35 @@ function ProductCard({
           ) : null}
         </div>
 
-        {availabilityMeta.outOfStock ? (
-          <UnavailableStockButton
-            className={`${prefix}__button nexus-product-card__cart-button is-disabled`}
-            aria-label={`${item.name} is out of stock`}
-          >
-            <CartIcon className="nexus-product-card__cart-icon" />
-            {availabilityMeta.buttonLabel}
-          </UnavailableStockButton>
-        ) : (
-          <button
-            type="button"
-            className={`${prefix}__button nexus-product-card__cart-button${
-              availabilityMeta.disabled ? " is-disabled" : ""
-            }`}
-            disabled={availabilityMeta.disabled}
-            onClick={handlePurchaseClick}
-          >
-            <CartIcon className="nexus-product-card__cart-icon" />
-            {availabilityMeta.buttonLabel}
-          </button>
-        )}
+        {compact ? (
+          <span className="product-card__status-text">
+            {availabilityMeta.outOfStock ? "Out of Stock" : availabilityMeta.label}
+          </span>
+        ) : null}
+
+        {showAddToCart ? (
+          availabilityMeta.outOfStock ? (
+            <UnavailableStockButton
+              className={`${prefix}__button nexus-product-card__cart-button is-disabled`}
+              aria-label={`${item.name} is out of stock`}
+            >
+              <CartIcon className="nexus-product-card__cart-icon" />
+              {availabilityMeta.buttonLabel}
+            </UnavailableStockButton>
+          ) : (
+            <button
+              type="button"
+              className={`${prefix}__button nexus-product-card__cart-button${
+                availabilityMeta.disabled ? " is-disabled" : ""
+              }`}
+              disabled={availabilityMeta.disabled}
+              onClick={handlePurchaseClick}
+            >
+              <CartIcon className="nexus-product-card__cart-icon" />
+              {availabilityMeta.buttonLabel}
+            </button>
+          )
+        ) : null}
       </div>
     </article>
   );
