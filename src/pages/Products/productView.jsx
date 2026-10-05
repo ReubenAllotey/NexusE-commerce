@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { defaultSiteBanner, normalizeSiteBanner } from "../../shared/siteBannerStorage";
+import { recordRecentlyViewed } from "../../shared/recentlyViewed";
 import NexusProductCard from "./ProductCard";
 import UnavailableStockButton from "./UnavailableStockButton";
 import {
@@ -194,6 +195,12 @@ function ProductView({
     setIsDescriptionExpanded(false);
     setOpenInfoSections({});
   }, [productSlug]);
+
+  useEffect(() => {
+    if (!loading && product?.id) {
+      recordRecentlyViewed(product.id);
+    }
+  }, [loading, product?.id]);
 
   useEffect(() => {
     if (!isInquiryAuthOpen) {

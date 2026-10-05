@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/logo1.png";
@@ -27,6 +27,11 @@ import {
 } from "../Admin/announcement/announcementStorage";
 import { useFlashySalesCatalog } from "../../shared/flashySalesStorage";
 import { useProducts } from "../Products/productData";
+import {
+  getRecentlyViewed,
+  pruneRecentlyViewed,
+  subscribeToRecentlyViewed,
+} from "../../shared/recentlyViewed";
 
 function HeartIcon() {
   return (
@@ -111,6 +116,12 @@ function SectionLabelIcon({ kind }) {
       </>
     ),
     default: <path d="M12 3v18M3 12h18" />,
+    recent: (
+      <>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 7v5l3 2" />
+      </>
+    ),
   };
 
   return (
@@ -705,6 +716,7 @@ const heroContent = {
 
 function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   const navigate = useNavigate();
+  const recentlyViewedRailRef = useRef(null);
   const {
     records: categoryRecords,
     loading: categoriesLoading,
@@ -727,6 +739,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     error: productsError,
   } = useProducts();
   const [activeCategory, setActiveCategory] = useState("");
+  const [recentlyViewedEntries, setRecentlyViewedEntries] = useState(() => getRecentlyViewed());
   const [flashSaleDeadline] = useState(
     () => Date.now() + 7 * 24 * 60 * 60 * 1000,
   );
@@ -760,6 +773,15 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
 
     return picked.slice(0, 8);
   }, [liveBestSellingProducts, liveCatalogProducts]);
+  const recentlyViewedProducts = useMemo(() => {
+    const productById = new Map(
+      liveCatalogProducts.map((item) => [String(item?.id ?? ""), item]),
+    );
+
+    return recentlyViewedEntries
+      .map((entry) => productById.get(String(entry.productId)))
+      .filter(Boolean);
+  }, [liveCatalogProducts, recentlyViewedEntries]);
   const loopingCategoryCards = categoryCards;
   const loopingTestimonialCards = useMemo(
     () => [...testimonialItems, ...testimonialItems],
@@ -779,6 +801,21 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
       setActiveCategory(categoryCards[0].slug);
     }
   }, [activeCategory, categoryCards]);
+
+  useEffect(() => subscribeToRecentlyViewed(setRecentlyViewedEntries), []);
+
+  useEffect(() => {
+    if (!productsLoading && liveCatalogProducts.length > 0) {
+      setRecentlyViewedEntries(pruneRecentlyViewed(liveCatalogProducts.map((item) => item.id)));
+    }
+  }, [liveCatalogProducts, productsLoading]);
+
+  const scrollRecentlyViewed = (direction) => {
+    recentlyViewedRailRef.current?.scrollBy({
+      left: direction * Math.max(recentlyViewedRailRef.current.clientWidth * 0.82, 240),
+      behavior: "smooth",
+    });
+  };
 
   const goToProducts = (categorySlug = "") => {
     navigate(getCategoryProductsPath(categorySlug));
@@ -836,6 +873,38 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
           ))}
         </div>
       </section>
+
+      {recentlyViewedProducts.length > 0 ? (
+        <section className="site-shell section-block recently-viewed" aria-labelledby="recently-viewed-title">
+          <div className="section-header">
+            <div>
+              <SectionLabel icon="recent">History</SectionLabel>
+              <h2 id="recently-viewed-title">Recently Viewed</h2>
+            </div>
+            <div className="section-controls">
+              <button type="button" aria-label="Previous recently viewed products" onClick={() => scrollRecentlyViewed(-1)}>
+                &larr;
+              </button>
+              <button type="button" aria-label="Next recently viewed products" onClick={() => scrollRecentlyViewed(1)}>
+                &rarr;
+              </button>
+            </div>
+          </div>
+
+          <div className="recently-viewed__rail" ref={recentlyViewedRailRef}>
+            {recentlyViewedProducts.map((item) => (
+              <NexusProductCard
+                key={item.id ?? item.slug}
+                item={item}
+                onAddToCart={onAddToCart}
+                onToggleWishlist={onToggleWishlist}
+                isWishlisted={wishlistItems.includes(item.name)}
+                classNamePrefix="product-card"
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="site-shell section-block" id="flash-sales">
         <div className="section-header">

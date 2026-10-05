@@ -2186,6 +2186,32 @@ body[data-theme="dark"] .site-nav__menu-copy span {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.recently-viewed__rail {
+  display: flex;
+  align-items: stretch;
+  gap: 1.25rem;
+  overflow-x: auto;
+  padding: 0.15rem 0.15rem 0.75rem;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(28, 63, 183, 0.35) transparent;
+}
+
+.recently-viewed__rail::-webkit-scrollbar {
+  height: 0.35rem;
+}
+
+.recently-viewed__rail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(28, 63, 183, 0.35);
+}
+
+.recently-viewed__rail > .product-card {
+  flex: 0 0 clamp(15rem, 21vw, 18rem);
+  scroll-snap-align: start;
+}
+
 .product-card {
   min-width: 0;
   overflow: hidden;
@@ -2199,6 +2225,10 @@ body[data-theme="dark"] .site-nav__menu-copy span {
     transform 180ms ease,
     box-shadow 180ms ease,
     border-color 180ms ease;
+}
+
+body[data-theme="dark"] .recently-viewed__rail {
+  scrollbar-color: rgba(138, 176, 255, 0.5) transparent;
 }
 
 .product-card:hover {
