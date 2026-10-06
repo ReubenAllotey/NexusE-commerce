@@ -170,10 +170,51 @@ function ProductView({
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [openInfoSections, setOpenInfoSections] = useState({});
 
-  const gallery = useMemo(
-    () => (product && Array.isArray(product.gallery) ? product.gallery.filter(Boolean) : []),
-    [product],
-  );
+  const baseGalleryImages = useMemo(() => {
+    const images = [];
+    const seen = new Set();
+    const addImage = (entry, label) => {
+      const src = typeof entry === "string" ? entry.trim() : String(entry?.src ?? "").trim();
+
+      if (!src) {
+        return;
+      }
+
+      const key = src.toLowerCase();
+      if (seen.has(key)) {
+        return;
+      }
+
+      seen.add(key);
+      images.push({
+        ...(typeof entry === "object" && entry ? entry : {}),
+        src,
+        label: entry?.label ?? label,
+      });
+    };
+
+    addImage(product?.primaryImageUrl || product?.image, "Primary product image");
+    (Array.isArray(product?.gallery) ? product.gallery : []).forEach((entry, index) => {
+      addImage(entry, entry?.label ?? `Product image ${index + 1}`);
+    });
+
+    return images;
+  }, [product]);
+  const displayGalleryImages = useMemo(() => {
+    if (!selectedVariationImage) {
+      return baseGalleryImages;
+    }
+
+    const variationKey = selectedVariationImage.toLowerCase();
+    if (baseGalleryImages.some((image) => image.src.toLowerCase() === variationKey)) {
+      return baseGalleryImages;
+    }
+
+    return [
+      ...baseGalleryImages,
+      { src: selectedVariationImage, label: "Selected variation image" },
+    ];
+  }, [baseGalleryImages, selectedVariationImage]);
   const variationGroups = useMemo(
     () => (Array.isArray(product?.variationGroups) ? product.variationGroups.filter(Boolean) : []),
     [product?.variationGroups],
@@ -242,10 +283,15 @@ function ProductView({
     })
     .filter(Boolean);
 
-  const selectedImage = activeImage == null ? null : gallery[activeImage] ?? null;
-  const activeGalleryIndex = activeImage == null ? 0 : activeImage;
+  const selectedVariationGalleryIndex = selectedVariationImage
+    ? displayGalleryImages.findIndex((image) => image.src.toLowerCase() === selectedVariationImage.toLowerCase())
+    : -1;
+  const selectedImage = activeImage == null ? null : displayGalleryImages[activeImage] ?? null;
+  const activeGalleryIndex = activeImage == null
+    ? Math.max(selectedVariationGalleryIndex, 0)
+    : activeImage;
   const selectedImageSrc =
-    selectedImage?.src || selectedVariationImage || product?.primaryImageUrl || product?.image || gallery[0]?.src || FALLBACK_IMAGE;
+    selectedImage?.src || selectedVariationImage || baseGalleryImages[0]?.src || FALLBACK_IMAGE;
   const isWishlisted = wishlistItems.includes(product?.name);
   const categoryHref = product?.categorySlug ? `/products?category=${product.categorySlug}` : "/products";
   const shippingFee = getShippingFee(product);
@@ -342,7 +388,7 @@ function ProductView({
   const getProductInquiry = () => ({
     id: product.id,
     name: product.name,
-    image: product.primaryImageUrl || product.image || gallery[0]?.src || "",
+    image: product.primaryImageUrl || product.image || baseGalleryImages[0]?.src || "",
     url: `/products/${encodeURIComponent(product.slug || productSlug)}`,
     price: activePrice,
   });
@@ -373,11 +419,11 @@ function ProductView({
   };
 
   const handleGalleryNavigation = (direction) => {
-    if (gallery.length < 2) {
+    if (displayGalleryImages.length < 2) {
       return;
     }
 
-    const nextIndex = (activeGalleryIndex + direction + gallery.length) % gallery.length;
+    const nextIndex = (activeGalleryIndex + direction + displayGalleryImages.length) % displayGalleryImages.length;
     setActiveImage(nextIndex);
   };
 
@@ -443,7 +489,7 @@ function ProductView({
                 alt={product.name}
                 className={product.imageClassName ?? ""}
               />
-              {gallery.length > 1 ? (
+              {displayGalleryImages.length > 1 ? (
                 <>
                   <button
                     type="button"
@@ -462,7 +508,7 @@ function ProductView({
                     ›
                   </button>
                   <span className="product-view__image-count" aria-live="polite">
-                    {activeGalleryIndex + 1} / {gallery.length}
+                    {activeGalleryIndex + 1} / {displayGalleryImages.length}
                   </span>
                 </>
               ) : null}
@@ -471,16 +517,16 @@ function ProductView({
               ) : null}
             </div>
 
-            {gallery.length > 0 ? (
+            {displayGalleryImages.length > 0 ? (
               <div className="product-view__thumbs" aria-label="Product images">
-                {gallery.map((image, index) => (
+                {displayGalleryImages.map((image, index) => (
                   <button
                     type="button"
                     key={`${image.label}-${index}`}
-                    className={`product-view__thumb${index === activeImage ? " is-active" : ""}`}
+                    className={`product-view__thumb${index === activeGalleryIndex ? " is-active" : ""}`}
                     onClick={() => setActiveImage(index)}
                     aria-label={`Show ${image.label}`}
-                    aria-pressed={index === activeImage}
+                    aria-pressed={index === activeGalleryIndex}
                     style={{ "--thumb-tint": image.tint }}
                   >
                     <img src={image.src} alt="" aria-hidden="true" />
@@ -565,10 +611,8 @@ function ProductView({
                                   return;
                                 }
 
-                                if (option.imageUrl) {
-                                  setSelectedVariationImage(option.imageUrl);
-                                  setActiveImage(null);
-                                }
+                                setSelectedVariationImage(option.imageUrl ?? "");
+                                setActiveImage(null);
                                 setSelectedOptions((current) => {
                                   const next = current.filter((entry) => entry.groupId !== group.id);
                                   return [
@@ -835,7 +879,7 @@ function ProductView({
               </div>
             </div>
 
-            <div className="product-view__recommendations-rail">
+            <div className="product-view__related-grid">
               {relatedProducts.map((item) => (
                 <NexusProductCard
                   key={item.id}
@@ -875,7 +919,7 @@ function ProductView({
             <h2 id="product-inquiry-title">Ask About This Product</h2>
             <p>Sign in to contact Nexus Support and ask a question about this item.</p>
             <div className="product-inquiry-modal__product">
-              <img src={product.primaryImageUrl || product.image || gallery[0]?.src || FALLBACK_IMAGE} alt="" />
+              <img src={product.primaryImageUrl || product.image || baseGalleryImages[0]?.src || FALLBACK_IMAGE} alt="" />
               <strong>{product.name}</strong>
             </div>
             <button type="button" className="product-inquiry-modal__primary" onClick={() => continueToProductSupport("/register/login")}>
