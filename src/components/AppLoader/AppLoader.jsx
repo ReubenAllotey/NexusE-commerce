@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import logo from "../../assets/images/logo1.png";
+import logo from "../../assets/images/nexusLogomain.png";
 import "./AppLoader.css";
 
 const SPLASH_DURATION = 1500;

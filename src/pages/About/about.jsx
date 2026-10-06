@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import logoImage from "../../assets/images/logo1.png";
+import logoImage from "../../assets/images/nexusLogomain.png";
 import manImage from "../../assets/images/man.jpg";
 import womanImage from "../../assets/images/Woman.jpg";
 import SiteFooter from "../../shared/SiteFooter";

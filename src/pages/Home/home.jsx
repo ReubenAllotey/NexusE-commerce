@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import nexusPerson from "../../assets/images/nexusPerson.png";
-import logo from "../../assets/images/logo1.png";
+import logo from "../../assets/images/nexusLogomain.png";
 import { getCategoryProductsPath } from "./catalogData";
 import {
   buildVariantKeyFromSelectedOptions,

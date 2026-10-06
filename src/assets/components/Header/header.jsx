@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import logo from "../../../assets/images/logo1.png";
+import logo from "../../../assets/images/nexusLogomain.png";
 import { getCategoryProductsPath } from "../../../pages/Home/catalogData";
 import { getCategoryProductCount, useCategoryTree } from "../../../shared/categoryStorage";
 import { useProducts } from "../../../pages/Products/productData";

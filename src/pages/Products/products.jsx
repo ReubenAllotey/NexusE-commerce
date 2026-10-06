@@ -13,7 +13,7 @@ import {
 } from "./productData";
 import NexusProductCard from "./ProductCard";
 import UnavailableStockButton from "./UnavailableStockButton";
-import logo from "../../assets/images/logo1.png";
+import logo from "../../assets/images/nexusLogomain.png";
 import { getDiscoverCategoryCards } from "../../shared/categoryStorage";
 import SiteFooter from "../../shared/SiteFooter";
 
