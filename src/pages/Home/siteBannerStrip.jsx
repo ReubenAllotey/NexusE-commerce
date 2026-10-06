@@ -21,6 +21,15 @@ function MegaphoneIcon() {
   );
 }
 
+function BookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v17H7.5A2.5 2.5 0 0 0 5 21.5z" />
+      <path d="M5 4.5v17M8.5 6H16M8.5 10H16" />
+    </svg>
+  );
+}
+
 function formatDate(value) {
   if (!value) {
     return "";
@@ -50,10 +59,14 @@ function formatDateRange(start, end) {
 
 function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
   const safeBanner = normalizeSiteBanner(banner);
-  const { announcement } = safeBanner;
+  const { announcement, reflection } = safeBanner;
   const announcementMessage = [announcement.headline, announcement.body]
     .filter(Boolean)
     .join(" - ");
+  const reflectionMessage = [reflection.headline, reflection.body]
+    .filter(Boolean)
+    .join(" - ");
+  const reflectionReference = reflection.verse;
   const activeBatchNumber = currentBatch?.batchNumber?.trim() || "";
   const activeBatchStart = currentBatch?.startDate || "";
   const activeBatchEnd = currentBatch?.endDate || "";
@@ -61,23 +74,25 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
 
   return (
     <div className="site-banner-strip" aria-label="Store announcement and current batch">
-      {announcementMessage ? (
-        <section className="site-banner-strip__announcement-bar" aria-label="Store announcement">
-          <div className="site-banner-strip__bar-inner">
-            <div className="site-banner-strip__bar-label">
+      <section className="site-banner-strip__announcement-bar" aria-label="Store announcement and memory verse">
+        <div className="site-banner-strip__announcement-grid">
+          <div className="site-banner-strip__announcement-panel">
+            <div className="site-banner-strip__announcement-heading">
               <MegaphoneIcon />
-              <span>Store announcement</span>
+              <strong>Announcement</strong>
             </div>
-            <span className="site-banner-strip__bar-divider" aria-hidden="true" />
-            <div className="site-banner-strip__message-viewport">
-              <div className="site-banner-strip__message-track">
-                <p>{announcementMessage}</p>
-                <p aria-hidden="true">{announcementMessage}</p>
-              </div>
-            </div>
+            <p>{announcementMessage || "No current announcement available."}</p>
           </div>
-        </section>
-      ) : null}
+          <div className="site-banner-strip__reflection-panel">
+            <div className="site-banner-strip__announcement-heading">
+              <BookIcon />
+              <strong>Memory Verse</strong>
+            </div>
+            <p>{reflectionMessage || "No memory verse available."}</p>
+            {reflectionReference ? <cite>{reflectionReference}</cite> : null}
+          </div>
+        </div>
+      </section>
 
       <section className="site-banner-strip__batch-bar" aria-label="Current batch">
         <div className="site-banner-strip__bar-inner">
