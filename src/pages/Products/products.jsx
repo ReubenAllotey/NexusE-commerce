@@ -65,20 +65,6 @@ function SearchIcon() {
   );
 }
 
-function FiltersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 6h8" />
-      <path d="M16 6h4" />
-      <path d="M10 6v4" />
-      <path d="M4 12h16" />
-      <path d="M4 18h4" />
-      <path d="M12 18h8" />
-      <path d="M14 18v-4" />
-    </svg>
-  );
-}
-
 function HeartIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -141,22 +127,6 @@ function toggleItem(list, item) {
   return list.includes(item)
     ? list.filter((entry) => entry !== item)
     : [...list, item];
-}
-
-function getProductColorEntries(item = {}) {
-  if (Array.isArray(item.availableColors) && item.availableColors.length > 0) {
-    return item.availableColors.filter(Boolean);
-  }
-
-  if (Array.isArray(item.colors) && item.colors.length > 0) {
-    return item.colors.filter(Boolean);
-  }
-
-  return [];
-}
-
-function getColorSelectionKey(entry = {}) {
-  return slugify(entry?.value ?? entry?.key ?? entry?.label ?? entry?.name ?? "");
 }
 
 function renderStars(score) {
@@ -363,7 +333,6 @@ function Products({
   const searchParam = searchParams.get("search") ?? "";
   const [searchTerm, setSearchTerm] = useState(searchParam);
   const [sortBy, setSortBy] = useState("featured");
-  const [selectedColors, setSelectedColors] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const visibleCategoryRecords = useMemo(
     () =>
@@ -384,27 +353,6 @@ function Products({
         }),
     [products, visibleCategoryRecords],
   );
-  const colorOptions = useMemo(() => {
-    const colors = new Map();
-
-    (Array.isArray(products) ? products : []).forEach((product) => {
-      getProductColorEntries(product).forEach((entry) => {
-        const key = getColorSelectionKey(entry);
-
-        if (!key || colors.has(key)) {
-          return;
-        }
-
-        colors.set(key, {
-          key,
-          label: entry?.label ?? entry?.name ?? entry?.value ?? entry?.key ?? "Color",
-          swatch: entry?.swatch ?? entry?.previewTint ?? entry?.swatchColor ?? "",
-        });
-      });
-    });
-
-    return Array.from(colors.values()).sort((left, right) => left.label.localeCompare(right.label));
-  }, [products]);
   const selectedCategories = parseCategorySelection(categoryParam);
   const selectedAvailability = ["ready_stock", "preorder"].includes(availabilityParam)
     ? availabilityParam
@@ -459,14 +407,7 @@ function Products({
           const matchesAvailability =
             !selectedAvailability ||
             normalizeAvailabilityType(item?.availabilityType ?? item?.availability_type) === selectedAvailability;
-          const productColors = getProductColorEntries(item);
-          const matchesColor =
-            selectedColors.length === 0 ||
-            selectedColors.some((selection) =>
-              productColors.some((entry) => getColorSelectionKey(entry) === selection),
-            );
-
-          return matchesSearch && matchesCategory && matchesAvailability && matchesColor;
+          return matchesSearch && matchesCategory && matchesAvailability;
         })
         .sort((a, b) => {
           switch (sortBy) {
@@ -482,7 +423,7 @@ function Products({
               return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
           }
         }),
-    [products, searchTerm, selectedCategories, selectedAvailability, selectedColors, sortBy],
+    [products, searchTerm, selectedCategories, selectedAvailability, sortBy],
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
@@ -538,11 +479,6 @@ function Products({
     setCurrentPage(1);
   };
 
-  const handleColorToggle = (colorKey) => {
-    setSelectedColors((current) => toggleItem(current, colorKey));
-    setCurrentPage(1);
-  };
-
   const handleSortChange = (value) => {
     setSortBy(value);
     setCurrentPage(1);
@@ -550,14 +486,42 @@ function Products({
 
   return (
     <main className="shop-page" id="top">
-      <section className="shop-page__intro">
-        <div className="shop-shell shop-page__intro-inner">
-          <p className="shop-page__intro-eyebrow">Browse Products</p>
-          <h1>Find products by category</h1>
-        </div>
-      </section>
-
       <div className="shop-page__content">
+        <section className="shop-shell shop-page__top-card" aria-labelledby="shop-page-title">
+          <div className="shop-page__intro-inner">
+            <p className="shop-page__intro-eyebrow">Browse Products</p>
+            <h1 id="shop-page-title">Find products by category</h1>
+          </div>
+
+          <div className="shop-toolbar">
+            <label className="shop-toolbar__search" htmlFor="shop-toolbar-search">
+              <SearchIcon />
+              <input
+                id="shop-toolbar-search"
+                type="search"
+                value={searchTerm}
+                onChange={(event) => handleSearchChange(event.target.value)}
+                placeholder="Search products, brands, categories..."
+              />
+            </label>
+
+            <label className="shop-toolbar__sort" htmlFor="shop-sort">
+              <span>Sort by:</span>
+              <select
+                id="shop-sort"
+                value={sortBy}
+                onChange={(event) => handleSortChange(event.target.value)}
+              >
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </section>
+
         <div className="shop-shell shop-page__layout">
           <aside className="shop-sidebar" aria-label="Shop categories">
             <div className="shop-sidebar__heading">Browse</div>
@@ -599,103 +563,6 @@ function Products({
           </aside>
 
           <section className="shop-main" id="catalog">
-            <div className="shop-toolbar">
-              <label className="shop-toolbar__search" htmlFor="shop-toolbar-search">
-                <SearchIcon />
-                <input
-                  id="shop-toolbar-search"
-                  type="search"
-                  value={searchTerm}
-                  onChange={(event) => handleSearchChange(event.target.value)}
-                  placeholder="Search products, brands, categories..."
-                />
-              </label>
-
-              <div className="shop-toolbar__filters">
-                <div className="shop-toolbar__filters-label">
-                  <FiltersIcon />
-                  <span>Filters</span>
-                </div>
-
-                <details className="shop-filter-pill">
-                  <summary>
-                    <span>Category</span>
-                    <ChevronIcon direction="right" />
-                  </summary>
-                  <div className="shop-filter-pill__panel">
-                    <div className="shop-filter__list">
-                      {categoriesError ? <p className="shop-filter__note">Unable to load categories.</p> : null}
-                      {categoriesLoading && categoryOptions.length === 0 ? (
-                        <p className="shop-filter__note">Loading categories...</p>
-                      ) : categoryOptions.length > 0 ? (
-                        categoryOptions.map((category) => (
-                          <label key={category.slug} className="shop-check">
-                            <input
-                              type="checkbox"
-                              checked={selectedCategories.includes(category.slug)}
-                              onChange={() => handleCategoryToggle(category.slug)}
-                            />
-                            <span>{category.label}</span>
-                          </label>
-                        ))
-                      ) : (
-                        <p className="shop-filter__note">No categories available.</p>
-                      )}
-                    </div>
-                  </div>
-                </details>
-
-                <details className="shop-filter-pill">
-                  <summary>
-                    <span>Color</span>
-                    <ChevronIcon direction="right" />
-                  </summary>
-                  <div className="shop-filter-pill__panel">
-                    <div className="shop-filter__list">
-                      {colorOptions.length > 0 ? (
-                        colorOptions.map((color) => (
-                          <label key={color.key} className="shop-check">
-                            <input
-                              type="checkbox"
-                              checked={selectedColors.includes(color.key)}
-                              onChange={() => handleColorToggle(color.key)}
-                            />
-                            <span>
-                              {color.swatch ? (
-                                <span
-                                  className="shop-check__swatch"
-                                  style={{ "--variant-swatch": color.swatch }}
-                                  aria-hidden="true"
-                                />
-                              ) : null}
-                              {color.label}
-                            </span>
-                          </label>
-                        ))
-                      ) : (
-                        <p className="shop-filter__note">No colors available.</p>
-                      )}
-                    </div>
-                  </div>
-                </details>
-
-                <label className="shop-toolbar__sort" htmlFor="shop-sort">
-                  <span>Sort:</span>
-                  <select
-                    id="shop-sort"
-                    value={sortBy}
-                    onChange={(event) => handleSortChange(event.target.value)}
-                  >
-                    {sortOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </div>
-
             {productsError ? (
               <div className="shop-empty">
                 <h3>Unable to load products right now.</h3>
@@ -727,13 +594,15 @@ function Products({
                     isWishlisted={wishlistItems.includes(item.name)}
                     onAddToCart={onAddToCart}
                     onToggleWishlist={onToggleWishlist}
-                    classNamePrefix="shop-card"
+                  classNamePrefix="product-card"
+                  compact
+                  showAddToCart
                   />
                 ))
               ) : (
                 <div className="shop-empty">
                   <h3>No products match your filters.</h3>
-                  <p>Try clearing a category, color, or search term to see more items.</p>
+                  <p>Try clearing a category, availability, or search term to see more items.</p>
                 </div>
               )}
             </div>
