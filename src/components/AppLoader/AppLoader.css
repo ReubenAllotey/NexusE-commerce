@@ -28,7 +28,7 @@
 }
 
 .app-loader__logo {
-  width: min(82vw, 650px);
+  width: min(66vw, 520px);
   max-width: 100%;
   height: auto;
   display: block;
@@ -111,7 +111,7 @@
 
 @media (max-width: 480px) {
   .app-loader__logo {
-    width: min(88vw, 400px);
+    width: min(78vw, 340px);
   }
 
   .app-loader__tagline {

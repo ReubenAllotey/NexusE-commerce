@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import logo from "../../assets/images/nexusLogomain.png";
 import { getCategoryProductsPath } from "./catalogData";
@@ -677,9 +677,6 @@ const heroContent = {
 
 function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
   const navigate = useNavigate();
-  const recentlyViewedRailRef = useRef(null);
-  const flashSalesRailRef = useRef(null);
-  const bestSellingRailRef = useRef(null);
   const {
     records: categoryRecords,
     loading: categoriesLoading,
@@ -770,21 +767,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
     }
   }, [liveCatalogProducts, productsLoading]);
 
-  const scrollRecentlyViewed = (direction) => {
-    scrollProductRail(recentlyViewedRailRef, direction);
-  };
-
-  const scrollProductRail = (railRef, direction) => {
-    railRef.current?.scrollBy({
-      left: direction * Math.max(railRef.current.clientWidth * 0.82, 240),
-      behavior: "smooth",
-    });
-  };
-
-  const goToProducts = (categorySlug = "") => {
-    navigate(getCategoryProductsPath(categorySlug));
-  };
-
   return (
     <main className="home-page">
       <section className="hero-section" id="hero">
@@ -838,17 +820,9 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
               <SectionLabel icon="recent">History</SectionLabel>
               <h2 id="recently-viewed-title">Recently Viewed</h2>
             </div>
-            <div className="section-controls">
-              <button type="button" aria-label="Previous recently viewed products" onClick={() => scrollRecentlyViewed(-1)}>
-                &larr;
-              </button>
-              <button type="button" aria-label="Next recently viewed products" onClick={() => scrollRecentlyViewed(1)}>
-                &rarr;
-              </button>
-            </div>
           </div>
 
-          <div className="recently-viewed__rail" ref={recentlyViewedRailRef}>
+          <div className="recently-viewed__rail">
             {recentlyViewedProducts.map((item) => (
               <NexusProductCard
                 key={item.id ?? item.slug}
@@ -873,25 +847,13 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
           </div>
 
           <div className="section-header__tools">
-            <div className="section-controls">
-              <Link className="home-product-browse-link" to="/products">
-                Browse all
-              </Link>
-              <button type="button" aria-label="Previous Flash Sale products" onClick={() => scrollProductRail(flashSalesRailRef, -1)}>
-                &larr;
-              </button>
-              <button
-                type="button"
-                aria-label="Next Flash Sale products"
-                onClick={() => scrollProductRail(flashSalesRailRef, 1)}
-              >
-                &rarr;
-              </button>
-            </div>
+            <Link className="home-product-browse-link" to="/products">
+              Browse all
+            </Link>
           </div>
         </div>
 
-        <div className="home-product-rail" ref={flashSalesRailRef}>
+        <div className="home-product-rail">
           {flashyError ? (
             <div className="shop-empty">
               <h3>Unable to load flashy sale products right now.</h3>
@@ -926,7 +888,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
         <div className="section-header">
           <div>
             <SectionLabel icon="category">Categories</SectionLabel>
-            <h2>Browse By Category</h2>
+            <h2>Browse By Categories</h2>
           </div>
         </div>
 
@@ -1006,18 +968,10 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             <Link className="home-product-browse-link" to="/products">
               Browse all
             </Link>
-            <div className="section-controls">
-              <button type="button" aria-label="Previous Best Selling products" onClick={() => scrollProductRail(bestSellingRailRef, -1)}>
-                &larr;
-              </button>
-              <button type="button" aria-label="Next Best Selling products" onClick={() => scrollProductRail(bestSellingRailRef, 1)}>
-                &rarr;
-              </button>
-            </div>
           </div>
         </div>
 
-        <div className="home-product-rail" ref={bestSellingRailRef}>
+        <div className="home-product-rail">
           {flashyError ? (
             <div className="shop-empty">
               <h3>Unable to load best-selling products right now.</h3>
@@ -1052,18 +1006,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
             <h2>Explore Our Products</h2>
           </div>
 
-          <div className="section-controls">
-            <button type="button" aria-label="Previous products">
-              &larr;
-            </button>
-            <button
-              type="button"
-              aria-label="Go to products page"
-              onClick={goToProducts}
-            >
-              &rarr;
-            </button>
-          </div>
         </div>
 
         <div className="product-row">
@@ -1119,7 +1061,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
         <div className="section-header">
           <div>
             <SectionLabel icon="feedback">Feedback</SectionLabel>
-            <h2>Hear from Our Customers</h2>
+            <h2>Hear From Our Customers</h2>
           </div>
         </div>
 

@@ -34652,6 +34652,32 @@ body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
   background: rgba(255, 255, 255, 0.35);
 }
 
+/* Homepage section titles stay compact and consistent across breakpoints. */
+.home-page .section-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: normal;
+}
+
+/* Keep the wide Nexus logo balanced without changing its source asset. */
+.nexus-header__brand img {
+  width: clamp(150px, 13vw, 200px);
+  height: auto;
+}
+
+@media (max-width: 768px) {
+  .nexus-header__brand img {
+    width: min(145px, 38vw);
+  }
+}
+
+@media (max-width: 360px) {
+  .nexus-header__brand img {
+    width: min(135px, 38vw);
+  }
+}
+
 /* Keep the image-free hero balanced without changing its visual design. */
 .home-page .hero-banner {
   padding-top: clamp(2.75rem, 5.5vw, 4.75rem);

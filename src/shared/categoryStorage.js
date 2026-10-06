@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import electronicsImage from "../assets/images/electronic-set.png";
-import beautyImage from "../assets/images/Woman.jpg";
-import booksImage from "../assets/images/desktop.jfif";
 import cameraImage from "../assets/images/camera.jpg";
 import fanImage from "../assets/images/standing-fan.jpeg";
 import fridgeImage from "../assets/images/fridge.jpeg";
@@ -10,11 +7,17 @@ import kitchenImage from "../assets/images/kitchen-oven.jpeg";
 import laptopImage from "../assets/images/laptop.jpeg";
 import officeChairImage from "../assets/images/office chair.jpg";
 import playStationImage from "../assets/images/placestation.png";
-import shirtImage from "../assets/images/laurel wrath shirt.png";
 import musicImage from "../assets/images/music-set.jpeg";
 import watchImage from "../assets/images/watcb.jpeg";
 import tvImage from "../assets/images/flatscreen-tv.jpeg";
 import washingImage from "../assets/images/washingmachine.jpeg";
+import categoryFashionImage from "../assets/images/category-fashion.png";
+import categoryHomeGardenImage from "../assets/images/category-home-garden.png";
+import categoryShoesImage from "../assets/images/category-shoes.png";
+import categoryBooksImage from "../assets/images/category-books.png";
+import categoryElectronicsImage from "../assets/images/category-electronics.png";
+import categoryBagsImage from "../assets/images/category-bags.png";
+import categoryBeautyImage from "../assets/images/category-beauty.png";
 
 const CATEGORY_SELECT =
   "id,name,slug,description,icon,status,parent_id,display_order,show_on_homepage,deleted_at,created_at,updated_at";
@@ -76,11 +79,27 @@ export function getCategoryImageSource(row = {}) {
   const imageRules = [
     {
       keywords: ["beauty", "skin", "care", "health", "serum", "lotion", "makeup"],
-      src: beautyImage,
+      src: categoryBeautyImage,
     },
     {
       keywords: ["book", "books", "education", "study", "learning"],
-      src: booksImage,
+      src: categoryBooksImage,
+    },
+    {
+      keywords: ["shoe", "shoes", "footwear", "sneaker", "sneakers"],
+      src: categoryShoesImage,
+    },
+    {
+      keywords: ["bag", "bags", "luggage", "backpack", "suitcase", "travel"],
+      src: categoryBagsImage,
+    },
+    {
+      keywords: ["home", "garden", "decor", "furniture", "living"],
+      src: categoryHomeGardenImage,
+    },
+    {
+      keywords: ["fashion", "shirt", "tee", "wear", "dress", "cloth", "apparel"],
+      src: categoryFashionImage,
     },
     {
       keywords: ["camera", "photo", "photography", "canon"],
@@ -111,28 +130,6 @@ export function getCategoryImageSource(row = {}) {
       src: laptopImage,
     },
     {
-      keywords: [
-        "shirt",
-        "fashion",
-        "tee",
-        "wear",
-        "dress",
-        "cloth",
-        "apparel",
-        "shoe",
-        "shoes",
-        "footwear",
-        "sneaker",
-        "sneakers",
-        "bag",
-        "bags",
-        "luggage",
-        "backpack",
-        "suitcase",
-      ],
-      src: shirtImage,
-    },
-    {
       keywords: ["speaker", "audio", "sound", "headphone", "music"],
       src: musicImage,
     },
@@ -150,7 +147,7 @@ export function getCategoryImageSource(row = {}) {
     },
     {
       keywords: ["electronics", "electronic", "gadget", "phone", "mobile", "tablet"],
-      src: electronicsImage,
+      src: categoryElectronicsImage,
     },
   ];
 
@@ -158,7 +155,7 @@ export function getCategoryImageSource(row = {}) {
     rule.keywords.some((keyword) => rawText.includes(keyword)),
   );
 
-  return match?.src ?? electronicsImage;
+  return match?.src ?? categoryElectronicsImage;
 }
 
 function normalizeCategoryKey(record = {}) {
