@@ -119,7 +119,7 @@ function ProductCard({
             loading="lazy"
           />
         </Link>
-        {availabilityMeta.outOfStock ? (
+        {!compact && availabilityMeta.outOfStock ? (
           <span className="product-card__out-of-stock-badge">OUT OF STOCK</span>
         ) : null}
       </div>

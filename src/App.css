@@ -34678,6 +34678,224 @@ body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
   }
 }
 
+/* Final shared customer product-card presentation. */
+.product-card {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+}
+
+.product-card:hover {
+  border-color: rgba(28, 63, 183, 0.18);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.09);
+}
+
+.product-card__media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.product-card__media-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.product-card__media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  object-position: center;
+  transform: none;
+}
+
+.product-card:hover .product-card__media img {
+  transform: none;
+}
+
+.product-card__actions {
+  top: 12px;
+  right: 12px;
+  gap: 8px;
+}
+
+.product-card__wishlist,
+.product-card__preview {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1d274f;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1);
+}
+
+.product-card__wishlist svg,
+.product-card__preview svg {
+  width: 18px;
+  height: 18px;
+}
+
+.product-card--compact .product-card__body {
+  min-width: 0;
+  gap: 7px;
+  padding: 13px 14px 15px;
+}
+
+.product-card--compact .product-card__title-link h3 {
+  min-height: 2.7em;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.product-card--compact .product-card__price {
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.product-card--compact .product-card__price strong {
+  color: #f74f00;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.product-card--compact .product-card__price span {
+  color: #98a2b3;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.product-card--compact .product-card__status-text {
+  display: block;
+  min-width: 0;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.product-card--compact .product-card__status-text::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 6px 1px 0;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+body[data-theme="dark"] .product-card {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: #111827;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.24);
+}
+
+body[data-theme="dark"] .product-card__media {
+  background: #182338;
+}
+
+body[data-theme="dark"] .product-card__wishlist,
+body[data-theme="dark"] .product-card__preview {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e5e7eb;
+}
+
+body[data-theme="dark"] .product-card--compact .product-card__title-link h3 {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .product-card--compact .product-card__status-text {
+  color: #cbd5e1;
+}
+
+@media (max-width: 480px) {
+  .product-card {
+    border-radius: 14px;
+  }
+
+  .product-card__media-link {
+    padding: 10px;
+  }
+
+  .product-card__actions {
+    top: 8px;
+    right: 8px;
+    gap: 5px;
+  }
+
+  .product-card__wishlist,
+  .product-card__preview {
+    width: 34px;
+    height: 34px;
+  }
+
+  .product-card__wishlist svg,
+  .product-card__preview svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .product-card--compact .product-card__body {
+    gap: 5px;
+    padding: 10px 10px 12px;
+  }
+
+  .product-card--compact .product-card__title-link h3 {
+    font-size: 13px;
+  }
+
+  .product-card--compact .product-card__price strong {
+    font-size: 17px;
+  }
+
+  .product-card--compact .product-card__price span {
+    font-size: 11px;
+  }
+
+  .product-card--compact .product-card__status-text {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 360px) {
+  .product-card__media-link {
+    padding: 8px;
+  }
+
+  .product-card__wishlist,
+  .product-card__preview {
+    width: 32px;
+    height: 32px;
+  }
+
+  .product-card--compact .product-card__body {
+    padding-inline: 8px;
+  }
+}
+
 /* Keep the image-free hero balanced without changing its visual design. */
 .home-page .hero-banner {
   padding-top: clamp(2.75rem, 5.5vw, 4.75rem);
