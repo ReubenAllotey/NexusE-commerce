@@ -33692,6 +33692,9 @@ body[data-theme="dark"] .product-view__delivery-content .product-view__perk--bat
   color: #10204a;
   font-size: 0.95rem;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -34225,4 +34228,20 @@ body[data-theme="dark"] .shop-page__top-card .shop-toolbar__sort {
     padding-inline: 0.45rem;
     font-size: clamp(0.61rem, 2vw, 0.72rem);
   }
+}
+
+/* Prevent full-width header/banner flex containers from widening the page;
+   their internal rails and ticker viewports retain their own scrolling rules. */
+.site-banner-strip,
+.site-banner-strip__bar-inner,
+.nexus-header__inner,
+.nexus-header__nav,
+.nexus-header__search,
+.nexus-header__actions {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.nexus-header__inner {
+  box-sizing: border-box;
 }

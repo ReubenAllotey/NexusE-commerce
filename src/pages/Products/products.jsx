@@ -594,9 +594,9 @@ function Products({
                     isWishlisted={wishlistItems.includes(item.name)}
                     onAddToCart={onAddToCart}
                     onToggleWishlist={onToggleWishlist}
-                  classNamePrefix="product-card"
-                  compact
-                  showAddToCart
+                    classNamePrefix="product-card"
+                    compact
+                    showAddToCart={false}
                   />
                 ))
               ) : (
