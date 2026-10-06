@@ -662,7 +662,7 @@ function AppShell({
   return (
     <>
       {location.pathname === "/" ? (
-        <SiteBannerStrip banner={siteBanner} />
+        <SiteBannerStrip banner={siteBanner} currentBatch={currentBatch} />
       ) : null}
       <Header
         cartCount={cartCount}

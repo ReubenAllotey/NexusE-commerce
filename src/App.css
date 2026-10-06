@@ -33534,6 +33534,248 @@ body[data-theme="dark"] .product-view__delivery-content .product-view__perk--bat
   object-fit: contain;
 }
 
+/* Announcement and current-batch bars are separate compact header strips. */
+.site-banner-strip {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+}
+
+.site-banner-strip__announcement-bar,
+.site-banner-strip__batch-bar {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.site-banner-strip__announcement-bar {
+  min-height: 56px;
+  background: #06275f;
+  color: #ffffff;
+}
+
+.site-banner-strip__batch-bar {
+  min-height: 76px;
+  background: #fff8f2;
+  color: #10204a;
+}
+
+.site-banner-strip__bar-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: inherit;
+  box-sizing: border-box;
+  gap: 1rem;
+  padding: 0.65rem clamp(0.85rem, 2vw, 1.4rem);
+}
+
+.site-banner-strip__bar-label,
+.site-banner-strip__batch-summary,
+.site-banner-strip__batch-date {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.site-banner-strip__bar-label {
+  flex: 0 0 auto;
+  gap: 0.5rem;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.site-banner-strip__bar-label svg,
+.site-banner-strip__batch-date svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.site-banner-strip__bar-divider,
+.site-banner-strip__batch-divider {
+  width: 1px;
+  height: 30px;
+  flex: 0 0 1px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.site-banner-strip__message-viewport {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.site-banner-strip__message-track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  gap: 3rem;
+  animation: siteTickerScroll 40s linear infinite;
+  will-change: transform;
+}
+
+.site-banner-strip__message-track p {
+  min-width: max-content;
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(0.875rem, 1.05vw, 0.98rem);
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.site-banner-strip__batch-summary {
+  flex: 0 0 auto;
+  gap: 0.7rem;
+}
+
+.site-banner-strip__batch-icon {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 44px;
+  border-radius: 9px;
+  background: rgba(247, 79, 0, 0.1);
+  color: #f74f00;
+}
+
+.site-banner-strip__batch-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.site-banner-strip__batch-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.site-banner-strip__batch-copy strong {
+  color: #f74f00;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.site-banner-strip__batch-copy b {
+  overflow: hidden;
+  color: #10204a;
+  font-size: 1.1rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-banner-strip__batch-divider {
+  height: 42px;
+  background: rgba(247, 79, 0, 0.24);
+}
+
+.site-banner-strip__batch-date {
+  gap: 0.5rem;
+  color: #10204a;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+body[data-theme="dark"] .site-banner-strip__batch-bar {
+  background: var(--nexus-surface-raised, #182338);
+  color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .site-banner-strip__batch-copy b,
+body[data-theme="dark"] .site-banner-strip__batch-date {
+  color: var(--nexus-text, #f8fafc);
+}
+
+@media (max-width: 768px) {
+  .site-banner-strip__bar-inner {
+    gap: 0.65rem;
+    padding-inline: 0.8rem;
+  }
+
+  .site-banner-strip__bar-label span {
+    display: none;
+  }
+
+  .site-banner-strip__bar-divider {
+    display: none;
+  }
+
+  .site-banner-strip__batch-bar {
+    min-height: 70px;
+  }
+
+  .site-banner-strip__batch-summary {
+    gap: 0.5rem;
+  }
+
+  .site-banner-strip__batch-icon {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+
+  .site-banner-strip__batch-copy strong {
+    font-size: 0.68rem;
+  }
+
+  .site-banner-strip__batch-copy b {
+    font-size: 0.95rem;
+  }
+
+  .site-banner-strip__batch-date {
+    overflow: hidden;
+    font-size: 0.8rem;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 480px) {
+  .site-banner-strip__bar-inner {
+    padding-inline: 0.65rem;
+  }
+
+  .site-banner-strip__batch-divider {
+    display: none;
+  }
+
+  .site-banner-strip__batch-bar .site-banner-strip__bar-inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 0.55rem;
+    padding-block: 0.55rem;
+  }
+
+  .site-banner-strip__batch-date {
+    min-width: 0;
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-banner-strip__message-track {
+    animation: none;
+  }
+}
+
 /* Keep the desktop action group compact after ordering Cart, Wishlist, Theme, Sign In. */
 @media (min-width: 769px) and (max-width: 1200px) {
   .nexus-header__inner {

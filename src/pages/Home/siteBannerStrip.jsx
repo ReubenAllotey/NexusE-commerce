@@ -11,11 +11,12 @@ function CalendarIcon() {
   );
 }
 
-function BookIcon() {
+function MegaphoneIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 3V4Z" />
-      <path d="M8 8h6M8 12h6" />
+      <path d="m4 10 11-4v12L4 14z" />
+      <path d="M15 9h3a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-3" />
+      <path d="m6 14 1.2 5h3L9 15" />
     </svg>
   );
 }
@@ -47,73 +48,56 @@ function formatDateRange(start, end) {
   return values.join(" - ");
 }
 
-function buildTickerMessage({ announcement, reflection }) {
-  const batchNumber = announcement.batchNumber || "current batch";
-  const activeDate = formatDateRange(
-    announcement.batchWindowStart,
-    announcement.batchWindowEnd,
-  );
-  const announcementCopy = [announcement.headline, announcement.body]
+function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
+  const safeBanner = normalizeSiteBanner(banner);
+  const { announcement } = safeBanner;
+  const announcementMessage = [announcement.headline, announcement.body]
     .filter(Boolean)
     .join(" - ");
-  const reflectionText = reflection.headline || "Daily reflection";
-  const verse = reflection.verse || "Genesis 1:1";
+  const activeBatchNumber = currentBatch?.batchNumber?.trim() || "";
+  const activeBatchStart = currentBatch?.startDate || "";
+  const activeBatchEnd = currentBatch?.endDate || "";
+  const hasActiveBatch = Boolean(activeBatchNumber || activeBatchStart || activeBatchEnd);
 
   return (
-    `${announcementCopy || `Orders are open for the Batch ${batchNumber}`} | ` +
-    `Active window: ${activeDate} | ` +
-    " " +
-    "Sea freight shipment takes 1-2 months after the active batch date is closed | " +
-    "Air freight shipment takes 10-16 days after the active batch date is closed | " +
-    `${reflectionText} (${verse})`
-  );
-}
-
-function SiteBannerStrip({ banner = defaultSiteBanner }) {
-  const safeBanner = normalizeSiteBanner(banner);
-  const { announcement, reflection, updatedAt } = safeBanner;
-  const tickerMessage = buildTickerMessage({ announcement, reflection });
-
-  return (
-    <section
-      className="site-banner-strip"
-      aria-label="Batch announcement and daily reflection"
-    >
-      <div className="site-banner-strip__inner">
-        <article className="site-banner-strip__announcement-card">
-          <div className="site-banner-strip__badge">
-            <CalendarIcon />
-            <span>{announcement.label || "Announcement"}</span>
-          </div>
-
-          <div className="site-banner-strip__announcement-copy">
-            <p className="site-banner-strip__eyebrow">
-              Batch {announcement.batchNumber}
-            </p>
-            <p className="site-banner-strip__meta">
-              Active date:{" "}
-              {formatDateRange(
-                announcement.batchWindowStart,
-                announcement.batchWindowEnd,
-              )}
-            </p>
-          </div>
-        </article>
-
-        <div
-          className="site-banner-strip__ticker"
-          aria-label="Orders and reflection updates"
-        >
-          <div className="site-banner-strip__ticker-viewport">
-            <div className="site-banner-strip__ticker-track">
-              <p>{tickerMessage}</p>
-              <p aria-hidden="true">{tickerMessage}</p>
+    <div className="site-banner-strip" aria-label="Store announcement and current batch">
+      {announcementMessage ? (
+        <section className="site-banner-strip__announcement-bar" aria-label="Store announcement">
+          <div className="site-banner-strip__bar-inner">
+            <div className="site-banner-strip__bar-label">
+              <MegaphoneIcon />
+              <span>Store announcement</span>
+            </div>
+            <span className="site-banner-strip__bar-divider" aria-hidden="true" />
+            <div className="site-banner-strip__message-viewport">
+              <div className="site-banner-strip__message-track">
+                <p>{announcementMessage}</p>
+                <p aria-hidden="true">{announcementMessage}</p>
+              </div>
             </div>
           </div>
+        </section>
+      ) : null}
 
+      <section className="site-banner-strip__batch-bar" aria-label="Current batch">
+        <div className="site-banner-strip__bar-inner">
+          <div className="site-banner-strip__batch-summary">
+            <span className="site-banner-strip__batch-icon" aria-hidden="true">
+              <CalendarIcon />
+            </span>
+            <span className="site-banner-strip__batch-copy">
+              <strong>Current batch</strong>
+              <b>{hasActiveBatch ? activeBatchNumber : "No active batch"}</b>
+            </span>
+          </div>
+          <span className="site-banner-strip__batch-divider" aria-hidden="true" />
+          <div className="site-banner-strip__batch-date">
+            <CalendarIcon />
+            <span>{hasActiveBatch ? `Active date: ${formatDateRange(activeBatchStart, activeBatchEnd)}` : "Active date pending"}</span>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }
 
