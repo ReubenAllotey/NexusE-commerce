@@ -6,6 +6,7 @@ import {
   getMissingRequiredVariationGroups,
   getProductPurchaseMeta,
   getProductPath,
+  normalizeAvailabilityType,
   resolveProductCompareAt,
   resolveProductPrice,
   slugify,
@@ -60,16 +61,6 @@ function SearchIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="m21 21-4.3-4.3" />
       <circle cx="11" cy="11" r="6.5" />
-    </svg>
-  );
-}
-
-function ShopBadgeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 6h16l-1.3 11a2 2 0 0 1-2 1.8H7.3a2 2 0 0 1-2-1.8L4 6Z" />
-      <path d="M8 6V4.8A2.8 2.8 0 0 1 10.8 2h2.4A2.8 2.8 0 0 1 16 4.8V6" />
-      <path d="M9 10h6" />
     </svg>
   );
 }
@@ -368,6 +359,7 @@ function Products({
     error: categoriesError,
   } = useCategoryRecords();
   const categoryParam = searchParams.get("category") ?? "";
+  const availabilityParam = searchParams.get("availability") ?? "";
   const searchParam = searchParams.get("search") ?? "";
   const [searchTerm, setSearchTerm] = useState(searchParam);
   const [sortBy, setSortBy] = useState("featured");
@@ -414,6 +406,40 @@ function Products({
     return Array.from(colors.values()).sort((left, right) => left.label.localeCompare(right.label));
   }, [products]);
   const selectedCategories = parseCategorySelection(categoryParam);
+  const selectedAvailability = ["ready_stock", "preorder"].includes(availabilityParam)
+    ? availabilityParam
+    : "";
+
+  const availabilityOptions = useMemo(() => {
+    const catalog = Array.isArray(products) ? products : [];
+    return [
+      {
+        value: "ready_stock",
+        label: "Available in Ghana",
+        count: catalog.filter(
+          (product) => normalizeAvailabilityType(product?.availabilityType ?? product?.availability_type) === "ready_stock",
+        ).length,
+      },
+      {
+        value: "preorder",
+        label: "Preorder",
+        count: catalog.filter(
+          (product) => normalizeAvailabilityType(product?.availabilityType ?? product?.availability_type) === "preorder",
+        ).length,
+      },
+    ];
+  }, [products]);
+
+  const categorySidebarOptions = useMemo(
+    () =>
+      categoryOptions.map((category) => ({
+        ...category,
+        count: (Array.isArray(products) ? products : []).filter((product) =>
+          matchesCategorySelection(product, category.slug),
+        ).length,
+      })),
+    [categoryOptions, products],
+  );
 
   useEffect(() => {
     setSearchTerm(searchParam);
@@ -430,6 +456,9 @@ function Products({
           const matchesCategory =
             selectedCategories.length === 0 ||
             selectedCategories.some((selection) => matchesCategorySelection(item, selection));
+          const matchesAvailability =
+            !selectedAvailability ||
+            normalizeAvailabilityType(item?.availabilityType ?? item?.availability_type) === selectedAvailability;
           const productColors = getProductColorEntries(item);
           const matchesColor =
             selectedColors.length === 0 ||
@@ -437,7 +466,7 @@ function Products({
               productColors.some((entry) => getColorSelectionKey(entry) === selection),
             );
 
-          return matchesSearch && matchesCategory && matchesColor;
+          return matchesSearch && matchesCategory && matchesAvailability && matchesColor;
         })
         .sort((a, b) => {
           switch (sortBy) {
@@ -453,7 +482,7 @@ function Products({
               return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
           }
         }),
-    [products, searchTerm, selectedCategories, selectedColors, sortBy],
+    [products, searchTerm, selectedCategories, selectedAvailability, selectedColors, sortBy],
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
@@ -496,6 +525,19 @@ function Products({
     setCurrentPage(1);
   };
 
+  const handleAvailabilityToggle = (availabilityType) => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (selectedAvailability === availabilityType) {
+      nextParams.delete("availability");
+    } else {
+      nextParams.set("availability", availabilityType);
+    }
+
+    setSearchParams(nextParams, { replace: true });
+    setCurrentPage(1);
+  };
+
   const handleColorToggle = (colorKey) => {
     setSelectedColors((current) => toggleItem(current, colorKey));
     setCurrentPage(1);
@@ -508,19 +550,54 @@ function Products({
 
   return (
     <main className="shop-page" id="top">
-      <section className="shop-page__hero">
-        <div className="shop-shell shop-page__hero-inner">
-          <div className="shop-page__badge">
-            <ShopBadgeIcon />
-            <span>Shop</span>
-          </div>
-          <h1>Our Products</h1>
-          <p>Discover premium electronics and gadgets at unbeatable prices.</p>
+      <section className="shop-page__intro">
+        <div className="shop-shell shop-page__intro-inner">
+          <p className="shop-page__intro-eyebrow">Browse Products</p>
+          <h1>Find products by category</h1>
         </div>
       </section>
 
       <div className="shop-page__content">
-        <div className="shop-shell">
+        <div className="shop-shell shop-page__layout">
+          <aside className="shop-sidebar" aria-label="Shop categories">
+            <div className="shop-sidebar__heading">Browse</div>
+            <div className="shop-sidebar__list">
+              {availabilityOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`shop-sidebar__item${selectedAvailability === option.value ? " is-active" : ""}`}
+                  aria-pressed={selectedAvailability === option.value}
+                  onClick={() => handleAvailabilityToggle(option.value)}
+                >
+                  <span>{option.label}</span>
+                  <small>{option.count} products</small>
+                </button>
+              ))}
+
+              {categoriesError ? <p className="shop-sidebar__note">Unable to load categories.</p> : null}
+              {categoriesLoading && categorySidebarOptions.length === 0 ? (
+                <p className="shop-sidebar__note">Loading categories...</p>
+              ) : (
+                categorySidebarOptions.map((category) => {
+                  const isActive = selectedCategories.includes(category.slug);
+                  return (
+                    <button
+                      key={category.slug}
+                      type="button"
+                      className={`shop-sidebar__item${isActive ? " is-active" : ""}`}
+                      aria-pressed={isActive}
+                      onClick={() => handleCategoryToggle(category.slug)}
+                    >
+                      <span>{category.label}</span>
+                      <small>{category.count} products</small>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+
           <section className="shop-main" id="catalog">
             <div className="shop-toolbar">
               <label className="shop-toolbar__search" htmlFor="shop-toolbar-search">
