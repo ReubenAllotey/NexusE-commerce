@@ -285,12 +285,36 @@ function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = 
             placeholder="Search products..."
             aria-label="Search products or categories"
           />
-          <button type="submit" aria-label="Search">
-            <SearchIcon />
-          </button>
         </form>
 
         <div className="nexus-header__actions">
+          <Link
+            to="/cart"
+            className="nexus-header__icon-button nexus-header__icon-button--cart"
+            aria-label={`Cart, ${cartCount} items`}
+          >
+            <CartIcon />
+            {cartCount > 0 ? <span className="nexus-header__badge">{cartCount}</span> : null}
+          </Link>
+
+          <Link
+            to="/wishlist"
+            className="nexus-header__icon-button nexus-header__icon-button--wishlist"
+            aria-label={`Wishlist, ${wishlistCount} items`}
+          >
+            <HeartIcon />
+            {wishlistCount > 0 ? <span className="nexus-header__badge">{wishlistCount}</span> : null}
+          </Link>
+
+          <button
+            type="button"
+            className="nexus-header__icon-button nexus-header__icon-button--theme"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+          </button>
+
           {authUser ? (
             <Link
               to="/profile/dashboard"
@@ -306,33 +330,6 @@ function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = 
               <span>{accountLabel}</span>
             </Link>
           )}
-
-          <Link
-            to="/wishlist"
-            className="nexus-header__icon-button nexus-header__icon-button--wishlist"
-            aria-label={`Wishlist, ${wishlistCount} items`}
-          >
-            <HeartIcon />
-            {wishlistCount > 0 ? <span className="nexus-header__badge">{wishlistCount}</span> : null}
-          </Link>
-
-          <Link
-            to="/cart"
-            className="nexus-header__icon-button nexus-header__icon-button--cart"
-            aria-label={`Cart, ${cartCount} items`}
-          >
-            <CartIcon />
-            {cartCount > 0 ? <span className="nexus-header__badge">{cartCount}</span> : null}
-          </Link>
-
-          <button
-            type="button"
-            className="nexus-header__icon-button nexus-header__icon-button--theme"
-            onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-          </button>
         </div>
 
         <button

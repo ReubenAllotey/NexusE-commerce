@@ -22714,20 +22714,6 @@ body[data-theme="dark"] .site-actions__signin--ghost {
   color: #94a3b8;
 }
 
-.nexus-header__search button {
-  width: 2.85rem;
-  height: 2.85rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 0.85rem;
-  background: #1c3fb7;
-  color: #ffffff;
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
 .nexus-header__actions {
   display: flex;
   align-items: center;
@@ -23230,12 +23216,6 @@ body[data-theme="dark"] .nexus-mobile-nav__item:focus-visible {
 
 .nexus-header__search input {
   font-size: 0.96rem;
-}
-
-.nexus-header__search button {
-  width: 2.8rem;
-  height: 2.8rem;
-  border-radius: 0.85rem;
 }
 
 .nexus-header__actions {
@@ -33552,4 +33532,34 @@ body[data-theme="dark"] .product-view__delivery-content .product-view__perk--bat
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+
+/* Keep the desktop action group compact after ordering Cart, Wishlist, Theme, Sign In. */
+@media (min-width: 769px) and (max-width: 1200px) {
+  .nexus-header__inner {
+    grid-template-columns: auto minmax(0, auto) minmax(180px, 1fr) auto;
+    gap: 0.75rem;
+  }
+
+  .nexus-header__nav {
+    gap: 0.85rem;
+    font-size: 0.9rem;
+  }
+
+  .nexus-header__search {
+    min-width: 0;
+  }
+
+  .nexus-header__actions {
+    gap: 0.45rem;
+  }
+
+  .nexus-header__signin {
+    padding-inline: 0.7rem;
+  }
+
+  .nexus-header__icon-button {
+    width: 2.55rem;
+    height: 2.55rem;
+  }
 }
