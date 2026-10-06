@@ -34447,8 +34447,8 @@ body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
 .site-banner-strip__announcement-bar {
   display: flex;
   align-items: center;
-  min-height: 56px;
-  padding: 0.7rem clamp(0.85rem, 2vw, 1.4rem);
+  min-height: 64px;
+  padding: 0.55rem clamp(0.85rem, 2vw, 1.4rem);
   background: #0240cd;
 }
 
@@ -34632,6 +34632,7 @@ body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
 
 /* Keep the current-batch layout and data intact; only its color treatment changes. */
 .site-banner-strip__batch-bar {
+  min-height: 72px;
   background: #f74f00;
   color: #ffffff;
 }
@@ -34649,4 +34650,15 @@ body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
 
 .site-banner-strip__batch-divider {
   background: rgba(255, 255, 255, 0.35);
+}
+
+/* Keep the image-free hero balanced without changing its visual design. */
+.home-page .hero-banner {
+  padding-top: clamp(2.75rem, 5.5vw, 4.75rem);
+}
+
+@media (max-width: 680px) {
+  .home-page .hero-banner {
+    padding-top: 2.85rem;
+  }
 }
