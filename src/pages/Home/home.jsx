@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import nexusPerson from "../../assets/images/nexusPerson.png";
 import logo from "../../assets/images/nexusLogomain.png";
 import { getCategoryProductsPath } from "./catalogData";
 import {
@@ -59,7 +58,12 @@ function QuoteIcon() {
 
 function HeroTrustIcon({ kind }) {
   const icons = {
-    plane: <path d="M3 11.5 21 4l-3.5 16-5.1-6.1L8 18.5l.7-5.1L3 11.5Z" />,
+    shield: (
+      <>
+        <path d="M12 3 19 6v5c0 4.5-2.8 8-7 10-4.2-2-7-5.5-7-10V6l7-3Z" />
+        <path d="m8.7 12 2.1 2.1 4.5-4.5" />
+      </>
+    ),
     ship: (
       <>
         <path d="M4 14h16l-2 4H6l-2-4Z" />
@@ -67,11 +71,11 @@ function HeroTrustIcon({ kind }) {
         <path d="M6 18c1.2 1 2.4 1.5 3.6 1.5S12 19 13.2 18.5c1.2-.5 2.4-.5 3.6 0" />
       </>
     ),
-    box: (
+    home: (
       <>
-        <path d="M4 8 12 4l8 4-8 4-8-4Z" />
-        <path d="M4 8v8l8 4 8-4V8" />
-        <path d="M12 12v8" />
+        <path d="m3 11 9-7 9 7" />
+        <path d="M5 10v10h14V10" />
+        <path d="M9 20v-5h6v5" />
       </>
     ),
   };
@@ -653,24 +657,21 @@ const contactCards = [
 ];
 
 const heroContent = {
-  eyebrow: "WELCOME",
-  badge: "YOUR TRUSTED IMPORT PARTNER",
+  eyebrow: "YOUR TRUSTED IMPORT PARTNER",
   title: {
     lineOne: "Shop Beyond Borders.",
     lineTwo: "We Handle the Rest.",
   },
   copy:
-    "Shop quality products and import with confidence. Nexus Import Hub makes it easy to order, ship, and receive your items from China to Ghana.",
+    "Shop quality products and import with confidence. From China to Ghana, Nexus Import Hub makes ordering, shipping and receiving your products simple.",
   primaryCta: "Shop Now",
   secondaryCta: "Track Your Order",
   primaryHref: "/products",
   secondaryHref: "/profile/orders",
-  image: nexusPerson,
-  alt: "Nexus import hero product",
   trustLine: [
-    { kind: "plane", label: "Air Shipping" },
-    { kind: "ship", label: "Sea Shipping" },
-    { kind: "box", label: "Secure Delivery" },
+    { kind: "shield", label: "Secure Ordering" },
+    { kind: "ship", label: "Air & Sea Shipping" },
+    { kind: "home", label: "Delivery in Ghana" },
   ],
 };
 
@@ -790,7 +791,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
         <div className="hero-banner">
           <div className="hero-banner__copy">
             <p className="hero-banner__eyebrow">{heroContent.eyebrow}</p>
-            <span className="hero-banner__brand">{heroContent.badge}</span>
             <h1>
               <span className="hero-banner__title-line">
                 {heroContent.title.lineOne}
@@ -819,12 +819,6 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 </span>
               ))}
             </p>
-          </div>
-
-          <div className="hero-banner__stage">
-            <div className="hero-banner__visual">
-              <img src={heroContent.image} alt={heroContent.alt} />
-            </div>
           </div>
         </div>
       </section>

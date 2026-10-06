@@ -34245,3 +34245,264 @@ body[data-theme="dark"] .shop-page__top-card .shop-toolbar__sort {
 .nexus-header__inner {
   box-sizing: border-box;
 }
+
+/* Final centered, image-free homepage hero. */
+.home-page .hero-section {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.home-page .hero-banner {
+  position: relative;
+  display: block;
+  width: min(100%, 1050px);
+  max-width: 100%;
+  min-width: 0;
+  min-height: 600px;
+  margin: 0 auto;
+  padding: clamp(4.5rem, 8vw, 7rem) clamp(1rem, 4vw, 2.5rem) clamp(4rem, 7vw, 6rem);
+  overflow: hidden;
+  border: 1px solid rgba(28, 63, 183, 0.08);
+  border-radius: 0 0 2rem 2rem;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(28, 63, 183, 0.08), transparent 30%),
+    radial-gradient(circle at 84% 78%, rgba(247, 79, 0, 0.06), transparent 28%),
+    radial-gradient(rgba(28, 63, 183, 0.11) 0.7px, transparent 0.7px),
+    #ffffff;
+  background-size: auto, auto, 22px 22px, auto;
+  color: #0f172a;
+  text-align: center;
+}
+
+.home-page .hero-banner__copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0;
+  text-align: center;
+}
+
+.home-page .hero-banner__eyebrow {
+  width: auto;
+  margin: 0 0 1.1rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #1c3fb7;
+  font-size: clamp(0.7rem, 1.2vw, 0.84rem);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.home-page .hero-banner h1 {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0;
+  color: #10204a;
+  font-size: clamp(2.25rem, 5.2vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.06em;
+}
+
+.home-page .hero-banner__title-line {
+  display: block;
+}
+
+.home-page .hero-banner__title-line:last-child {
+  color: #f74f00;
+}
+
+.home-page .hero-banner__copy-text {
+  max-width: 680px;
+  margin: 1.35rem auto 0;
+  color: #475467;
+  font-size: clamp(1rem, 1.5vw, 1.12rem);
+  line-height: 1.7;
+}
+
+.home-page .hero-banner__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.home-page .hero-banner__link {
+  min-height: 3.15rem;
+  padding: 0 1.35rem;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.home-page .hero-banner__link--primary {
+  background: #f74f00;
+  box-shadow: 0 14px 28px rgba(247, 79, 0, 0.18);
+}
+
+.home-page .hero-banner__link--primary:hover,
+.home-page .hero-banner__link--primary:focus-visible {
+  background: #d94300;
+}
+
+.home-page .hero-banner__link--ghost {
+  border: 1px solid rgba(28, 63, 183, 0.22);
+  background: rgba(255, 255, 255, 0.72);
+  color: #1c3fb7;
+}
+
+.home-page .hero-banner__link--ghost:hover,
+.home-page .hero-banner__link--ghost:focus-visible {
+  border-color: rgba(28, 63, 183, 0.42);
+  background: rgba(28, 63, 183, 0.06);
+  color: #16359d;
+}
+
+.home-page .hero-banner__trustline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.7rem 1.5rem;
+  margin: 2.15rem 0 0;
+  color: #475467;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.home-page .hero-banner__trustline span {
+  white-space: normal;
+}
+
+.home-page .hero-banner__trustline span + span::before {
+  content: "";
+  width: 1px;
+  height: 1.1rem;
+  margin-right: 1.5rem;
+  background: rgba(71, 84, 103, 0.24);
+}
+
+.home-page .hero-banner__trust-icon {
+  color: #1c3fb7;
+}
+
+.home-page .hero-banner__stage,
+.home-page .hero-banner__visual {
+  display: none;
+}
+
+body[data-theme="dark"] .home-page .hero-banner {
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(28, 63, 183, 0.2), transparent 30%),
+    radial-gradient(circle at 84% 78%, rgba(247, 79, 0, 0.12), transparent 28%),
+    radial-gradient(rgba(148, 163, 184, 0.14) 0.7px, transparent 0.7px),
+    #0f172a;
+  background-size: auto, auto, 22px 22px, auto;
+}
+
+body[data-theme="dark"] .home-page .hero-banner h1 {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .home-page .hero-banner__copy-text,
+body[data-theme="dark"] .home-page .hero-banner__trustline {
+  color: #cbd5e1;
+}
+
+body[data-theme="dark"] .home-page .hero-banner__link--ghost {
+  border-color: rgba(138, 180, 255, 0.3);
+  background: rgba(15, 23, 42, 0.38);
+  color: #a8c2ff;
+}
+
+body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
+  background: rgba(203, 213, 225, 0.28);
+}
+
+@media (max-width: 680px) {
+  .home-page .hero-banner {
+    min-height: 0;
+    padding: 4.1rem 1rem 3.5rem;
+    border-radius: 0 0 1.35rem 1.35rem;
+  }
+
+  .home-page .hero-banner h1 {
+    font-size: clamp(2.15rem, 9.5vw, 2.65rem);
+    line-height: 1.06;
+  }
+
+  .home-page .hero-banner__copy-text {
+    margin-top: 1.1rem;
+    font-size: 0.98rem;
+    line-height: 1.6;
+  }
+
+  .home-page .hero-banner__actions {
+    width: 100%;
+    gap: 0.55rem;
+    margin-top: 1.55rem;
+  }
+
+  .home-page .hero-banner__link {
+    flex: 1 1 9rem;
+    min-width: 0;
+    padding-inline: 0.7rem;
+    font-size: 0.86rem;
+  }
+
+  .home-page .hero-banner__trustline {
+    gap: 0.7rem 0.9rem;
+    margin-top: 1.7rem;
+    font-size: 0.78rem;
+  }
+
+  .home-page .hero-banner__trustline span + span::before {
+    display: none;
+  }
+}
+
+/* Keep intentional product/thumb rails internal to their own containers. */
+.home-page,
+.home-page .site-shell,
+.home-page .section-block,
+.home-page .product-row,
+.home-page .recently-viewed__rail,
+.home-page .home-product-rail,
+.product-view,
+.product-view .product-view__shell,
+.product-view .product-view__layout,
+.shop-page,
+.shop-page__content,
+.shop-page__layout,
+.shop-page .shop-main,
+.shop-page .shop-grid {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.home-page .product-row,
+.home-page .recently-viewed__rail,
+.home-page .home-product-rail {
+  width: 100%;
+}
+
+.product-view__main-image,
+.product-view__thumbs,
+.product-view__gallery,
+.product-view__details {
+  min-width: 0;
+  max-width: 100%;
+}
