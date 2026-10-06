@@ -358,6 +358,7 @@ function AppShell({
   notificationsLoading,
   notificationsError,
   siteBanner,
+  currentBatch,
   wishlistItems,
   wishlistLoading,
   wishlistError,
@@ -1887,6 +1888,7 @@ function App() {
         notificationsLoading={notificationsLoading}
         notificationsError={notificationsError}
         siteBanner={siteBanner}
+        currentBatch={currentBatch}
         wishlistItems={wishlistItems}
         wishlistLoading={wishlistLoading}
         wishlistError={wishlistError}
