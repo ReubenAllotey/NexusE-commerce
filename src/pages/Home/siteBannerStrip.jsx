@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   defaultSiteBanner,
   normalizeSiteBanner,
@@ -59,7 +59,9 @@ function formatDateRange(start, end) {
 }
 
 function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
-  const [activeTickerMessage, setActiveTickerMessage] = useState("announcement");
+  const tickerViewportRef = useRef(null);
+  const tickerGroupRef = useRef(null);
+  const [tickerDuration, setTickerDuration] = useState("45s");
   const safeBanner = normalizeSiteBanner(banner);
   const { announcement, reflection } = safeBanner;
   const announcementMessage = [announcement.headline, announcement.body]
@@ -69,26 +71,56 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
     .filter(Boolean)
     .join(" - ");
   const reflectionReference = reflection.verse;
-  const tickerMessages = [
-    announcementMessage
-      ? {
-          key: "announcement",
-          label: "Announcement",
-          icon: <MegaphoneIcon />,
-          message: announcementMessage,
-        }
-      : null,
-    reflectionMessage || reflectionReference
-      ? {
-          key: "reflection",
-          label: "Daily Reflection",
-          icon: <BookIcon />,
-          message: [reflectionMessage, reflectionReference].filter(Boolean).join(" - "),
-        }
-      : null,
-  ].filter(Boolean);
-  const activeTicker =
-    tickerMessages.find((item) => item.key === activeTickerMessage) || tickerMessages[0];
+  const reflectionTickerText = [reflectionMessage, reflectionReference].filter(Boolean).join(" - ");
+
+  useEffect(() => {
+    const updateTickerDuration = () => {
+      const viewportWidth = tickerViewportRef.current?.clientWidth || 0;
+      const groupWidth = tickerGroupRef.current?.getBoundingClientRect().width || 0;
+
+      if (viewportWidth > 0 && groupWidth > 0) {
+        const seconds = Math.max(18, (viewportWidth + groupWidth) / 40);
+        setTickerDuration(`${seconds}s`);
+      }
+    };
+
+    updateTickerDuration();
+
+    if (typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const observer = new ResizeObserver(updateTickerDuration);
+    if (tickerViewportRef.current) {
+      observer.observe(tickerViewportRef.current);
+    }
+    if (tickerGroupRef.current) {
+      observer.observe(tickerGroupRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [announcementMessage, reflectionTickerText]);
+
+  const renderTickerGroup = (ref = null, hidden = false) => (
+    <span
+      ref={ref}
+      className={`site-banner-strip__ticker-group${hidden ? " site-banner-strip__ticker-group--clone" : ""}`}
+      aria-hidden={hidden ? "true" : undefined}
+    >
+      <span className="site-banner-strip__ticker-announcement">{announcementMessage}</span>
+      <span className="site-banner-strip__ticker-separator" aria-hidden="true">
+        •
+      </span>
+      <span className="site-banner-strip__ticker-reflection">
+        <BookIcon />
+        <strong>Daily Reflection</strong>
+        <span>{reflectionTickerText}</span>
+      </span>
+      <span className="site-banner-strip__ticker-separator" aria-hidden="true">
+        •
+      </span>
+    </span>
+  );
   const activeBatchNumber = currentBatch?.batchNumber?.trim() || "";
   const activeBatchStart = currentBatch?.startDate || "";
   const activeBatchEnd = currentBatch?.endDate || "";
@@ -97,27 +129,24 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
   return (
     <div className="site-banner-strip" aria-label="Store announcement and current batch">
       <section className="site-banner-strip__announcement-bar" aria-label="Store announcement ticker">
-        {activeTicker ? (
-          <div className="site-banner-strip__ticker-viewport" role="status" aria-live="polite">
-            <div
-              key={activeTicker.key}
-              className="site-banner-strip__ticker-message"
-              onAnimationEnd={() => {
-                if (tickerMessages.length > 1) {
-                  setActiveTickerMessage((current) =>
-                    current === "announcement" ? "reflection" : "announcement",
-                  );
-                }
-              }}
-            >
-              <span className="site-banner-strip__ticker-heading">
-                {activeTicker.icon}
-                <strong>{activeTicker.label}</strong>
-              </span>
-              <span className="site-banner-strip__ticker-copy">{activeTicker.message}</span>
-            </div>
+        <div className="site-banner-strip__announcement-fixed">
+          <MegaphoneIcon />
+          <strong>Announcement</strong>
+        </div>
+        <div
+          ref={tickerViewportRef}
+          className="site-banner-strip__ticker-viewport"
+          role="status"
+          aria-live="polite"
+        >
+          <div
+            className="site-banner-strip__ticker-track"
+            style={{ "--ticker-duration": tickerDuration }}
+          >
+            {renderTickerGroup(tickerGroupRef)}
+            {renderTickerGroup(null, true)}
           </div>
-        ) : null}
+        </div>
       </section>
 
       <section className="site-banner-strip__batch-bar" aria-label="Current batch">

@@ -34437,76 +34437,158 @@ body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
   overflow: hidden;
 }
 
-.site-banner-strip__ticker-message {
-  display: inline-flex;
-  align-items: center;
-  width: max-content;
-  min-width: max-content;
-  max-width: none;
-  gap: 0.6rem;
-  white-space: nowrap;
-  animation: siteAnnouncementTickerTravel 18s linear 1 both;
-  will-change: transform;
+@media (max-width: 680px) {
+  .site-banner-strip__announcement-bar {
+    padding: 0.65rem 0.7rem;
+  }
 }
 
-.site-banner-strip__ticker-heading {
+/* Final fixed-label ticker treatment. */
+.site-banner-strip__announcement-bar {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 0.7rem clamp(0.85rem, 2vw, 1.4rem);
+  background: #0240cd;
+}
+
+.site-banner-strip__announcement-fixed {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  gap: 0.45rem;
-  color: #f74f00;
-  font-size: clamp(0.72rem, 1vw, 0.82rem);
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  min-width: 0;
+  gap: 0.5rem;
+  padding-right: 1rem;
+  color: #ffffff;
+  font-size: clamp(0.82rem, 1.1vw, 1rem);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.site-banner-strip__ticker-heading svg {
-  width: 0.95rem;
-  height: 0.95rem;
+.site-banner-strip__announcement-fixed svg {
+  width: 1.15rem;
+  height: 1.15rem;
   flex: 0 0 auto;
   fill: none;
-  stroke: currentColor;
+  stroke: #f74f00;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
 }
 
-.site-banner-strip__ticker-copy {
-  display: inline-block;
-  max-width: none;
-  color: #ffffff;
-  font-size: clamp(0.86rem, 1.05vw, 0.98rem);
-  font-weight: 600;
-  line-height: 1.4;
+.site-banner-strip__announcement-fixed::after {
+  width: 1px;
+  height: 30px;
+  margin-left: 0.45rem;
+  background: rgba(255, 255, 255, 0.35);
+  content: "";
+}
+
+.site-banner-strip__ticker-viewport {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  position: relative;
+}
+
+.site-banner-strip__ticker-track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: max-content;
+  animation: siteAnnouncementTickerTravel var(--ticker-duration, 45s) linear infinite;
+  will-change: transform;
+}
+
+.site-banner-strip__ticker-group {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 1.6rem;
+  padding-right: 1.6rem;
   white-space: nowrap;
 }
 
-body[data-theme="dark"] .site-banner-strip__announcement-bar {
-  background: #10204a;
+.site-banner-strip__ticker-announcement,
+.site-banner-strip__ticker-reflection {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #ffffff;
+  font-size: clamp(1rem, 1.3vw, 1.06rem);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.site-banner-strip__ticker-reflection strong {
+  color: #ffffff;
+  font-size: clamp(0.94rem, 1.2vw, 1rem);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.site-banner-strip__ticker-reflection svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: #f74f00;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.site-banner-strip__ticker-separator {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 1.1rem;
+  line-height: 1;
 }
 
 @keyframes siteAnnouncementTickerTravel {
   from {
-    transform: translateX(calc(100vw + 100%));
+    transform: translateX(100vw);
   }
 
   to {
-    transform: translateX(calc(-100vw - 100%));
+    transform: translateX(-50%);
   }
 }
 
+.site-banner-strip__ticker-viewport:hover .site-banner-strip__ticker-track {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .site-banner-strip__ticker-message {
-    animation: none;
-    transform: none;
+  .site-banner-strip__ticker-track {
+    display: block;
     width: 100%;
     min-width: 0;
     max-width: 100%;
+    animation: none;
+    transform: none;
+  }
+
+  .site-banner-strip__ticker-group {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    min-width: 0;
+    padding-right: 0;
     white-space: normal;
   }
 
-  .site-banner-strip__ticker-copy {
+  .site-banner-strip__ticker-group--clone {
+    display: none;
+  }
+
+  .site-banner-strip__ticker-announcement,
+  .site-banner-strip__ticker-reflection {
     white-space: normal;
     overflow-wrap: anywhere;
   }
@@ -34516,4 +34598,55 @@ body[data-theme="dark"] .site-banner-strip__announcement-bar {
   .site-banner-strip__announcement-bar {
     padding: 0.65rem 0.7rem;
   }
+
+  .site-banner-strip__announcement-fixed {
+    gap: 0.35rem;
+    padding-right: 0.65rem;
+    font-size: 0.78rem;
+  }
+
+  .site-banner-strip__announcement-fixed svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .site-banner-strip__announcement-fixed::after {
+    height: 26px;
+    margin-left: 0.25rem;
+  }
+
+  .site-banner-strip__ticker-group {
+    gap: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .site-banner-strip__ticker-announcement,
+  .site-banner-strip__ticker-reflection {
+    font-size: 0.9rem;
+  }
+
+  .site-banner-strip__ticker-reflection strong {
+    font-size: 0.84rem;
+  }
+}
+
+/* Keep the current-batch layout and data intact; only its color treatment changes. */
+.site-banner-strip__batch-bar {
+  background: #f74f00;
+  color: #ffffff;
+}
+
+.site-banner-strip__batch-icon {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.site-banner-strip__batch-copy strong,
+.site-banner-strip__batch-copy b,
+.site-banner-strip__batch-date {
+  color: #ffffff;
+}
+
+.site-banner-strip__batch-divider {
+  background: rgba(255, 255, 255, 0.35);
 }
