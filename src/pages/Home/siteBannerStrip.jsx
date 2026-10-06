@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   defaultSiteBanner,
   normalizeSiteBanner,
@@ -58,6 +59,7 @@ function formatDateRange(start, end) {
 }
 
 function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
+  const [activeTickerMessage, setActiveTickerMessage] = useState("announcement");
   const safeBanner = normalizeSiteBanner(banner);
   const { announcement, reflection } = safeBanner;
   const announcementMessage = [announcement.headline, announcement.body]
@@ -67,6 +69,26 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
     .filter(Boolean)
     .join(" - ");
   const reflectionReference = reflection.verse;
+  const tickerMessages = [
+    announcementMessage
+      ? {
+          key: "announcement",
+          label: "Announcement",
+          icon: <MegaphoneIcon />,
+          message: announcementMessage,
+        }
+      : null,
+    reflectionMessage || reflectionReference
+      ? {
+          key: "reflection",
+          label: "Daily Reflection",
+          icon: <BookIcon />,
+          message: [reflectionMessage, reflectionReference].filter(Boolean).join(" - "),
+        }
+      : null,
+  ].filter(Boolean);
+  const activeTicker =
+    tickerMessages.find((item) => item.key === activeTickerMessage) || tickerMessages[0];
   const activeBatchNumber = currentBatch?.batchNumber?.trim() || "";
   const activeBatchStart = currentBatch?.startDate || "";
   const activeBatchEnd = currentBatch?.endDate || "";
@@ -74,24 +96,28 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
 
   return (
     <div className="site-banner-strip" aria-label="Store announcement and current batch">
-      <section className="site-banner-strip__announcement-bar" aria-label="Store announcement and memory verse">
-        <div className="site-banner-strip__announcement-grid">
-          <div className="site-banner-strip__announcement-panel">
-            <div className="site-banner-strip__announcement-heading">
-              <MegaphoneIcon />
-              <strong>Announcement</strong>
+      <section className="site-banner-strip__announcement-bar" aria-label="Store announcement ticker">
+        {activeTicker ? (
+          <div className="site-banner-strip__ticker-viewport" role="status" aria-live="polite">
+            <div
+              key={activeTicker.key}
+              className="site-banner-strip__ticker-message"
+              onAnimationEnd={() => {
+                if (tickerMessages.length > 1) {
+                  setActiveTickerMessage((current) =>
+                    current === "announcement" ? "reflection" : "announcement",
+                  );
+                }
+              }}
+            >
+              <span className="site-banner-strip__ticker-heading">
+                {activeTicker.icon}
+                <strong>{activeTicker.label}</strong>
+              </span>
+              <span className="site-banner-strip__ticker-copy">{activeTicker.message}</span>
             </div>
-            <p>{announcementMessage || "No current announcement available."}</p>
           </div>
-          <div className="site-banner-strip__reflection-panel">
-            <div className="site-banner-strip__announcement-heading">
-              <BookIcon />
-              <strong>Memory Verse</strong>
-            </div>
-            <p>{reflectionMessage || "No memory verse available."}</p>
-            {reflectionReference ? <cite>{reflectionReference}</cite> : null}
-          </div>
-        </div>
+        ) : null}
       </section>
 
       <section className="site-banner-strip__batch-bar" aria-label="Current batch">
