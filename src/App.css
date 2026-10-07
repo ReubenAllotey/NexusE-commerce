@@ -34229,7 +34229,7 @@ body[data-theme="dark"] .shop-page__top-card .shop-toolbar__sort {
 }
 
 .home-page .hero-banner__title-line:last-child {
-  color: #f74f00;
+  color: #0240cd;
 }
 
 .home-page .hero-banner__copy-text {
@@ -34258,13 +34258,15 @@ body[data-theme="dark"] .shop-page__top-card .shop-toolbar__sort {
 }
 
 .home-page .hero-banner__link--primary {
-  background: #f74f00;
-  box-shadow: 0 14px 28px rgba(247, 79, 0, 0.18);
+  background: #0240cd;
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(2, 64, 205, 0.18);
+  transition: background-color 0.2s ease;
 }
 
 .home-page .hero-banner__link--primary:hover,
 .home-page .hero-banner__link--primary:focus-visible {
-  background: #d94300;
+  background: #2459d9;
 }
 
 .home-page .hero-banner__link--ghost {
