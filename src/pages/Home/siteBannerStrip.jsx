@@ -58,6 +58,27 @@ function formatDateRange(start, end) {
   return values.join(" - ");
 }
 
+function formatCompactDateRange(start, end) {
+  const formatCompactDate = (value) => {
+    if (!value) {
+      return "";
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+    }).format(date);
+  };
+  const values = [formatCompactDate(start), formatCompactDate(end)].filter(Boolean);
+
+  return values.length > 0 ? values.join(" - ") : "Active date pending";
+}
+
 function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
   const tickerViewportRef = useRef(null);
   const tickerGroupRef = useRef(null);
@@ -107,7 +128,11 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
       className={`site-banner-strip__ticker-group${hidden ? " site-banner-strip__ticker-group--clone" : ""}`}
       aria-hidden={hidden ? "true" : undefined}
     >
-      <span className="site-banner-strip__ticker-announcement">{announcementMessage}</span>
+      <span className="site-banner-strip__ticker-announcement">
+        <MegaphoneIcon />
+        <strong>Announcement</strong>
+        <span>{announcementMessage || "No current announcement"}</span>
+      </span>
       <span className="site-banner-strip__ticker-separator" aria-hidden="true">
         •
       </span>
@@ -129,9 +154,22 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
   return (
     <div className="site-banner-strip" aria-label="Store announcement and current batch">
       <section className="site-banner-strip__announcement-bar" aria-label="Store announcement ticker">
-        <div className="site-banner-strip__announcement-fixed">
-          <MegaphoneIcon />
-          <strong>Announcement</strong>
+        <div className="site-banner-strip__current-batch-static" aria-label="Current batch">
+          <span className="site-banner-strip__batch-icon" aria-hidden="true">
+            <CalendarIcon />
+          </span>
+          <span className="site-banner-strip__batch-copy">
+            <strong>Current batch</strong>
+            <b>{hasActiveBatch ? activeBatchNumber : "No active batch"}</b>
+            <small>
+              <span className="site-banner-strip__batch-date-full">
+                {hasActiveBatch ? formatDateRange(activeBatchStart, activeBatchEnd) : "Active date pending"}
+              </span>
+              <span className="site-banner-strip__batch-date-compact">
+                {hasActiveBatch ? formatCompactDateRange(activeBatchStart, activeBatchEnd) : "Active date pending"}
+              </span>
+            </small>
+          </span>
         </div>
         <div
           ref={tickerViewportRef}
@@ -145,25 +183,6 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
           >
             {renderTickerGroup(tickerGroupRef)}
             {renderTickerGroup(null, true)}
-          </div>
-        </div>
-      </section>
-
-      <section className="site-banner-strip__batch-bar" aria-label="Current batch">
-        <div className="site-banner-strip__bar-inner">
-          <div className="site-banner-strip__batch-summary">
-            <span className="site-banner-strip__batch-icon" aria-hidden="true">
-              <CalendarIcon />
-            </span>
-            <span className="site-banner-strip__batch-copy">
-              <strong>Current batch</strong>
-              <b>{hasActiveBatch ? activeBatchNumber : "No active batch"}</b>
-            </span>
-          </div>
-          <span className="site-banner-strip__batch-divider" aria-hidden="true" />
-          <div className="site-banner-strip__batch-date">
-            <CalendarIcon />
-            <span>{hasActiveBatch ? `Active date: ${formatDateRange(activeBatchStart, activeBatchEnd)}` : "Active date pending"}</span>
           </div>
         </div>
       </section>

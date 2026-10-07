@@ -34831,6 +34831,212 @@ body[data-theme="dark"] .product-card--compact .product-card__status-text {
   color: #cbd5e1;
 }
 
+/* The batch summary is static; only the announcement stream moves. */
+.site-banner-strip {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.site-banner-strip__announcement-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  gap: 0;
+  padding: 0.6rem clamp(0.7rem, 2vw, 1.4rem);
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #0240cd;
+}
+
+.site-banner-strip__current-batch-static {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  gap: 0.65rem;
+  max-width: min(360px, 42%);
+  padding-right: clamp(0.7rem, 1.8vw, 1.35rem);
+  color: #ffffff;
+}
+
+.site-banner-strip__current-batch-static::after {
+  width: 1px;
+  height: 48px;
+  margin-left: 0.1rem;
+  flex: 0 0 1px;
+  background: rgba(255, 255, 255, 0.35);
+  content: "";
+}
+
+.site-banner-strip__current-batch-static .site-banner-strip__batch-icon {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+  border-radius: 8px;
+  background: rgba(247, 79, 0, 0.2);
+  color: #f74f00;
+}
+
+.site-banner-strip__current-batch-static .site-banner-strip__batch-copy {
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.site-banner-strip__current-batch-static .site-banner-strip__batch-copy strong,
+.site-banner-strip__current-batch-static .site-banner-strip__batch-copy b,
+.site-banner-strip__current-batch-static .site-banner-strip__batch-copy small {
+  display: block;
+  overflow: hidden;
+  color: #ffffff;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-banner-strip__current-batch-static .site-banner-strip__batch-copy strong {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.site-banner-strip__current-batch-static .site-banner-strip__batch-copy b {
+  font-size: 1rem;
+  line-height: 1.15;
+}
+
+.site-banner-strip__current-batch-static .site-banner-strip__batch-copy small {
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.site-banner-strip__batch-date-compact {
+  display: none;
+}
+
+.site-banner-strip__ticker-viewport {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.site-banner-strip__ticker-track {
+  width: max-content;
+  min-width: max-content;
+  animation: siteAnnouncementTickerTravel var(--ticker-duration, 45s) linear infinite;
+}
+
+.site-banner-strip__ticker-announcement {
+  gap: 0.45rem;
+}
+
+.site-banner-strip__ticker-announcement svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: #f74f00;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.site-banner-strip__ticker-announcement strong {
+  color: #ffffff;
+  font-size: 0.9em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@keyframes siteAnnouncementTickerTravel {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 680px) {
+  .site-banner-strip__announcement-bar {
+    min-height: 68px;
+    padding-inline: 0.55rem;
+  }
+
+  .site-banner-strip__current-batch-static {
+    gap: 0.4rem;
+    max-width: 43%;
+    padding-right: 0.55rem;
+  }
+
+  .site-banner-strip__current-batch-static::after {
+    height: 42px;
+  }
+
+  .site-banner-strip__current-batch-static .site-banner-strip__batch-icon {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+
+  .site-banner-strip__current-batch-static .site-banner-strip__batch-icon svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .site-banner-strip__current-batch-static .site-banner-strip__batch-copy strong {
+    font-size: 0.58rem;
+  }
+
+  .site-banner-strip__current-batch-static .site-banner-strip__batch-copy b {
+    font-size: 0.78rem;
+  }
+
+  .site-banner-strip__current-batch-static .site-banner-strip__batch-copy small {
+    font-size: 0.58rem;
+  }
+
+  .site-banner-strip__batch-date-full {
+    display: none;
+  }
+
+  .site-banner-strip__batch-date-compact {
+    display: inline;
+  }
+
+  .site-banner-strip__ticker-announcement,
+  .site-banner-strip__ticker-reflection {
+    font-size: 0.82rem;
+  }
+
+  .site-banner-strip__ticker-announcement strong,
+  .site-banner-strip__ticker-reflection strong {
+    font-size: 0.76rem;
+  }
+}
+
+@media (max-width: 390px) {
+  .site-banner-strip__current-batch-static {
+    max-width: 39%;
+  }
+
+  .site-banner-strip__current-batch-static .site-banner-strip__batch-copy strong {
+    display: none;
+  }
+
+  .site-banner-strip__current-batch-static .site-banner-strip__batch-copy small {
+    max-width: 92px;
+  }
+}
+
 @media (max-width: 480px) {
   .product-card {
     border-radius: 14px;
