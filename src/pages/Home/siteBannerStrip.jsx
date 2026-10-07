@@ -96,11 +96,10 @@ function SiteBannerStrip({ banner = defaultSiteBanner, currentBatch = null }) {
 
   useEffect(() => {
     const updateTickerDuration = () => {
-      const viewportWidth = tickerViewportRef.current?.clientWidth || 0;
       const groupWidth = tickerGroupRef.current?.getBoundingClientRect().width || 0;
 
-      if (viewportWidth > 0 && groupWidth > 0) {
-        const seconds = Math.max(18, (viewportWidth + groupWidth) / 40);
+      if (groupWidth > 0) {
+        const seconds = Math.max(18, groupWidth / 40);
         setTickerDuration(`${seconds}s`);
       }
     };

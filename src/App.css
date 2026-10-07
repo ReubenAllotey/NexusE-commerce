@@ -34933,6 +34933,11 @@ body[data-theme="dark"] .product-card--compact .product-card__status-text {
   animation: siteAnnouncementTickerTravel var(--ticker-duration, 45s) linear infinite;
 }
 
+.site-banner-strip__ticker-group {
+  gap: 1.6rem;
+  padding-right: 2rem;
+}
+
 .site-banner-strip__ticker-announcement {
   gap: 0.45rem;
 }
@@ -34957,7 +34962,7 @@ body[data-theme="dark"] .product-card--compact .product-card__status-text {
 
 @keyframes siteAnnouncementTickerTravel {
   from {
-    transform: translateX(100%);
+    transform: translateX(0);
   }
 
   to {
