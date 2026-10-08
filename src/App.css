@@ -33168,7 +33168,9 @@ body[data-theme="dark"] .product-view__main-image {
   place-items: center;
   width: 32px;
   height: 32px;
+  min-width: 32px;
   min-height: 32px;
+  aspect-ratio: 1 / 1;
   flex: 0 0 32px;
   padding: 3px;
   border: 1px solid #cbd5e1;
@@ -33196,6 +33198,7 @@ body[data-theme="dark"] .product-view__main-image {
   .product-view__swatches .product-view__swatch {
     width: 30px;
     height: 30px;
+    min-width: 30px;
     min-height: 30px;
     flex-basis: 30px;
   }
