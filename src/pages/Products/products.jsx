@@ -596,7 +596,7 @@ function Products({
                     onToggleWishlist={onToggleWishlist}
                     classNamePrefix="product-card"
                     compact
-                    showAddToCart={false}
+                    showAddToCart
                   />
                 ))
               ) : (

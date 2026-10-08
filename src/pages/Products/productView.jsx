@@ -888,7 +888,7 @@ function ProductView({
                   onAddToCart={onAddToCart}
                   onToggleWishlist={onToggleWishlist}
                   isWishlisted={wishlistItems.includes(item.name)}
-                  showAddToCart={false}
+                  showAddToCart
                   compact
                 />
               ))}

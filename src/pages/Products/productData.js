@@ -102,7 +102,7 @@ const AVAILABILITY_TYPE_LABELS = {
   preorder: {
     label: "Pre-Order",
     badge: "PRE-ORDER",
-    buttonLabel: "PRE-ORDER NOW",
+    buttonLabel: "Preorder Now",
     tone: "orange",
     disabled: false,
   },

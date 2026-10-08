@@ -35119,3 +35119,59 @@ body[data-theme="dark"] .product-card--compact .product-card__status-text {
     padding-top: 2.85rem;
   }
 }
+
+/* Final shared product-card purchase presentation. */
+.product-card--compact .product-card__body {
+  gap: 8px;
+}
+
+.product-card--compact .product-card__price strong,
+.product-card__price strong {
+  color: #0240cd;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.product-card__price span {
+  color: #98a2b3;
+  text-decoration: line-through;
+}
+
+.product-card--compact .product-card__status-text,
+.product-card__availability {
+  color: #f74f00;
+}
+
+.nexus-product-card__cart-button,
+.product-card__button.nexus-product-card__cart-button {
+  min-height: 44px;
+  margin-top: 0;
+  padding-inline: 0.75rem;
+  border-radius: 8px;
+  background: #0240cd;
+  color: #ffffff;
+  transition: background-color 0.2s ease;
+}
+
+.nexus-product-card__cart-button:not(:disabled):hover,
+.product-card__button.nexus-product-card__cart-button:not(:disabled):hover {
+  background: #f74f00;
+  transform: none;
+}
+
+.nexus-product-card__cart-button:disabled,
+.product-card__button.nexus-product-card__cart-button:disabled {
+  background: #98a2b3;
+  color: #ffffff;
+  transform: none;
+}
+
+@media (max-width: 480px) {
+  .nexus-product-card__cart-button,
+  .product-card__button.nexus-product-card__cart-button {
+    min-height: 44px;
+    padding-inline: 0.4rem;
+    font-size: clamp(0.64rem, 2.1vw, 0.78rem);
+  }
+}

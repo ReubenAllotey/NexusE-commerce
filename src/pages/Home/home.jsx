@@ -831,7 +831,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
                 classNamePrefix="product-card"
-                showAddToCart={false}
+                showAddToCart
                 compact
               />
             ))}
@@ -873,7 +873,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
                 classNamePrefix="product-card"
-                showAddToCart={false}
+                showAddToCart
                 compact
               />
             ))
@@ -991,7 +991,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={wishlistItems.includes(item.name)}
                 classNamePrefix="product-card"
-                showAddToCart={false}
+                showAddToCart
                 compact
               />
             ))
@@ -1030,7 +1030,7 @@ function Home({ onAddToCart, onToggleWishlist, wishlistItems = [] }) {
                   onToggleWishlist={onToggleWishlist}
                   isWishlisted={wishlistItems.includes(item.name)}
                   classNamePrefix="product-card"
-                  showAddToCart={false}
+                  showAddToCart
                   compact
                 />
             ))
