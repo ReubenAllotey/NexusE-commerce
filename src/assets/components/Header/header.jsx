@@ -196,7 +196,6 @@ function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = 
   const accountHref = authUser ? "/profile/dashboard" : "/register/login";
   const accountLabel = authUser ? "Account" : "Sign In";
   const mobileAccountLabel = authUser ? "Profile" : "Get Started";
-  const mobileAccountCompactLabel = authUser ? "Profile" : "Start";
   const isMoreActive = isMoreSheetOpen || isCompanyActive;
   const isMobileNavHidden =
     location.pathname.startsWith("/admin") ||
@@ -376,6 +375,14 @@ function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = 
             <HomeIcon />
             <span>Home</span>
           </Link>
+          <Link
+            to="/products"
+            className={`nexus-mobile-nav__item ${isActivePath("/products") ? "is-active" : ""}`.trim()}
+            aria-label="Shop"
+          >
+            <ShopIcon />
+            <span>Shop</span>
+          </Link>
           <button
             type="button"
             className={`nexus-mobile-nav__item ${isCategoriesActive || isCategoriesSheetOpen ? "is-active" : ""}`.trim()}
@@ -387,26 +394,6 @@ function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = 
           >
             <CategoriesIcon />
             <span>Categories</span>
-          </button>
-          <Link
-            to="/products"
-            className={`nexus-mobile-nav__item ${isActivePath("/products") ? "is-active" : ""}`.trim()}
-            aria-label="Shop"
-          >
-            <ShopIcon />
-            <span>Shop</span>
-          </Link>
-          <button
-            type="button"
-            className={`nexus-mobile-nav__item ${isMoreActive ? "is-active" : ""}`.trim()}
-            onClick={() => setIsMoreSheetOpen(true)}
-            aria-haspopup="dialog"
-            aria-expanded={isMoreSheetOpen}
-            aria-controls="nexus-mobile-more-sheet"
-            aria-label="More"
-          >
-            <MoreIcon />
-            <span>More</span>
           </button>
           <Link
             to="/cart"
@@ -430,16 +417,25 @@ function Header({ cartCount = 0, wishlistCount = 0, authUser = null, onLogout = 
             </span>
             <span>Wishlist</span>
           </Link>
+          <button
+            type="button"
+            className={`nexus-mobile-nav__item ${isMoreActive ? "is-active" : ""}`.trim()}
+            onClick={() => setIsMoreSheetOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={isMoreSheetOpen}
+            aria-controls="nexus-mobile-more-sheet"
+            aria-label="More"
+          >
+            <MoreIcon />
+            <span>More</span>
+          </button>
           <Link
             to={accountHref}
             className={`nexus-mobile-nav__item ${isAccountActive ? "is-active" : ""}`.trim()}
             aria-label={authUser ? "Profile" : "Get Started"}
           >
             <ProfileIcon />
-            <span className="nexus-mobile-nav__label nexus-mobile-nav__label--wide">{mobileAccountLabel}</span>
-            <span className="nexus-mobile-nav__label nexus-mobile-nav__label--compact">
-              {mobileAccountCompactLabel}
-            </span>
+            <span className="nexus-mobile-nav__label">{mobileAccountLabel}</span>
           </Link>
         </nav>
       ) : null}

@@ -22799,6 +22799,12 @@ body[data-mobile-bottom-nav="false"] {
   padding-bottom: 0;
 }
 
+@media (max-width: 768px) {
+  body[data-mobile-bottom-nav="true"] {
+    padding-bottom: calc(5.2rem + env(safe-area-inset-bottom));
+  }
+}
+
 .nexus-mobile-categories-drawer .mobile-drawer__panel,
 .nexus-mobile-more-drawer .mobile-drawer__panel {
   width: 100%;
@@ -22969,11 +22975,13 @@ body[data-mobile-bottom-nav="false"] {
     bottom: 0;
     z-index: 1080;
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 0.12rem;
+    width: 100%;
+    max-width: 100%;
+    gap: 0;
     align-items: stretch;
-    padding: 0.32rem 0.35rem calc(0.4rem + env(safe-area-inset-bottom));
+    padding: 0.35rem 0.2rem calc(0.45rem + env(safe-area-inset-bottom));
     background: #ffffff;
-    border-top: 1px solid rgba(15, 23, 42, 0.08);
+    border-top: 1px solid #e5e7eb;
     box-shadow: 0 -10px 26px rgba(15, 23, 42, 0.08);
   }
 
@@ -22983,12 +22991,12 @@ body[data-mobile-bottom-nav="false"] {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.18rem;
-    padding: 0.25rem 0.08rem;
+    gap: 0.22rem;
+    padding: 0.3rem 0.04rem;
     border: 0;
     background: transparent;
-    color: #667085;
-    font-size: 0.56rem;
+    color: #111111;
+    font-size: clamp(0.625rem, 2.7vw, 0.6875rem);
     font-weight: 600;
     line-height: 1;
     text-align: center;
@@ -22997,8 +23005,8 @@ body[data-mobile-bottom-nav="false"] {
   }
 
   .nexus-mobile-nav__item svg {
-    width: 1.05rem;
-    height: 1.05rem;
+    width: 1.45rem;
+    height: 1.45rem;
     flex: 0 0 auto;
     stroke: currentColor;
     fill: none;
@@ -23008,7 +23016,7 @@ body[data-mobile-bottom-nav="false"] {
   .nexus-mobile-nav__item.is-active,
   .nexus-mobile-nav__item:hover,
   .nexus-mobile-nav__item:focus-visible {
-    color: #1c3fb7;
+    color: #0240cd;
   }
 
   .nexus-mobile-nav__badge-wrap {
@@ -23035,10 +23043,6 @@ body[data-mobile-bottom-nav="false"] {
     line-height: 1;
   }
 
-  .nexus-mobile-nav__label--compact {
-    display: none;
-  }
-
   .nexus-mobile-categories-drawer .mobile-drawer__panel,
   .nexus-mobile-more-drawer .mobile-drawer__panel {
     top: auto;
@@ -23059,23 +23063,20 @@ body[data-mobile-bottom-nav="false"] {
   }
 }
 
-@media (max-width: 390px) {
-  .nexus-mobile-nav__label--wide {
-    display: none;
-  }
-
-  .nexus-mobile-nav__label--compact {
-    display: inline;
-  }
-}
-
 @media (max-width: 360px) {
   .nexus-header__brand img {
     width: 96px;
   }
 
   .nexus-mobile-nav__item {
-    font-size: 0.52rem;
+    gap: 0.16rem;
+    padding-inline: 0;
+    font-size: 0.6rem;
+  }
+
+  .nexus-mobile-nav__item svg {
+    width: 1.35rem;
+    height: 1.35rem;
   }
 }
 
