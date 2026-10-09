@@ -302,6 +302,7 @@ function ProductView({
   const previewTint =
     activeSelection.find((option) => option.swatchColor)?.swatchColor || selectedImage?.tint || "#dfe7f3";
   const availabilityMeta = getProductPurchaseMeta(product);
+  const isReadyStockProduct = availabilityMeta.availabilityType === "ready_stock" && !availabilityMeta.outOfStock;
   const isPreorderProduct = availabilityMeta.availabilityType === "preorder";
   const isComingSoonProduct = availabilityMeta.availabilityType === "coming_soon";
   const bannerBatchNumber = safeSiteBanner?.announcement?.batchNumber?.trim() || "Pending";
@@ -328,7 +329,7 @@ function ProductView({
       ? "Coming Soon"
         : availabilityMeta.outOfStock
           ? "Out of Stock"
-          : "Available in Ghana & Ready to Ship";
+          : "Available in Ghana & Ready to be Delivered";
   const productAvailabilityLabel = isPreorderProduct
     ? "Preorder"
     : isComingSoonProduct
@@ -336,6 +337,7 @@ function ProductView({
       : availabilityMeta.outOfStock
         ? "Out of Stock"
         : "Available in Ghana";
+  const hasBatchNumber = Boolean(safeSiteBanner?.announcement?.batchNumber?.trim());
   const relatedProducts = useMemo(() => {
     if (!Array.isArray(catalogProducts) || catalogProducts.length === 0) {
       return [];
@@ -776,10 +778,12 @@ function ProductView({
             </div>
             {shareMessage ? <p className="product-view__share-feedback" role="status">{shareMessage}</p> : null}
 
-            <p className="product-view__shipping">
-              <TruckIcon />
-              <span>Estimated shipping fee: {shippingFeeLabel}</span>
-            </p>
+            {!isReadyStockProduct ? (
+              <p className="product-view__shipping">
+                <TruckIcon />
+                <span>Estimated shipping fee: {shippingFeeLabel}</span>
+              </p>
+            ) : null}
             <p className="product-view__stock">{availabilityLabel}</p>
 
             {isPreorderProduct ? (
@@ -800,29 +804,35 @@ function ProductView({
               </div>
             ) : null}
 
-            <section className="product-view__delivery-section">
-              <div className="product-view__delivery-content">
-                <article className="product-view__perk product-view__perk--batch">
-                  <ShieldIcon />
-                  <div>
-                    <strong>Batch Number</strong>
-                    <span>{bannerBatchNumber}</span>
-                    <span className="product-view__perk-note">{batchWindowLabel}</span>
-                    <strong className="product-view__arrival-heading">Estimated arrivals</strong>
-                    <div className="product-view__freight-estimates" aria-label="Estimated freight arrivals">
-                      <p>
-                        <strong>Air Freight</strong>
-                        <span>{airArrivalDate || "To be calculated"}</span>
-                      </p>
-                      <p>
-                        <strong>Sea Freight</strong>
-                        <span>{seaArrivalDate || "To be calculated"}</span>
-                      </p>
+            {hasBatchNumber ? (
+              <section className="product-view__delivery-section">
+                <div className="product-view__delivery-content">
+                  <article className="product-view__perk product-view__perk--batch">
+                    <ShieldIcon />
+                    <div>
+                      <strong>Batch Number</strong>
+                      <span>{bannerBatchNumber}</span>
+                      {!isReadyStockProduct ? (
+                        <>
+                          <span className="product-view__perk-note">{batchWindowLabel}</span>
+                          <strong className="product-view__arrival-heading">Estimated arrivals</strong>
+                          <div className="product-view__freight-estimates" aria-label="Estimated freight arrivals">
+                            <p>
+                              <strong>Air Freight</strong>
+                              <span>{airArrivalDate || "To be calculated"}</span>
+                            </p>
+                            <p>
+                              <strong>Sea Freight</strong>
+                              <span>{seaArrivalDate || "To be calculated"}</span>
+                            </p>
+                          </div>
+                        </>
+                      ) : null}
                     </div>
-                  </div>
-                </article>
-              </div>
-            </section>
+                  </article>
+                </div>
+              </section>
+            ) : null}
           </div>
         </section>
 
