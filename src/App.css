@@ -34698,9 +34698,21 @@ body[data-theme="dark"] .home-page .hero-banner__trustline span + span::before {
   }
 }
 
+@media (max-width: 430px) {
+  .nexus-header__inner {
+    width: 100%;
+    padding-inline: 0.75rem;
+    border-radius: 0;
+  }
+
+  .nexus-header__brand img {
+    width: clamp(100px, 28vw, 112px);
+  }
+}
+
 @media (max-width: 360px) {
   .nexus-header__brand img {
-    width: min(135px, 38vw);
+    width: 100px;
   }
 }
 
@@ -35140,7 +35152,56 @@ body[data-theme="dark"] .product-card--compact .product-card__status-text {
 
 @media (max-width: 680px) {
   .home-page .hero-banner {
-    padding-top: 2.85rem;
+    padding: 2rem 1rem 2rem;
+  }
+
+  .home-page .hero-banner__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 0.5rem;
+    margin-top: 0.9rem;
+  }
+
+  .home-page .hero-banner__link {
+    min-width: 0;
+    min-height: 2.75rem;
+    padding-inline: 0.45rem;
+    overflow: hidden;
+    font-size: clamp(0.68rem, 2.9vw, 0.8rem);
+    text-overflow: ellipsis;
+  }
+
+  .home-page .hero-banner__trustline {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    width: 100%;
+    gap: 0.2rem;
+    margin-top: 0.85rem;
+    font-size: clamp(0.56rem, 2.4vw, 0.64rem);
+    letter-spacing: -0.02em;
+  }
+
+  .home-page .hero-banner__trustline span {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    white-space: nowrap;
+  }
+
+  .home-page .hero-banner__trustline span + span::before {
+    display: block;
+    height: 0.75rem;
+    margin-right: 0.2rem;
+  }
+
+  .home-page .hero-banner__trust-icon {
+    width: 0.8rem;
+    height: 0.8rem;
+    flex: 0 0 0.8rem;
   }
 }
 
