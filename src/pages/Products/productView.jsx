@@ -668,9 +668,6 @@ function ProductView({
                                   : undefined
                               }
                             >
-                              {group.kind === "color" && option.swatchColor ? (
-                                <span aria-hidden="true" />
-                              ) : null}
                               {option.label}
                             </button>
                           );
