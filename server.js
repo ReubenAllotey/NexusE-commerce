@@ -28,6 +28,36 @@ const MIME_TYPES = {
   ".woff2": "font/woff2",
 };
 
+const LEGACY_IMAGE_ASSET_STEMS = {
+  "books-placeholder.svg": "electronic-set",
+  "electronic-set.png": "electronic-set",
+  "beauty-placeholder.svg": "Woman",
+  "Woman.jpg": "Woman",
+  "camera.jpg": "camera",
+  "fan.jpg": "standing-fan",
+  "standing-fan.jpeg": "standing-fan",
+  "frige2.jpeg": "fridge",
+  "fridge.jpeg": "fridge",
+  "headphones-placeholder.svg": "music-set",
+  "music-set.jpeg": "music-set",
+  "hero-laptop.png": "HP-laptop",
+  "HP-laptop.jpeg": "HP-laptop",
+  "hero-phone.png": "IPhone 17 Pro Max",
+  "IPhone 17 Pro Max.jpg": "IPhone 17 Pro Max",
+  "hero-tv.png": "flatscreen-tv",
+  "flatscreen-tv.jpeg": "flatscreen-tv",
+  "kettle.jpg": "kettle",
+  "laurel wrath shirt.png": "laurel wrath shirt",
+  "macbook.jpg": "laptop",
+  "laptop.jpeg": "laptop",
+  "office chair.jpg": "ergonomic-chair",
+  "ergonomic-chair.jpeg": "ergonomic-chair",
+  "Speaker.png": "music-set",
+  "washingBasket.jpg": "washingBasket",
+  "washingmachine1.png": "washingmachine",
+  "washingmachine.jpeg": "washingmachine",
+};
+
 function clean(value) {
   return String(value ?? "").trim();
 }
@@ -3749,22 +3779,70 @@ function getProductSlugFromPath(pathname) {
   }
 }
 
-function resolvePublicImageUrl(imageValue, origin) {
+function getImageMimeType(imageValue) {
+  const extension = path.extname(clean(imageValue).split("?")[0]).toLowerCase();
+  return MIME_TYPES[extension]?.split(";")[0] || "";
+}
+
+function findBuiltLegacyImage(imageValue) {
+  const fileName = path.basename(clean(imageValue));
+  const assetStem = LEGACY_IMAGE_ASSET_STEMS[fileName];
+
+  if (!assetStem) {
+    return null;
+  }
+
+  const assetDirectory = path.join(DIST_DIR, "assets");
+  if (!fs.existsSync(assetDirectory)) {
+    return null;
+  }
+
+  const normalizedStem = assetStem.toLowerCase();
+  const builtFile = fs.readdirSync(assetDirectory).find((entry) => {
+    const entryStem = path.parse(entry).name.toLowerCase();
+    return entryStem === normalizedStem || entryStem.startsWith(`${normalizedStem}-`);
+  });
+
+  if (!builtFile) {
+    return null;
+  }
+
+  return {
+    urlPath: `/assets/${encodeURIComponent(builtFile)}`,
+    mimeType: getImageMimeType(builtFile),
+  };
+}
+
+function resolvePublicImage(imageValue, origin) {
   const image = clean(imageValue);
 
   if (!image) {
-    return `${origin}/nexus-pwa-512.png`;
+    return { url: `${origin}/nexus-pwa-512.png`, mimeType: "image/png" };
+  }
+
+  if (/^data:|^blob:/i.test(image)) {
+    return { url: `${origin}/nexus-pwa-512.png`, mimeType: "image/png" };
   }
 
   if (/^https:\/\//i.test(image)) {
-    return image;
+    return { url: image, mimeType: getImageMimeType(image) };
   }
 
   if (/^http:\/\//i.test(image)) {
-    return image.replace(/^http:\/\//i, "https://");
+    const secureUrl = image.replace(/^http:\/\//i, "https://");
+    return { url: secureUrl, mimeType: getImageMimeType(secureUrl) };
   }
 
-  return `${origin}/${image.replace(/^\/+/, "")}`;
+  const builtLegacyImage = findBuiltLegacyImage(image);
+  if (builtLegacyImage) {
+    return {
+      url: `${origin}${builtLegacyImage.urlPath}`,
+      mimeType: builtLegacyImage.mimeType,
+    };
+  }
+
+  const url = `${origin}/${image.replace(/^\/+/, "")}`;
+  return { url, mimeType: getImageMimeType(url) };
 }
 
 async function loadPublicProductMetadata(slug) {
@@ -3820,19 +3898,22 @@ async function loadPublicProductMetadata(slug) {
 function buildProductMetadataHtml(html, product, origin) {
   const canonicalUrl = `${origin}/products/${encodeURIComponent(product.slug)}`;
   const title = `${product.name} | Nexus Import Hub`;
-  const imageUrl = resolvePublicImageUrl(product.imageUrl, origin);
+  const image = resolvePublicImage(product.imageUrl, origin);
   const metadata = [
     `<title>${escapeHtml(title)}</title>`,
     '<meta property="og:type" content="product" />',
     `<meta property="og:title" content="${escapeHtml(title)}" />`,
     `<meta property="og:description" content="${escapeHtml(product.description)}" />`,
-    `<meta property="og:image" content="${escapeHtml(imageUrl)}" />`,
+    `<meta property="og:image" content="${escapeHtml(image.url)}" />`,
+    `<meta property="og:image:secure_url" content="${escapeHtml(image.url)}" />`,
+    ...(image.mimeType ? [`<meta property="og:image:type" content="${escapeHtml(image.mimeType)}" />`] : []),
+    `<meta property="og:image:alt" content="${escapeHtml(product.name)}" />`,
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
     '<meta property="og:site_name" content="Nexus Import Hub" />',
     '<meta name="twitter:card" content="summary_large_image" />',
     `<meta name="twitter:title" content="${escapeHtml(product.name)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(product.description)}" />`,
-    `<meta name="twitter:image" content="${escapeHtml(imageUrl)}" />`,
+    `<meta name="twitter:image" content="${escapeHtml(image.url)}" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
   ].join("\n");
   const titlePattern = /<title>[\s\S]*?<\/title>/i;
