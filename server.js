@@ -2554,80 +2554,103 @@ function wrapPdfText(value, maxLength = 72) {
 }
 
 function buildReceiptPdfBuffer(receipt = {}, items = []) {
-  const lines = [
-    "Nexus Imports Receipt",
-    `Order Number: ${receipt.orderNumber || ""}`,
-    `Payment Reference: ${receipt.paymentReference || ""}`,
-    `Payment Status: ${receipt.paymentStatus || ""}`,
-    `Order Status: ${receipt.orderStatus || ""}`,
-    `Amount Paid: ${formatGhanaCedis(receipt.amountPaid || 0)}`,
-    `Payment Method: ${receipt.paymentNetwork ? receipt.paymentNetwork : receipt.paymentMethod || ""}`,
-    `Created: ${receipt.createdAt || ""}`,
-    "",
-    "Items:",
-  ];
-
-  for (const item of Array.isArray(items) ? items : []) {
-    lines.push(
-      `- ${item.product_name || item.name || "Item"} x${Math.max(Number(item.quantity) || 1, 1)} (${formatGhanaCedis((Number(item.line_subtotal) || 0) + (Number(item.line_shipping) || 0))})`,
-    );
-  }
-
-  if (receipt.shipment) {
-    lines.push(
-      "",
-      "Shipment:",
-      `- Batch Number: ${receipt.shipment.batchNumber || ""}`,
-      `- Status: ${receipt.shipment.currentStatusLabel || receipt.shipment.currentStatus || ""}`,
-      `- Step: ${receipt.shipment.stepLabel || ""}`,
-      `- Progress: ${receipt.shipment.progressPercent ?? ""}%`,
-    );
-  }
-
-  const contentLines = [];
-  let currentY = 740;
-
-  contentLines.push("BT");
-  contentLines.push("/F1 12 Tf");
-
-  for (const rawLine of lines.flatMap((line) => wrapPdfText(line))) {
-    const safeLine = escapePdfText(rawLine);
-    contentLines.push(`1 0 0 1 50 ${currentY} Tm`);
-    contentLines.push(`(${safeLine}) Tj`);
-    currentY -= 16;
-    if (currentY < 60) {
-      break;
+  const paymentMethod = receipt.paymentNetwork || receipt.paymentMethod || "Paystack";
+  const variationText = (item) => {
+    const selected = item.selected_options;
+    if (selected && typeof selected === "object" && !Array.isArray(selected)) {
+      const values = Object.entries(selected)
+        .map(([key, value]) => `${key}: ${value}`)
+        .filter(Boolean);
+      if (values.length > 0) return values.join(" | ");
     }
+    return [item.selected_color, item.selected_size].filter(Boolean).join(" | ") || "-";
+  };
+  const itemLines = (Array.isArray(items) ? items : []).flatMap((item) => [
+    `${item.product_name || item.name || "Item"} | ${variationText(item)} | Qty ${Math.max(Number(item.quantity) || 1, 1)} | Unit ${formatGhanaCedis(item.unit_price || 0)} | Total ${formatGhanaCedis(item.line_subtotal || 0)}`,
+  ]);
+  const lines = [
+    "NEXUS IMPORT HUB",
+    "Official Payment Receipt",
+    "",
+    `Receipt Number: ${receipt.receiptNumber || receipt.paymentReference || ""}`,
+    `Order Number: ${receipt.orderNumber || ""}`,
+    `Covered Orders: ${receipt.coveredOrderNumbers || receipt.orderNumber || ""}`,
+    `Order Date: ${receipt.orderDate || ""}`,
+    `Payment Date: ${receipt.createdAt || ""}`,
+    `Payment Reference: ${receipt.paymentReference || ""}`,
+    `Payment Method: ${paymentMethod}`,
+    `Payment Status: ${receipt.paymentStatus || "Paid"}`,
+    `Customer: ${receipt.customerName || "Customer"}`,
+    `Email: ${receipt.customerEmail || ""}`,
+    `Phone: ${receipt.customerPhone || ""}`,
+    `Delivery Location: ${receipt.deliveryLocation || "Not provided"}`,
+    "",
+    "Purchased Products",
+    "Product | Variation | Quantity | Unit Price | Total",
+    ...itemLines,
+    "",
+    `Product Subtotal: ${formatGhanaCedis(receipt.subtotal || 0)}`,
+    `Shipping Fee Charged: ${formatGhanaCedis(receipt.shippingFeeCharged || 0)}`,
+    `Shipping Amount Paid: ${formatGhanaCedis(receipt.shippingAmountPaid || 0)}`,
+    `Total Verified Payment: ${formatGhanaCedis(receipt.amountPaid || 0)}`,
+    `Outstanding Shipping Balance: ${formatGhanaCedis(receipt.outstandingShipping || 0)}`,
+    "",
+    "Thank you for shopping with Nexus Import Hub.",
+    "Shop Beyond Borders. We Handle the Rest.",
+    "https://nexuse-commerce.onrender.com/",
+    "This receipt confirms successful payment and does not by itself confirm delivery.",
+  ];
+  const expandedLines = lines.flatMap((line) => wrapPdfText(line, 88));
+  const pageSize = 46;
+  const pages = [];
+  for (let index = 0; index < expandedLines.length; index += pageSize) {
+    pages.push(expandedLines.slice(index, index + pageSize));
   }
-
-  contentLines.push("ET");
-
-  const contentStream = contentLines.join("\n");
 
   const objects = [];
-  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
-  objects.push("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-  objects.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>");
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  objects.push(`<< /Length ${Buffer.byteLength(contentStream)} >>\nstream\n${contentStream}\nendstream`);
+  const pageObjectIds = [];
+  const contentObjectIds = [];
+  const fontObjectId = 3;
+  const pagesObjectId = 2;
+  const catalogObjectId = 1;
+  const firstPageObjectId = 4;
+  const firstContentObjectId = firstPageObjectId + pages.length;
+
+  for (let index = 0; index < pages.length; index += 1) {
+    pageObjectIds.push(firstPageObjectId + index);
+    contentObjectIds.push(firstContentObjectId + index);
+  }
+
+  objects[catalogObjectId - 1] = `<< /Type /Catalog /Pages ${pagesObjectId} 0 R >>`;
+  objects[pagesObjectId - 1] = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
+  objects[fontObjectId - 1] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+
+  pages.forEach((pageLines, pageIndex) => {
+    const contentLines = ["BT", "/F1 10 Tf"];
+    let currentY = 790;
+    pageLines.forEach((line) => {
+      contentLines.push(`1 0 0 1 42 ${currentY} Tm`);
+      contentLines.push(`(${escapePdfText(line)}) Tj`);
+      currentY -= 16;
+    });
+    contentLines.push("ET");
+    const contentStream = contentLines.join("\n");
+    objects[pageObjectIds[pageIndex] - 1] = `<< /Type /Page /Parent ${pagesObjectId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectIds[pageIndex]} 0 R >>`;
+    objects[contentObjectIds[pageIndex] - 1] = `<< /Length ${Buffer.byteLength(contentStream)} >>\nstream\n${contentStream}\nendstream`;
+  });
 
   let pdf = "%PDF-1.4\n";
   const offsets = [0];
-
-  for (let index = 0; index < objects.length; index += 1) {
+  objects.forEach((object, index) => {
     offsets.push(Buffer.byteLength(pdf));
-    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
-  }
-
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
   const xrefOffset = Buffer.byteLength(pdf);
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
   for (let index = 1; index < offsets.length; index += 1) {
     pdf += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
   }
-
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
   return Buffer.from(pdf, "binary");
 }
 
@@ -3563,6 +3586,105 @@ async function handleVerify(req, res, reference) {
   });
 }
 
+function isSuccessfulPayment(payment) {
+  return normalizePaymentStatus(payment?.status) === "successful" && Boolean(clean(payment?.provider_reference));
+}
+
+function getReceiptPaymentPurpose(payment) {
+  return clean(payment?.payment_purpose).toLowerCase() === "shipping" ? "shipping" : "order";
+}
+
+function mapReceiptListItem(payment, order, coveredOrders = []) {
+  const purpose = getReceiptPaymentPurpose(payment);
+  const amount = Number(payment.amount) || Number(payment.amount_minor) / 100 || 0;
+  const orderStatus = clean(order?.status) || "Processing";
+  return {
+    id: payment.id,
+    receiptNumber: payment.provider_reference,
+    orderNumber: order?.order_number || payment.order_id,
+    coveredOrderNumbers: coveredOrders.map((entry) => entry.order_number).filter(Boolean).join(", "),
+    orderId: payment.order_id,
+    date: payment.paid_at || payment.created_at,
+    amountPaid: amount,
+    paymentStatus: "Paid",
+    orderStatus,
+    paymentPurpose: purpose,
+    paymentReference: payment.provider_reference,
+    filename: purpose === "shipping"
+      ? `Nexus-Shipping-Receipt-${payment.provider_reference}.pdf`
+      : `Nexus-Receipt-${order?.order_number || payment.order_id}.pdf`,
+  };
+}
+
+async function handleReceiptList(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const { data: paymentRows, error: paymentError } = await supabaseAdmin
+    .from("payments")
+    .select("id, order_id, user_id, payment_purpose, provider_reference, status, amount, currency, amount_minor, paid_at, created_at")
+    .eq("user_id", authResult.user.id)
+    .order("paid_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+
+  if (paymentError) {
+    sendJson(res, 500, { ok: false, message: paymentError.message || "Unable to load receipts." });
+    return;
+  }
+
+  const verifiedPayments = (Array.isArray(paymentRows) ? paymentRows : []).filter(isSuccessfulPayment);
+  const orderIds = [...new Set(verifiedPayments.map((payment) => payment.order_id).filter(Boolean))];
+  let orderRows = [];
+
+  if (orderIds.length > 0) {
+    const { data, error } = await supabaseAdmin
+      .from("orders")
+      .select("id, user_id, checkout_group_id, order_number, status, created_at")
+      .in("id", orderIds);
+    if (error) {
+      sendJson(res, 500, { ok: false, message: error.message || "Unable to load receipt orders." });
+      return;
+    }
+    orderRows = Array.isArray(data) ? data : [];
+  }
+
+  const ordersById = new Map(orderRows.map((order) => [order.id, order]));
+  const ordersByCheckoutGroup = new Map();
+  for (const order of orderRows) {
+    if (!order.checkout_group_id) continue;
+    const group = ordersByCheckoutGroup.get(order.checkout_group_id) ?? [];
+    group.push(order);
+    ordersByCheckoutGroup.set(order.checkout_group_id, group);
+  }
+  const receipts = verifiedPayments
+    .map((payment) => {
+      const order = ordersById.get(payment.order_id);
+      if (!order || clean(order.user_id) !== clean(authResult.user.id)) return null;
+      const coveredOrders = order.checkout_group_id
+        ? ordersByCheckoutGroup.get(order.checkout_group_id) ?? [order]
+        : [order];
+      return mapReceiptListItem(payment, order, coveredOrders);
+    })
+    .filter(Boolean);
+
+  sendJson(res, 200, {
+    ok: true,
+    receipts,
+    summary: {
+      totalReceipts: receipts.length,
+      totalAmountPaid: receipts.reduce((sum, receipt) => sum + receipt.amountPaid, 0),
+      completedOrders: new Set(
+        receipts
+          .filter((receipt) => ["completed", "delivered"].includes(clean(receipt.orderStatus).toLowerCase()))
+          .map((receipt) => receipt.orderId),
+      ).size,
+    },
+  });
+}
+
 async function handleReceiptPdf(req, res, reference) {
   const cleanReference = clean(reference);
 
@@ -3573,8 +3695,21 @@ async function handleReceiptPdf(req, res, reference) {
 
   const paymentRow = await getPaymentByReference(cleanReference);
 
-  if (!paymentRow) {
+  if (!paymentRow || !isSuccessfulPayment(paymentRow)) {
     sendJson(res, 404, { ok: false, message: "Receipt not found." });
+    return;
+  }
+
+  const authResult = await getAuthenticatedUser(req).catch(() => ({ ok: false, user: null }));
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: "Please sign in to view this receipt." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id).catch(() => null);
+  const isAdmin = profileResult?.profile ? isActiveAdminProfile(profileResult.profile) : false;
+  if (!isAdmin && clean(paymentRow.user_id) !== clean(authResult.user.id)) {
+    sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
     return;
   }
 
@@ -3585,21 +3720,51 @@ async function handleReceiptPdf(req, res, reference) {
     return;
   }
 
-  const authResult = await getAuthenticatedUser(req).catch(() => ({ ok: false, user: null }));
-  const profileResult = authResult?.user ? await loadProfile(authResult.user.id).catch(() => null) : null;
-  const isAdmin = profileResult?.profile ? isActiveAdminProfile(profileResult.profile) : false;
   const orderUserId = clean(orderResult.order.customerId ?? orderResult.order.customer_id ?? orderResult.order.userId ?? orderResult.order.user_id);
 
-  if (authResult?.user?.id && !isAdmin && orderUserId && orderUserId !== authResult.user.id) {
+  if (!isAdmin && (!orderUserId || orderUserId !== authResult.user.id)) {
     sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
     return;
   }
 
-  const receiptBundle = mapOrderBundle(orderResult.order, orderResult.items);
+  let receiptOrders = [orderResult];
+  const checkoutGroupId = clean(orderResult.order.checkout_group_id);
+  if (checkoutGroupId) {
+    const { data: linkedOrders, error: linkedOrderError } = await supabaseAdmin
+      .from("orders")
+      .select("id, user_id")
+      .eq("checkout_group_id", checkoutGroupId)
+      .order("created_at", { ascending: true });
+    if (linkedOrderError) {
+      sendJson(res, 500, { ok: false, message: linkedOrderError.message || "Unable to load linked receipt orders." });
+      return;
+    }
+    const linkedBundles = await Promise.all((Array.isArray(linkedOrders) ? linkedOrders : [])
+      .filter((order) => order.id !== orderResult.order.id && clean(order.user_id) === clean(authResult.user.id))
+      .map((order) => loadOrderBundle(order.id)));
+    receiptOrders = [orderResult, ...linkedBundles.filter((bundle) => bundle.ok && bundle.order)];
+  }
+  const combinedItems = receiptOrders.flatMap((bundle) => bundle.items ?? []);
+  const receiptOrder = {
+    ...orderResult.order,
+    subtotal: receiptOrders.reduce((sum, bundle) => sum + (Number(bundle.order.subtotal) || 0), 0),
+    shipping_total: receiptOrders.reduce((sum, bundle) => sum + (Number(bundle.order.shipping_total) || 0), 0),
+    total: receiptOrders.reduce((sum, bundle) => sum + (Number(bundle.order.total) || 0), 0),
+  };
+  const receiptBundle = mapOrderBundle(receiptOrder, combinedItems);
   const receipt = receiptBundle?.order ?? {};
+  const purpose = getReceiptPaymentPurpose(paymentRow);
+  const itemShippingCharged = combinedItems.reduce((sum, item) => sum + (Number(item.line_shipping) || 0), 0);
+  const itemShippingPaid = combinedItems.reduce((sum, item) => sum + (Number(item.shipping_paid_amount) || 0), 0);
+  const outstandingShipping = combinedItems.reduce(
+    (sum, item) => sum + Math.max((Number(item.line_shipping) || 0) - (Number(item.shipping_paid_amount) || 0), 0),
+    0,
+  );
   const pdfBuffer = buildReceiptPdfBuffer(
     {
+      receiptNumber: cleanReference,
       orderNumber: receipt.orderNumber,
+      coveredOrderNumbers: receiptOrders.map((bundle) => bundle.order.order_number).filter(Boolean).join(", "),
       paymentReference: cleanReference,
       paymentStatus: normalizePaymentStatus(paymentRow.status) === "successful" ? "Successful" : clean(paymentRow.status),
       orderStatus: receipt.status,
@@ -3607,8 +3772,19 @@ async function handleReceiptPdf(req, res, reference) {
       paymentMethod: paymentRow.payment_method,
       paymentNetwork: paymentRow.payment_network,
       createdAt: paymentRow.paid_at ?? paymentRow.created_at,
+      orderDate: receipt.createdAt,
+      customerName: receipt.customerName,
+      customerEmail: receipt.customerEmail,
+      customerPhone: profileResult?.profile?.phone_number || "",
+      deliveryLocation: typeof receipt.shippingAddress === "string"
+        ? receipt.shippingAddress
+        : JSON.stringify(receipt.shippingAddress || "Not provided"),
+      subtotal: receipt.subtotal,
+      shippingFeeCharged: receipt.shippingTotal,
+      shippingAmountPaid: purpose === "shipping" ? Number(paymentRow.amount) || 0 : itemShippingPaid || itemShippingCharged,
+      outstandingShipping,
     },
-    orderResult.items,
+    combinedItems,
   );
 
   sendBuffer(
@@ -3616,7 +3792,9 @@ async function handleReceiptPdf(req, res, reference) {
     200,
     pdfBuffer,
     "application/pdf",
-    `Nexus-Receipt-${receipt.orderNumber || "receipt"}.pdf`,
+    purpose === "shipping"
+      ? `Nexus-Shipping-Receipt-${cleanReference}.pdf`
+      : `Nexus-Receipt-${receipt.orderNumber || "receipt"}.pdf`,
   );
 }
 
@@ -4056,6 +4234,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname.startsWith("/api/paystack/verify/") && req.method === "GET") {
     await handleVerify(req, res, pathname.replace("/api/paystack/verify/", ""));
+    return;
+  }
+
+  if (pathname === "/api/receipts" && req.method === "GET") {
+    await handleReceiptList(req, res);
     return;
   }
 

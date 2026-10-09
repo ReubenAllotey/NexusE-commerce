@@ -466,6 +466,48 @@ export async function loadPaymentHistory({ authUser = null } = {}) {
   };
 }
 
+export async function loadInvoiceHistory({ authUser = null } = {}) {
+  const userResult = authUser?.id
+    ? { ok: true, user: authUser }
+    : await getCurrentAuthUser();
+
+  if (!userResult.ok) {
+    return { ok: false, message: userResult.message, receipts: [], summary: null };
+  }
+
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data?.session?.access_token ?? "";
+  if (error || !accessToken) {
+    return { ok: false, message: error?.message || "Please sign in to view your receipts.", receipts: [], summary: null };
+  }
+
+  const response = await fetch("/api/receipts", {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+  });
+
+  let body = {};
+  try {
+    body = await response.json();
+  } catch {
+    body = {};
+  }
+
+  if (!response.ok || body?.ok === false) {
+    return {
+      ok: false,
+      message: body?.message || "Unable to load your receipts.",
+      receipts: [],
+      summary: null,
+    };
+  }
+
+  return {
+    ok: true,
+    receipts: Array.isArray(body.receipts) ? body.receipts : [],
+    summary: body.summary ?? null,
+  };
+}
+
 export async function loadPaymentReceipt(reference, { authUser = null } = {}) {
   const receiptReference = clean(reference);
 
@@ -527,6 +569,10 @@ export async function loadPaymentReceipt(reference, { authUser = null } = {}) {
   }
 
   if (!paymentRow) {
+    return { ok: true, receipt: null };
+  }
+
+  if (getPaymentStatusTone(paymentRow.status) !== "completed") {
     return { ok: true, receipt: null };
   }
 

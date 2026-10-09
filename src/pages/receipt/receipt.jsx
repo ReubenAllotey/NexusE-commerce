@@ -291,9 +291,12 @@ function Receipt() {
     }
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token ?? "";
       const response = await fetch(`/api/receipts/${encodeURIComponent(receiptReference)}/pdf`, {
         headers: {
           Accept: "application/pdf",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
       });
 
