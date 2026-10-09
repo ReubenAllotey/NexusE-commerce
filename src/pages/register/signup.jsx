@@ -5,6 +5,7 @@ import { saveSessionUser } from "./authStorage";
 
 const VERIFICATION_CODE_LENGTH = 8;
 const VERIFICATION_RESEND_SECONDS = 60;
+const PENDING_VERIFICATION_EMAIL_KEY = "nexus.pendingVerificationEmail";
 
 function SparkIcon() {
   return (
@@ -69,7 +70,13 @@ function Signup() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [pendingVerificationEmail, setPendingVerificationEmail] = useState("");
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    return window.sessionStorage.getItem(PENDING_VERIFICATION_EMAIL_KEY) || "";
+  });
   const [verificationCode, setVerificationCode] = useState(() =>
     Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
   );
@@ -280,7 +287,7 @@ function Signup() {
       const { data, error: verifyError } = await supabase.auth.verifyOtp({
         email: pendingVerificationEmail,
         token: verificationToken,
-        type: "email",
+        type: "signup",
       });
 
       if (verifyError) {
@@ -311,6 +318,7 @@ function Signup() {
 
       saveSessionUser(profile);
       setPendingVerificationEmail("");
+      window.sessionStorage.removeItem(PENDING_VERIFICATION_EMAIL_KEY);
       setVerificationCode(
         Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
       );
@@ -363,7 +371,12 @@ function Signup() {
       }
 
       if (!data?.session) {
-        setPendingVerificationEmail(cleanEmail.toLowerCase());
+        const verificationEmail = cleanEmail.toLowerCase();
+        setPendingVerificationEmail(verificationEmail);
+        window.sessionStorage.setItem(
+          PENDING_VERIFICATION_EMAIL_KEY,
+          verificationEmail,
+        );
         setVerificationCode(
           Array.from({ length: VERIFICATION_CODE_LENGTH }, () => ""),
         );
@@ -391,6 +404,7 @@ function Signup() {
       }
 
       saveSessionUser(profile);
+      window.sessionStorage.removeItem(PENDING_VERIFICATION_EMAIL_KEY);
       completeSignupRedirect();
     } catch (authError) {
       setError(authError.message || "Unable to create your account right now.");
@@ -542,12 +556,12 @@ function Signup() {
               <div className="auth-verification__panel">
                 <p className="auth-verification__eyebrow">Email verification</p>
                 <h3 id="signup-verification-title">
-                  Enter the code we emailed you
+                  Verify Your Email
                 </h3>
                 <p className="auth-verification__lead">
-                  We sent a verification code to{" "}
-                  <strong>{pendingVerificationEmail}</strong>. Enter the code
-                  below to confirm your account and continue.
+                  We've sent a verification code to your email address. Enter
+                  the code below to verify your account. We sent it to{" "}
+                  <strong>{pendingVerificationEmail}</strong>.
                 </p>
 
                 <form
@@ -622,7 +636,7 @@ function Signup() {
                         isVerifying || isResending || resendCountdown > 0
                       }
                     >
-                      {isResending2
+                      {isResending
                         ? "Resending..."
                         : resendCountdown > 0
                           ? `Resend in ${Math.floor(resendCountdown / 60)}:${String(
@@ -630,6 +644,12 @@ function Signup() {
                             ).padStart(2, "0")}`
                           : "Resend code"}
                     </button>
+                    <Link
+                      className="auth-verification__back-link"
+                      to="/register/login"
+                    >
+                      Back to Login
+                    </Link>
                   </div>
                 </form>
               </div>

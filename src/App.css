@@ -24571,6 +24571,16 @@ body[data-theme="dark"] .nexus-mobile-nav__item:focus-visible {
   opacity: 0.7;
 }
 
+.auth-page .auth-verification__back-link {
+  flex: 1 1 100%;
+  color: #0240cd;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
 @media (max-width: 960px) {
   .auth-page .auth-shell {
     grid-template-columns: 1fr;
@@ -24672,6 +24682,10 @@ body[data-theme="dark"] .nexus-mobile-nav__item:focus-visible {
     background: transparent;
     text-decoration: underline;
     text-underline-offset: 0.2em;
+  }
+
+  .auth-page .auth-verification__back-link {
+    font-size: 0.82rem;
   }
 }
 
@@ -27160,6 +27174,10 @@ body[data-theme="dark"] .auth-page .auth-verification__resend {
   background: var(--nexus-surface-raised);
   border-color: var(--nexus-border);
   color: var(--nexus-text);
+}
+
+body[data-theme="dark"] .auth-page .auth-verification__back-link {
+  color: #9db4ff;
 }
 
 body[data-theme="dark"] .profile-page {
@@ -33116,6 +33134,7 @@ body[data-theme="dark"] .product-view__main-image {
 
 .product-view__pricing {
   display: flex;
+  flex-direction: row;
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
