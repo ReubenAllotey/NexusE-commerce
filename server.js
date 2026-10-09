@@ -3706,6 +3706,172 @@ function serveSpaFallback(res) {
   serveStaticAsset(res, indexPath);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+}
+
+function getPublicSiteOrigin(req) {
+  const configuredOrigin = clean(
+    process.env.PUBLIC_SITE_URL ||
+      process.env.APP_URL ||
+      fileEnv.PUBLIC_SITE_URL ||
+      fileEnv.APP_URL,
+  ).replace(/\/+$/, "");
+
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
+  const forwardedProtocol = clean(req.headers["x-forwarded-proto"]).split(",")[0].trim();
+  const host = clean(req.headers["x-forwarded-host"] || req.headers.host);
+  const protocol = forwardedProtocol || (/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host) ? "http" : "https");
+
+  return host ? `${protocol}://${host}` : "https://nexuse-commerce.onrender.com";
+}
+
+function getProductSlugFromPath(pathname) {
+  const match = pathname.match(/^\/products\/([^/]+)\/?$/);
+
+  if (!match) {
+    return "";
+  }
+
+  try {
+    return decodeURIComponent(match[1]).trim();
+  } catch {
+    return "";
+  }
+}
+
+function resolvePublicImageUrl(imageValue, origin) {
+  const image = clean(imageValue);
+
+  if (!image) {
+    return `${origin}/nexus-pwa-512.png`;
+  }
+
+  if (/^https:\/\//i.test(image)) {
+    return image;
+  }
+
+  if (/^http:\/\//i.test(image)) {
+    return image.replace(/^http:\/\//i, "https://");
+  }
+
+  return `${origin}/${image.replace(/^\/+/, "")}`;
+}
+
+async function loadPublicProductMetadata(slug) {
+  if (!supabaseAdmin || !slug) {
+    return null;
+  }
+
+  const { data: productRow, error: productError } = await supabaseAdmin
+    .from("products")
+    .select("*")
+    .eq("slug", slug)
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (productError) {
+    throw productError;
+  }
+
+  if (!productRow) {
+    return null;
+  }
+
+  let imageUrl = clean(productRow.primary_image_url || productRow.image_url);
+
+  if (!imageUrl && productRow.id) {
+    const { data: imageRow, error: imageError } = await supabaseAdmin
+      .from("product_images")
+      .select("image_url")
+      .eq("product_id", productRow.id)
+      .order("display_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (imageError) {
+      throw imageError;
+    }
+
+    imageUrl = clean(imageRow?.image_url);
+  }
+
+  return {
+    name: clean(productRow.name) || "Nexus Import Hub Product",
+    description:
+      clean(productRow.short_description || productRow.description || productRow.overview) ||
+      "Discover this product at Nexus Import Hub.",
+    imageUrl,
+    slug: clean(productRow.slug) || slug,
+  };
+}
+
+function buildProductMetadataHtml(html, product, origin) {
+  const canonicalUrl = `${origin}/products/${encodeURIComponent(product.slug)}`;
+  const title = `${product.name} | Nexus Import Hub`;
+  const imageUrl = resolvePublicImageUrl(product.imageUrl, origin);
+  const metadata = [
+    `<title>${escapeHtml(title)}</title>`,
+    '<meta property="og:type" content="product" />',
+    `<meta property="og:title" content="${escapeHtml(title)}" />`,
+    `<meta property="og:description" content="${escapeHtml(product.description)}" />`,
+    `<meta property="og:image" content="${escapeHtml(imageUrl)}" />`,
+    `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
+    '<meta property="og:site_name" content="Nexus Import Hub" />',
+    '<meta name="twitter:card" content="summary_large_image" />',
+    `<meta name="twitter:title" content="${escapeHtml(product.name)}" />`,
+    `<meta name="twitter:description" content="${escapeHtml(product.description)}" />`,
+    `<meta name="twitter:image" content="${escapeHtml(imageUrl)}" />`,
+    `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
+  ].join("\n");
+  const titlePattern = /<title>[\s\S]*?<\/title>/i;
+  const htmlWithTitle = titlePattern.test(html) ? html.replace(titlePattern, metadata.split("\n")[0]) : html;
+
+  return htmlWithTitle.replace(/<\/head>/i, `${metadata.slice(metadata.indexOf("\n") + 1)}\n</head>`);
+}
+
+async function serveProductPage(req, res, slug) {
+  const indexPath = path.join(DIST_DIR, "index.html");
+
+  if (!fs.existsSync(indexPath)) {
+    sendText(res, 404, "Build output not found. Run `npm run build` first.");
+    return;
+  }
+
+  try {
+    const product = await loadPublicProductMetadata(slug);
+
+    if (!product) {
+      serveSpaFallback(res);
+      return;
+    }
+
+    const origin = getPublicSiteOrigin(req);
+    const html = buildProductMetadataHtml(fs.readFileSync(indexPath, "utf8"), product, origin);
+    const content = Buffer.from(html, "utf8");
+
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Length": content.length,
+    });
+    res.end(content);
+  } catch (error) {
+    console.error("Unable to load product metadata:", error);
+    serveSpaFallback(res);
+  }
+}
+
 function isWithinDirectory(filePath, directoryPath) {
   const relative = path.relative(directoryPath, filePath);
   return !!relative && !relative.startsWith("..") && !path.isAbsolute(relative);
@@ -3718,6 +3884,13 @@ async function handleStatic(req, res, pathname) {
   }
 
   const cleanPath = pathname === "/" ? "/index.html" : pathname;
+  const productSlug = getProductSlugFromPath(cleanPath);
+
+  if (productSlug) {
+    await serveProductPage(req, res, productSlug);
+    return;
+  }
+
   const resolvedPath = path.resolve(DIST_DIR, `.${cleanPath}`);
 
   if (!isWithinDirectory(resolvedPath, DIST_DIR)) {

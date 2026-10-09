@@ -394,10 +394,33 @@ function ProductView({
   });
 
   const handleShareProduct = async () => {
-    const productUrl = window.location.href;
+    const productUrl = new URL(
+      `/products/${encodeURIComponent(product.slug || productSlug)}`,
+      window.location.origin,
+    ).toString();
+    const shareAvailability = isPreorderProduct
+      ? "Available for Preorder"
+      : isComingSoonProduct
+        ? "Coming Soon"
+        : availabilityMeta.outOfStock
+          ? "Out of Stock"
+          : "Available in Ghana";
+    const shareDescription = product.description?.trim() || product.overview?.trim() || "Discover this product at Nexus Import Hub.";
+    const shareBody = [
+      `🛍️ ${product.name}`,
+      "",
+      `💰 Price: ${formatMoney(activePrice)}`,
+      "",
+      `📦 ${shareAvailability}`,
+      "",
+      shareDescription,
+      "",
+      "🛒 Shop now at Nexus Import Hub!",
+    ].join("\n");
+    const shareText = `${shareBody}\n\n👉 ${productUrl}`;
     const shareData = {
       title: product.name,
-      text: `Check out ${product.name} on Nexus Import Hub.`,
+      text: shareBody,
       url: productUrl,
     };
 
@@ -406,8 +429,8 @@ function ProductView({
         await navigator.share(shareData);
         setShareMessage("Product shared");
       } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(productUrl);
-        setShareMessage("Product link copied");
+        await navigator.clipboard.writeText(shareText);
+        setShareMessage("Product message copied");
       } else {
         throw new Error("Clipboard is unavailable.");
       }
