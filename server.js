@@ -3866,23 +3866,24 @@ async function loadPublicProductMetadata(slug) {
     return null;
   }
 
-  let imageUrl = clean(productRow.primary_image_url || productRow.image_url);
+  let imageUrl = clean(productRow.primary_image_url);
 
   if (!imageUrl && productRow.id) {
-    const { data: imageRow, error: imageError } = await supabaseAdmin
+    const { data: imageRows, error: imageError } = await supabaseAdmin
       .from("product_images")
       .select("image_url")
       .eq("product_id", productRow.id)
       .order("display_order", { ascending: true })
       .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .limit(20);
 
     if (imageError) {
       throw imageError;
     }
 
-    imageUrl = clean(imageRow?.image_url);
+    imageUrl = (Array.isArray(imageRows) ? imageRows : [])
+      .map((row) => clean(row?.image_url))
+      .find(Boolean) || "";
   }
 
   return {
@@ -3918,8 +3919,15 @@ function buildProductMetadataHtml(html, product, origin) {
   ].join("\n");
   const titlePattern = /<title>[\s\S]*?<\/title>/i;
   const htmlWithTitle = titlePattern.test(html) ? html.replace(titlePattern, metadata.split("\n")[0]) : html;
+  const withoutConflictingSocialMetadata = htmlWithTitle.replace(
+    /\s*<meta\b[^>]+(?:property|name)=["'](?:og:|twitter:)[^"']+["'][^>]*>\s*/gi,
+    "\n",
+  );
 
-  return htmlWithTitle.replace(/<\/head>/i, `${metadata.slice(metadata.indexOf("\n") + 1)}\n</head>`);
+  return withoutConflictingSocialMetadata.replace(
+    /<\/head>/i,
+    `${metadata.slice(metadata.indexOf("\n") + 1)}\n</head>`,
+  );
 }
 
 async function serveProductPage(req, res, slug) {
