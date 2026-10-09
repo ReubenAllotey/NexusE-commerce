@@ -52,8 +52,6 @@ const sortOptions = [
   { value: "featured", label: "Featured" },
   { value: "price-asc", label: "Price: Low to High" },
   { value: "price-desc", label: "Price: High to Low" },
-  { value: "rating-desc", label: "Top Rated" },
-  { value: "name-asc", label: "Name: A to Z" },
 ];
 
 function SearchIcon() {
@@ -415,10 +413,6 @@ function Products({
               return a.price - b.price;
             case "price-desc":
               return b.price - a.price;
-            case "rating-desc":
-              return b.rating - a.rating;
-            case "name-asc":
-              return a.name.localeCompare(b.name);
             default:
               return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
           }
@@ -480,7 +474,7 @@ function Products({
   };
 
   const handleSortChange = (value) => {
-    setSortBy(value);
+    setSortBy(sortOptions.some((option) => option.value === value) ? value : "featured");
     setCurrentPage(1);
   };
 
@@ -538,6 +532,10 @@ function Products({
                   <small>{option.count} products</small>
                 </button>
               ))}
+
+              <div className="shop-sidebar__heading shop-sidebar__heading--categories">
+                Categories
+              </div>
 
               {categoriesError ? <p className="shop-sidebar__note">Unable to load categories.</p> : null}
               {categoriesLoading && categorySidebarOptions.length === 0 ? (

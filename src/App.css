@@ -33809,11 +33809,15 @@ body[data-theme="dark"] .site-banner-strip__batch-date {
 
 .shop-sidebar__heading {
   margin-bottom: 0.7rem;
-  color: #1d274f;
+  color: #f74f00;
   font-size: 0.73rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.shop-sidebar__heading--categories {
+  margin-top: 0.75rem;
 }
 
 .shop-sidebar__list {
@@ -33923,9 +33927,12 @@ body[data-theme="dark"] .shop-page .shop-sidebar {
   box-shadow: 0 14px 30px rgba(2, 6, 23, 0.22);
 }
 
-body[data-theme="dark"] .shop-sidebar__heading,
 body[data-theme="dark"] .shop-sidebar__item {
   color: var(--nexus-text, #f8fafc);
+}
+
+body[data-theme="dark"] .shop-sidebar__heading {
+  color: #f74f00;
 }
 
 body[data-theme="dark"] .shop-sidebar__item small,
