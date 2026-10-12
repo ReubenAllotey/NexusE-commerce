@@ -4023,6 +4023,11 @@ function resolvePublicImage(imageValue, origin) {
   return { url, mimeType: getImageMimeType(url) };
 }
 
+function isLikelyBrandImage(imageValue) {
+  const fileName = path.basename(clean(imageValue).split("?")[0]).toLowerCase();
+  return fileName.includes("nexus") || fileName.includes("logo") || fileName.includes("pwa");
+}
+
 async function loadPublicProductMetadata(slug) {
   if (!supabaseAdmin || !slug) {
     return null;
@@ -4044,9 +4049,9 @@ async function loadPublicProductMetadata(slug) {
     return null;
   }
 
-  let imageUrl = clean(productRow.primary_image_url);
+  let imageUrl = clean(productRow.primary_image_url || productRow.image_url || productRow.image);
 
-  if (!imageUrl && productRow.id) {
+  if (productRow.id) {
     const { data: imageRows, error: imageError } = await supabaseAdmin
       .from("product_images")
       .select("image_url")
@@ -4059,9 +4064,13 @@ async function loadPublicProductMetadata(slug) {
       throw imageError;
     }
 
-    imageUrl = (Array.isArray(imageRows) ? imageRows : [])
+    const galleryImage = (Array.isArray(imageRows) ? imageRows : [])
       .map((row) => clean(row?.image_url))
-      .find(Boolean) || "";
+      .find((value) => value && !isLikelyBrandImage(value)) || "";
+
+    if (!imageUrl || isLikelyBrandImage(imageUrl)) {
+      imageUrl = galleryImage || imageUrl;
+    }
   }
 
   return {

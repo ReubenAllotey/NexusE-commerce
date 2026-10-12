@@ -409,17 +409,17 @@ function ProductView({
           : "Available in Ghana";
     const shareDescription = product.description?.trim() || product.overview?.trim() || "Discover this product at Nexus Import Hub.";
     const shareBody = [
-      `🛍️ ${product.name}`,
+      `\u{1F6CD}\uFE0F ${product.name}`,
       "",
-      `💰 Price: ${formatMoney(activePrice)}`,
+      `\u{1F4B0} Price: ${formatMoney(activePrice)}`,
       "",
-      `📦 ${shareAvailability}`,
+      `\u{1F4E6} ${shareAvailability}`,
       "",
       shareDescription,
       "",
-      "🛒 Shop now at Nexus Import Hub!",
+      "\u{1F6D2} Shop now at Nexus Import Hub!",
     ].join("\n");
-    const shareText = `${shareBody}\n\n👉 ${productUrl}`;
+    const shareText = `${shareBody}\n\n\u{1F449} ${productUrl}`;
     const shareData = {
       title: product.name,
       text: shareBody,
