@@ -166,6 +166,8 @@ function normalizeGuestSelectedOption(option = {}) {
     label: label || value,
     value,
     isDefault: Boolean(option.isDefault ?? option.is_default),
+    combinationId: clean(option.combinationId ?? option.combination_id) || null,
+    combinationKey: clean(option.combinationKey ?? option.combination_key) || null,
   };
 }
 
@@ -215,6 +217,20 @@ function normalizeVariationOptionRecord(record = {}) {
   };
 }
 
+function normalizeVariationCombinationRecord(record = {}) {
+  return {
+    id: clean(record.id),
+    productId: clean(record.product_id),
+    combinationKey: clean(record.combination_key),
+    selectedOptions: Array.isArray(record.selected_options) ? normalizeGuestSelectedOptions(record.selected_options) : [],
+    price: Number(record.price) || 0,
+    compareAt: record.compare_at == null ? null : Number(record.compare_at) || 0,
+    stockQuantity: record.stock_quantity == null ? null : Math.max(Number(record.stock_quantity) || 0, 0),
+    imageUrl: clean(record.image_url) || null,
+    isActive: Boolean(record.is_active),
+  };
+}
+
 async function loadGuestVariationData(productIds = []) {
   if (!supabaseAdmin) {
     throw new Error("Supabase server credentials are missing.");
@@ -224,9 +240,10 @@ async function loadGuestVariationData(productIds = []) {
   const groupsByProductId = new Map();
   const groupsById = new Map();
   const optionsByGroupId = new Map();
+  const combinationsByProductId = new Map();
 
   if (uniqueProductIds.length === 0) {
-    return { groupsByProductId, groupsById, optionsByGroupId };
+    return { groupsByProductId, groupsById, optionsByGroupId, combinationsByProductId };
   }
 
   const { data: groups, error: groupError } = await supabaseAdmin
@@ -263,7 +280,7 @@ async function loadGuestVariationData(productIds = []) {
   const groupIds = normalizedGroups.map((group) => group.id);
 
   if (groupIds.length === 0) {
-    return { groupsByProductId, groupsById, optionsByGroupId };
+    return { groupsByProductId, groupsById, optionsByGroupId, combinationsByProductId };
   }
 
   const { data: options, error: optionError } = await supabaseAdmin
@@ -295,10 +312,29 @@ async function loadGuestVariationData(productIds = []) {
     optionsByGroupId.get(option.groupId).push(option);
   }
 
+  const { data: combinations, error: combinationError } = await supabaseAdmin
+    .from("product_variation_combinations")
+    .select("id,product_id,combination_key,selected_options,price,compare_at,stock_quantity,image_url,is_active")
+    .in("product_id", uniqueProductIds)
+    .eq("is_active", true);
+
+  if (combinationError && !/does not exist|schema cache|relation/i.test(String(combinationError.message ?? combinationError))) {
+    throw combinationError;
+  }
+
+  for (const row of Array.isArray(combinations) ? combinations : []) {
+    const normalized = normalizeVariationCombinationRecord(row);
+    if (!normalized.productId) continue;
+    const list = combinationsByProductId.get(normalized.productId) ?? [];
+    list.push(normalized);
+    combinationsByProductId.set(normalized.productId, list);
+  }
+
   return {
     groupsByProductId,
     groupsById,
     optionsByGroupId,
+    combinationsByProductId,
   };
 }
 
@@ -491,6 +527,40 @@ function resolveGuestProductSelections({
     })
     .filter(Boolean);
 
+  const productCombinations = variationData.combinationsByProductId?.get(productId) ?? [];
+  const requestedCombinationId = clean(
+    row.combinationId
+      ?? row.combination_id
+      ?? normalizeGuestSelectedOptions(row.selectedOptions ?? row.selected_options).find((option) => option.combinationId)?.combinationId,
+  );
+  const requestedCombinationKey = clean(
+    row.combinationKey
+      ?? row.combination_key
+      ?? (productCombinations.length > 0 ? row.variantKey ?? row.variant_key : ""),
+  );
+  const activeCombination = productCombinations.find((combination) => {
+    if (!combination.isActive || combination.selectedOptions.length !== selectedOptions.length) {
+      return false;
+    }
+    return combination.selectedOptions.every((combinationOption) => selectedOptions.some((selected) =>
+      slugifyText(selected.groupName) === slugifyText(combinationOption.groupName)
+      && (
+        (selected.optionId && combinationOption.optionId && selected.optionId === combinationOption.optionId)
+        || slugifyText(selected.value || selected.label) === slugifyText(combinationOption.value || combinationOption.label)
+      ),
+    ));
+  }) ?? null;
+
+  if (productCombinations.length > 0 && !activeCombination) {
+    throw new Error(invalidSelectionMessage);
+  }
+  if (activeCombination && requestedCombinationId && activeCombination.id !== requestedCombinationId) {
+    throw new Error(invalidSelectionMessage);
+  }
+  if (activeCombination && requestedCombinationKey && activeCombination.combinationKey !== requestedCombinationKey) {
+    throw new Error(invalidSelectionMessage);
+  }
+
   const selectedPrice = selectedOptions.find((option) => Number(option.priceDelta) > 0)?.priceDelta ?? 0;
   const selectedColor =
     selectedOptions.find((option) => slugifyText(option.groupName) === "color")?.label ||
@@ -506,7 +576,13 @@ function resolveGuestProductSelections({
     selectedColor,
     selectedSize,
     priceDelta: selectedPrice,
-    variantKey: buildGuestVariantKeyFromSelectedOptions(selectedOptions, clean(product.slug), selectedColor, selectedSize),
+    absolutePrice: activeCombination?.price ?? (selectedPrice > 0 ? selectedPrice : null),
+    combinationId: activeCombination?.id ?? null,
+    combinationKey: activeCombination?.combinationKey ?? null,
+    combinationImageUrl: activeCombination?.imageUrl ?? null,
+    combinationStockQuantity: activeCombination?.stockQuantity ?? null,
+      variantKey: activeCombination?.combinationKey
+        || buildGuestVariantKeyFromSelectedOptions(selectedOptions, clean(product.slug), selectedColor, selectedSize),
   };
 }
 
@@ -1079,7 +1155,10 @@ async function resolveGuestCheckoutProducts(cartRows = [], shippingPaymentPrefer
       variationData,
     });
     const basePrice = Number(product.price) || 0;
-    const unitPrice = selections.priceDelta > 0 ? selections.priceDelta : basePrice;
+    const unitPrice = selections.absolutePrice ?? (selections.priceDelta > 0 ? selections.priceDelta : basePrice);
+    if (selections.combinationStockQuantity != null && selections.combinationStockQuantity < row.quantity) {
+      throw new Error("One of the selected product combinations does not have enough stock available.");
+    }
     const shippingFeeStatus = clean(product.shipping_fee_status).toLowerCase() === "ready" && product.shipping_fee != null
       ? "ready"
       : "pending";
@@ -1097,13 +1176,16 @@ async function resolveGuestCheckoutProducts(cartRows = [], shippingPaymentPrefer
       productSlug: product.slug,
       productName: product.name,
       brand: product.brand,
-      imageUrl: product.primary_image_url,
+      imageUrl: selections.combinationImageUrl || product.primary_image_url,
       unitPrice,
       quantity: row.quantity,
       selectedColor: selections.selectedColor,
       selectedSize: selections.selectedSize,
       variantKey: selections.variantKey,
       selectedOptions: selections.selectedOptions,
+      combinationId: selections.combinationId,
+      combinationKey: selections.combinationKey,
+      combinationImageUrl: selections.combinationImageUrl,
       shippingFee,
       shippingFeeStatus,
       shippingPaidAmount: 0,

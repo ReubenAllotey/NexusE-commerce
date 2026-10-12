@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  findVariationCombination,
   getMissingRequiredVariationGroups,
   resolveProductPrice,
 } from "../pages/Products/productData";
@@ -131,7 +132,8 @@ function CartEditModal({ item, product, onClose, onUpdate }) {
 
   if (!item || !product) return null;
 
-  const activePrice = resolveProductPrice(product, selectedOptions);
+  const activeCombination = findVariationCombination(product.variationCombinations, selectedOptions);
+  const activePrice = activeCombination?.price ?? resolveProductPrice(product, selectedOptions);
 
   function handleSelect(group, option) {
     const nextOption = {
@@ -168,10 +170,25 @@ function CartEditModal({ item, product, onClose, onUpdate }) {
       setError(`Please select ${missing[0].groupName}.`);
       return;
     }
+    if (Array.isArray(product.variationCombinations) && product.variationCombinations.length > 0 && !activeCombination) {
+      setError("Please select an available combination of options.");
+      return;
+    }
+    if (activeCombination?.stockQuantity != null && activeCombination.stockQuantity < quantity) {
+      setError("The selected combination does not have enough stock available.");
+      return;
+    }
 
     setSaving(true);
     setError("");
-    const result = await onUpdate({ item, product, quantity, selectedOptions });
+    const nextSelectedOptions = activeCombination
+      ? selectedOptions.map((option) => ({
+          ...option,
+          combinationId: activeCombination.id,
+          combinationKey: activeCombination.combinationKey,
+        }))
+      : selectedOptions;
+    const result = await onUpdate({ item, product, quantity, selectedOptions: nextSelectedOptions });
     setSaving(false);
     if (result?.ok) {
       onClose();
@@ -215,12 +232,19 @@ function CartEditModal({ item, product, onClose, onUpdate }) {
                     <div className="cart-edit-modal__options">
                       {(Array.isArray(group.options) ? group.options : []).map((option) => {
                         const isActive = selectedOptionKey(active) === optionKey(option);
+                        const optionAvailable = !Array.isArray(product.variationCombinations) || product.variationCombinations.length === 0 || product.variationCombinations.some((combination) => {
+                          const combinationOption = combination.selectedOptions?.find((entry) => String(entry.groupName ?? entry.group_name ?? "").toLowerCase() === String(group.groupName).toLowerCase());
+                          if (!combinationOption || combination.stockQuantity != null && combination.stockQuantity <= 0) return false;
+                          if (String(combinationOption.value ?? combinationOption.label).toLowerCase() !== String(option.value ?? option.label).toLowerCase()) return false;
+                          return selectedOptions.every((selected) => String(selected.groupName).toLowerCase() === String(group.groupName).toLowerCase() || combination.selectedOptions?.some((entry) => String(entry.groupName ?? entry.group_name).toLowerCase() === String(selected.groupName).toLowerCase() && String(entry.value ?? entry.label).toLowerCase() === String(selected.value ?? selected.label).toLowerCase()));
+                        });
                         return (
                           <button
                             type="button"
                             key={optionKey(option)}
                             className={`cart-edit-modal__option${isActive ? " is-active" : ""}`}
                             aria-pressed={isActive}
+                            disabled={!optionAvailable}
                             onClick={() => handleSelect(group, option)}
                           >
                             {group.kind === "color" && option.swatchColor ? <i style={{ "--swatch-color": option.swatchColor }} aria-hidden="true" /> : null}

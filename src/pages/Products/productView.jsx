@@ -9,6 +9,7 @@ import {
   getMissingRequiredVariationGroups,
   getProductPurchaseMeta,
   getShippingFee,
+  findVariationCombination,
   resolveProductCompareAt,
   resolveProductPrice,
   useProductBySlug,
@@ -219,6 +220,10 @@ function ProductView({
     () => (Array.isArray(product?.variationGroups) ? product.variationGroups.filter(Boolean) : []),
     [product?.variationGroups],
   );
+  const variationCombinations = useMemo(
+    () => (Array.isArray(product?.variationCombinations) ? product.variationCombinations.filter((item) => item?.isActive) : []),
+    [product?.variationCombinations],
+  );
   const categoryTrail = Array.isArray(product?.categoryTrail) ? product.categoryTrail : [];
   const features = Array.isArray(product?.features) ? product.features : [];
   const specifications = Array.isArray(product?.specifications)
@@ -282,6 +287,18 @@ function ProductView({
       };
     })
     .filter(Boolean);
+  const activeCombination = findVariationCombination(variationCombinations, activeSelection);
+
+  useEffect(() => {
+    if (activeCombination?.imageUrl) {
+      setSelectedVariationImage(activeCombination.imageUrl);
+      setActiveImage(null);
+      return;
+    }
+
+    const lastImage = activeSelection.map((option) => option.imageUrl).filter(Boolean).at(-1) ?? "";
+    setSelectedVariationImage(lastImage);
+  }, [activeCombination?.imageUrl, activeSelection.map((option) => option.imageUrl).join("|")]);
 
   const selectedVariationGalleryIndex = selectedVariationImage
     ? displayGalleryImages.findIndex((image) => image.src.toLowerCase() === selectedVariationImage.toLowerCase())
@@ -296,8 +313,8 @@ function ProductView({
   const categoryHref = product?.categorySlug ? `/products?category=${product.categorySlug}` : "/products";
   const shippingFee = getShippingFee(product);
   const shippingFeeLabel = shippingFee == null ? "To be calculated" : shippingFee === 0 ? "Free" : formatMoney(shippingFee);
-  const activePrice = resolveProductPrice(product, activeSelection);
-  const activeCompareAt = resolveProductCompareAt(product, activeSelection);
+  const activePrice = activeCombination?.price ?? resolveProductPrice(product, activeSelection);
+  const activeCompareAt = activeCombination?.compareAt ?? resolveProductCompareAt(product, activeSelection);
   const hasActiveCompareAt = Number.isFinite(Number(activeCompareAt)) && Number(activeCompareAt) > 0;
   const previewTint =
     activeSelection.find((option) => option.swatchColor)?.swatchColor || selectedImage?.tint || "#dfe7f3";
@@ -315,6 +332,31 @@ function ProductView({
       ? [batchWindowStart, batchWindowEnd].filter(Boolean).join(" - ")
       : "Batch window pending";
   const activeSelectionLabel = activeSelection.map((option) => option.label).filter(Boolean).join(" / ");
+  const isOptionAvailable = (group, option) => {
+    if (variationCombinations.length === 0) {
+      return true;
+    }
+
+    const candidateValue = String(option.value ?? option.label ?? "").toLowerCase();
+    return variationCombinations.some((combination) => {
+      if (combination.stockQuantity != null && combination.stockQuantity <= 0) {
+        return false;
+      }
+      const combinationOption = combination.selectedOptions.find(
+        (entry) => String(entry.groupName ?? entry.group_name ?? "").toLowerCase() === String(group.groupName ?? "").toLowerCase(),
+      );
+      if (!combinationOption || String(combinationOption.value ?? combinationOption.label ?? "").toLowerCase() !== candidateValue) {
+        return false;
+      }
+      return activeSelection.every((selected) =>
+        String(selected.groupName ?? "").toLowerCase() === String(group.groupName ?? "").toLowerCase()
+          || combination.selectedOptions.some((entry) =>
+            String(entry.groupName ?? entry.group_name ?? "").toLowerCase() === String(selected.groupName ?? "").toLowerCase()
+            && String(entry.value ?? entry.label ?? "").toLowerCase() === String(selected.value ?? selected.label ?? "").toLowerCase(),
+          ),
+      );
+    });
+  };
   const descriptionIsLong = (product?.description?.trim().length ?? 0) > 120;
   const overviewIsLong = (product?.overview?.trim().length ?? 0) > 120;
   const featuresIsLong = features.length > 1 || features.join(" ").length > 120;
@@ -379,10 +421,27 @@ function ProductView({
       return;
     }
 
+    if (variationCombinations.length > 0 && !activeCombination) {
+      setVariationError("Please select an available combination of options.");
+      return;
+    }
+    if (activeCombination?.stockQuantity != null && activeCombination.stockQuantity < safeQuantity) {
+      setVariationError("The selected combination does not have enough stock available.");
+      return;
+    }
+
     setVariationError("");
     onAddToCart(product, safeQuantity, {
-      selectedOptions: activeSelection,
-      variantKey: buildVariantKeyFromSelectedOptions(activeSelection),
+      selectedOptions: activeCombination
+        ? activeSelection.map((option) => ({
+            ...option,
+            combinationId: activeCombination.id,
+            combinationKey: activeCombination.combinationKey,
+          }))
+        : activeSelection,
+      variantKey: activeCombination?.combinationKey ?? buildVariantKeyFromSelectedOptions(activeSelection),
+      combinationId: activeCombination?.id ?? null,
+      combinationKey: activeCombination?.combinationKey ?? null,
       availabilityType: product?.availabilityType ?? product?.availability_type,
     });
   };
@@ -618,12 +677,14 @@ function ProductView({
                             group.kind === "color"
                               ? `product-view__swatch${isActive ? " is-active is-selected" : ""}`
                               : `product-view__size${isActive ? " is-active is-selected" : ""}`;
+                          const optionAvailable = isOptionAvailable(group, option);
 
                           return (
                             <button
                               type="button"
                               key={optionKey}
                               className={buttonClass}
+                              disabled={!optionAvailable}
                               onClick={() => {
                                 const isDeselecting = isActive;
 

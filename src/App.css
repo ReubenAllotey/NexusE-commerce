@@ -15861,6 +15861,91 @@ body[data-theme="dark"] .admin-flashy-modal__suggestions-empty {
   white-space: nowrap;
 }
 
+/* Combined variation configuration stays usable without widening the admin form. */
+.admin-product-form__variation-combinations {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.admin-product-form__variation-combination-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.admin-product-form__variation-combination-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.admin-product-form__variation-combination-card {
+  display: grid;
+  grid-template-columns: auto minmax(9rem, 1fr) repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-items: end;
+  padding: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.9rem;
+  background: #f8fbff;
+}
+
+.admin-product-form__variation-combination-card > strong {
+  align-self: center;
+  color: #13244c;
+}
+
+.admin-product-form__variation-combination-image {
+  width: 3.25rem;
+  height: 3.25rem;
+  object-fit: contain;
+  border-radius: 0.55rem;
+  background: #ffffff;
+}
+
+/* A color option is the swatch; no nested oval or padded inner shape. */
+.product-view__swatch {
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  padding: 0;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 50%;
+  background: var(--swatch-color, #cfd9e6);
+  font-size: 0;
+  line-height: 0;
+  flex: 0 0 2.25rem;
+}
+
+.product-view__swatch.is-active,
+.product-view__swatch.is-selected {
+  border-color: #0240cd;
+  outline: 2px solid #0240cd;
+  outline-offset: 3px;
+}
+
+.product-view__swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+  filter: grayscale(0.45);
+  transform: none;
+}
+
+@media (max-width: 720px) {
+  .admin-product-form__variation-combination-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-product-form__variation-combination-card > strong,
+  .admin-product-form__variation-combination-card > .admin-product-form__variation-toggle {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Keep the legacy group shell compact; option editing now happens in the dialog. */
 .admin-product-form__variation-card > .admin-product-form__variation-options {
   display: none;

@@ -1,5 +1,6 @@
 import { supabase } from "../lib/supabaseClient";
 import {
+  findVariationCombination,
   getProductPurchaseMeta,
   resolveProductPrice,
 } from "../pages/Products/productData";
@@ -170,6 +171,8 @@ function normalizeSelectedOptions(value = []) {
         swatchColor: normalizeOptionalText(option.swatchColor ?? option.swatch_color),
         imageUrl: normalizeOptionalText(option.imageUrl ?? option.image_url),
         isDefault: Boolean(option.isDefault ?? option.is_default),
+        combinationId: clean(option.combinationId ?? option.combination_id) || null,
+        combinationKey: clean(option.combinationKey ?? option.combination_key) || null,
       };
     })
     .filter(Boolean);
@@ -481,6 +484,7 @@ function mapCartRowsToItems(rows = [], products = []) {
       const selectedColor = normalizeOptionalText(row.selectedColor ?? row.selected_color);
       const selectedSize = normalizeOptionalText(row.selectedSize ?? row.selected_size);
       const selectedOptions = normalizeSelectedOptions(row.selectedOptions ?? row.selected_options);
+      const selectedCombination = findVariationCombination(product.variationCombinations, selectedOptions);
       const availabilityType = resolveProductAvailabilityType(product);
       const availabilityMeta = getAvailabilityMeta(availabilityType);
       const variantKey = buildVariantKeyFromSelection({
@@ -513,8 +517,8 @@ function mapCartRowsToItems(rows = [], products = []) {
         slug: product.slug ?? "",
         name: product.name ?? "Unnamed product",
         brand: product.brand ?? "",
-        price: resolveProductPrice(product, selectedOptions),
-        image: product.image ?? "",
+        price: selectedCombination?.price ?? resolveProductPrice(product, selectedOptions),
+        image: selectedCombination?.imageUrl || product.image || "",
         imageClassName: product.imageClassName ?? "",
         stockStatus: product.stockStatus ?? product.stock_status ?? "",
         shippingFee: product.shippingFee ?? product.shipping_fee ?? null,
@@ -1096,6 +1100,8 @@ export async function updateCartLine({
     selectedSize: safeSize,
     selectedOptions: normalizedSelectedOptions,
   });
+  const selectedCombination = findVariationCombination(normalizedProduct.variationCombinations, normalizedSelectedOptions);
+  const resolvedNextVariantKey = selectedCombination?.combinationKey || nextVariantKey;
   const oldVariantKey = clean(originalVariantKey);
   const userResult = await getSignedInUser();
 
@@ -1128,7 +1134,7 @@ export async function updateCartLine({
           selectedSize: item.selectedSize,
           selectedOptions: item.selectedOptions,
           variantKey: item.variantKey,
-        }) === nextVariantKey,
+        }) === resolvedNextVariantKey,
     );
     let nextItems;
 
@@ -1147,7 +1153,7 @@ export async function updateCartLine({
               selectedColor: safeColor,
               selectedSize: safeSize,
               selectedOptions: normalizedSelectedOptions,
-              variantKey: nextVariantKey,
+              variantKey: resolvedNextVariantKey,
             }
           : item,
       );
@@ -1175,7 +1181,7 @@ export async function updateCartLine({
       .select("id, quantity")
       .eq("cart_id", remoteCart.id)
       .eq("product_id", normalizedProductId)
-      .eq("variant_key", nextVariantKey)
+      .eq("variant_key", resolvedNextVariantKey)
       .neq("id", target.id)
       .maybeSingle();
 
@@ -1202,7 +1208,7 @@ export async function updateCartLine({
           quantity: safeQuantity,
           selected_color: safeColor,
           selected_size: safeSize,
-          variant_key: nextVariantKey,
+          variant_key: resolvedNextVariantKey,
           selected_options: normalizedSelectedOptions,
         })
         .eq("id", target.id)

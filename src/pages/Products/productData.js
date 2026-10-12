@@ -57,6 +57,7 @@ const FEATURE_SELECT = "id,product_id,feature_text,display_order";
 const PERK_SELECT = "id,product_id,perk_text,display_order";
 const VARIATION_GROUP_SELECT = "id,product_id,group_name,display_order,is_required,created_at,updated_at";
 const VARIATION_OPTION_SELECT = "id,group_id,option_label,option_value,price_delta,compare_at_delta,swatch_color,image_url,display_order,is_default,created_at,updated_at";
+const VARIATION_COMBINATION_SELECT = "id,product_id,combination_key,selected_options,price,compare_at,sku,stock_quantity,image_url,is_active,created_at,updated_at";
 
 const PRODUCT_IMAGE_ASSET_MAP = {
   "books-placeholder.svg": booksPlaceholder,
@@ -206,6 +207,64 @@ export function resolveProductCompareAt(product = {}, selectedOptions = []) {
   const selectedCompareAt = getSelectedAbsoluteVariationValue(selectedOptions, "compareAtDelta");
 
   return selectedCompareAt ?? normalizeNumber(product?.compareAt ?? product?.compare_at);
+}
+
+function normalizeVariationCombination(row = {}) {
+  const selectedOptions = Array.isArray(row.selected_options ?? row.selectedOptions)
+    ? (row.selected_options ?? row.selectedOptions)
+        .map((option) => ({
+          groupId: cleanText(option?.groupId ?? option?.group_id),
+          groupName: cleanText(option?.groupName ?? option?.group_name),
+          optionId: cleanText(option?.optionId ?? option?.option_id),
+          value: cleanText(option?.value ?? option?.optionValue ?? option?.option_value ?? option?.label),
+          label: cleanText(option?.label ?? option?.optionLabel ?? option?.option_label),
+        }))
+        .filter((option) => option.groupName && option.value)
+    : [];
+
+  return {
+    id: cleanText(row.id),
+    productId: cleanText(row.product_id ?? row.productId),
+    combinationKey: cleanText(row.combination_key ?? row.combinationKey),
+    selectedOptions,
+    price: normalizeNumber(row.price) ?? 0,
+    compareAt: normalizeNumber(row.compare_at ?? row.compareAt),
+    sku: cleanText(row.sku),
+    stockQuantity: normalizeNonNegativeInteger(row.stock_quantity ?? row.stockQuantity),
+    imageUrl: cleanText(row.image_url ?? row.imageUrl),
+    isActive: row.is_active ?? row.isActive ?? true,
+  };
+}
+
+function combinationOptionValue(option = {}) {
+  return cleanText(option.value ?? option.label).toLowerCase();
+}
+
+export function findVariationCombination(combinations = [], selectedOptions = []) {
+  const selected = new Map(
+    (Array.isArray(selectedOptions) ? selectedOptions : [])
+      .map((option) => [cleanText(option.groupName ?? option.group_name).toLowerCase(), {
+        optionId: cleanText(option.optionId ?? option.option_id),
+        value: combinationOptionValue(option),
+      }])
+      .filter(([group, value]) => group && (value.optionId || value.value)),
+  );
+
+  return (Array.isArray(combinations) ? combinations : []).find((combination) => {
+    if (!combination?.isActive || !Array.isArray(combination.selectedOptions)) {
+      return false;
+    }
+
+    const options = combination.selectedOptions;
+    return options.length === selected.length && options.every((option) => {
+      const group = cleanText(option.groupName ?? option.group_name).toLowerCase();
+      const current = selected.get(group);
+      return group && current && (
+        (current.optionId && option.optionId && current.optionId === option.optionId)
+        || current.value === combinationOptionValue(option)
+      );
+    });
+  }) ?? null;
 }
 
 function normalizeNumber(value) {
@@ -719,6 +778,7 @@ function ensureProductBundleRows(bundle = {}) {
     features: Array.isArray(bundle.features) ? bundle.features : [],
     perks: Array.isArray(bundle.perks) ? bundle.perks : [],
     variationGroups: Array.isArray(bundle.variationGroups) ? bundle.variationGroups : [],
+    variationCombinations: Array.isArray(bundle.variationCombinations) ? bundle.variationCombinations : [],
     product,
   };
 }
@@ -820,6 +880,7 @@ export function mapProductRowToLegacyViewModel(row = {}, bundle = {}) {
     features,
     perks,
     variationGroups: normalizedVariationGroups,
+    variationCombinations: normalizedBundle.variationCombinations.map(normalizeVariationCombination),
     availableColors: colors,
     availableSizes: sizes,
     shippingFee: normalizeNumber(row?.shipping_fee),
@@ -904,7 +965,7 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
   const productIds = productRows.map((row) => row.id).filter(Boolean);
   const categoryIds = productRows.map((row) => row.category_id).filter(Boolean);
 
-  const [categories, images, colors, sizes, features, perks, variationGroups] = await Promise.all([
+  const [categories, images, colors, sizes, features, perks, variationGroups, variationCombinations] = await Promise.all([
     queryCategoriesByIds(categoryIds),
     productIds.length === 0
       ? Promise.resolve([])
@@ -992,6 +1053,22 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
 
             return Array.isArray(childData) ? childData : [];
           }),
+    productIds.length === 0
+      ? Promise.resolve([])
+      : supabase
+          .from("product_variation_combinations")
+          .select(VARIATION_COMBINATION_SELECT)
+          .in("product_id", productIds)
+          .order("combination_key", { ascending: true })
+          .then(({ data: childData, error: childError }) => {
+            if (childError && /does not exist|schema cache|relation/i.test(String(childError.message ?? childError))) {
+              return [];
+            }
+            if (childError) {
+              throw childError;
+            }
+            return Array.isArray(childData) ? childData : [];
+          }),
   ]);
 
   const variationGroupIds = Array.isArray(variationGroups)
@@ -1023,6 +1100,7 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
   const perksByProductId = new Map();
   const variationGroupsByProductId = new Map();
   const variationOptionsByGroupId = new Map();
+  const variationCombinationsByProductId = new Map();
 
   for (const row of images) {
     const list = imagesByProductId.get(row.product_id) ?? [];
@@ -1066,6 +1144,12 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
     variationOptionsByGroupId.set(row.group_id, list);
   }
 
+  for (const row of variationCombinations) {
+    const list = variationCombinationsByProductId.get(row.product_id) ?? [];
+    list.push(row);
+    variationCombinationsByProductId.set(row.product_id, list);
+  }
+
   const products = productRows.map((row) =>
     mapProductRowToLegacyViewModel(row, {
       category: categoryById.get(row.category_id) ?? null,
@@ -1078,6 +1162,7 @@ async function queryProductBundleRows({ slug = "", includeDeleted = false } = {}
         ...groupRow,
         options: variationOptionsByGroupId.get(groupRow.id) ?? [],
       })),
+      variationCombinations: variationCombinationsByProductId.get(row.id) ?? [],
     }),
   );
 
@@ -1393,6 +1478,7 @@ export function buildProductBundlePayloadFromLegacyProduct(product = {}, overrid
       display_order: index + 1,
     })),
     variationGroups,
+    variationCombinations: Array.isArray(next.variationCombinations) ? next.variationCombinations : [],
   };
 }
 
@@ -1485,6 +1571,7 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
       display_order: index + 1,
     })),
     variationGroups,
+    variationCombinations: Array.isArray(values.variationCombinations) ? values.variationCombinations : [],
   };
 }
 
@@ -1593,6 +1680,22 @@ export async function saveProductBundle(payload = {}) {
 
   if (!productId) {
     return result;
+  }
+
+  if (Array.isArray(normalizedPayload.variationCombinations)) {
+    const combinationResult = await queryRpc("save_product_variation_combinations", {
+      p_product_id: productId,
+      p_combinations: normalizedPayload.variationCombinations,
+    });
+
+    if (!combinationResult.ok && normalizedPayload.variationCombinations.length > 0) {
+      return {
+        ...combinationResult,
+        message: /does not exist|schema cache|function/i.test(String(combinationResult.message ?? ""))
+          ? "Product saved, but combined variations require the unapplied variation combinations migration."
+          : combinationResult.message,
+      };
+    }
   }
 
   const productPayload = normalizedPayload?.product ?? {};

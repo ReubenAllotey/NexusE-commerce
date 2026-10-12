@@ -127,6 +127,87 @@ function normalizeEditorVariationGroup(group = {}, index = 0) {
   };
 }
 
+function normalizeEditorVariationCombination(combination = {}, index = 0) {
+  const selectedOptions = Array.isArray(combination?.selectedOptions ?? combination?.selected_options)
+    ? (combination.selectedOptions ?? combination.selected_options)
+        .map((option) => ({
+          groupId: String(option?.groupId ?? option?.group_id ?? "").trim(),
+          groupName: String(option?.groupName ?? option?.group_name ?? "").trim(),
+          optionId: String(option?.optionId ?? option?.option_id ?? "").trim(),
+          value: String(option?.value ?? option?.optionValue ?? option?.option_value ?? option?.label ?? "").trim(),
+          label: String(option?.label ?? option?.optionLabel ?? option?.option_label ?? "").trim(),
+        }))
+        .filter((option) => option.groupName && option.value)
+    : [];
+
+  return {
+    id: String(combination?.id ?? "").trim() || createEditorId("variation-combination"),
+    combinationKey: String(combination?.combinationKey ?? combination?.combination_key ?? "").trim(),
+    selectedOptions,
+    price: combination?.price ?? "",
+    compareAt: combination?.compareAt ?? combination?.compare_at ?? "",
+    sku: String(combination?.sku ?? "").trim(),
+    stockQuantity: combination?.stockQuantity ?? combination?.stock_quantity ?? "",
+    imageUrl: String(combination?.imageUrl ?? combination?.image_url ?? "").trim(),
+    isActive: combination?.isActive ?? combination?.is_active ?? true,
+    displayOrder: index + 1,
+  };
+}
+
+function buildCombinationKey(selectedOptions = []) {
+  return selectedOptions
+    .map((option) => ({
+      groupName: String(option?.groupName ?? "").trim().toLowerCase(),
+      value: String(option?.value ?? option?.label ?? "").trim().toLowerCase(),
+    }))
+    .filter((option) => option.groupName && option.value)
+    .sort((left, right) => left.groupName.localeCompare(right.groupName))
+    .map((option) => `${option.groupName}=${option.value}`)
+    .join("::");
+}
+
+function generateVariationCombinations(groups = [], existing = []) {
+  const usableGroups = groups.filter((group) =>
+    String(group?.groupName ?? "").trim() && Array.isArray(group?.options) && group.options.some((option) => String(option?.label ?? "").trim()),
+  );
+  if (usableGroups.length < 2) {
+    return [];
+  }
+
+  const existingByKey = new Map(existing.map((combination) => [combination.combinationKey, combination]));
+  const result = [];
+  const walk = (groupIndex, selectedOptions) => {
+    if (result.length > 100) {
+      return;
+    }
+    if (groupIndex >= usableGroups.length) {
+      const combinationKey = buildCombinationKey(selectedOptions);
+      const previous = existingByKey.get(combinationKey);
+      result.push(normalizeEditorVariationCombination({
+        ...previous,
+        combinationKey,
+        selectedOptions,
+        isActive: previous?.isActive ?? true,
+      }, result.length));
+      return;
+    }
+    const group = usableGroups[groupIndex];
+    group.options.filter((option) => String(option?.label ?? "").trim()).forEach((option) => {
+      walk(groupIndex + 1, [
+        ...selectedOptions,
+        {
+          groupName: group.groupName,
+          value: option.value || slugify(option.label),
+          label: option.label,
+          optionId: option.id,
+        },
+      ]);
+    });
+  };
+  walk(0, []);
+  return result.slice(0, 100);
+}
+
 function buildInitialVariationGroups(value = {}) {
   if (Array.isArray(value?.variationGroups) && value.variationGroups.length > 0) {
     const basePrice = Number(value?.price ?? 0) || 0;
@@ -350,6 +431,9 @@ function buildImageEntries(value) {
     description: value?.description ?? "",
     overview: value?.overview ?? "",
     variationGroups: buildInitialVariationGroups(value),
+    variationCombinations: Array.isArray(value?.variationCombinations)
+      ? value.variationCombinations.map(normalizeEditorVariationCombination)
+      : [],
     featuresText: Array.isArray(value?.features)
       ? value.features
           .map((item) => {
@@ -576,6 +660,52 @@ function ProductEditorForm({
         variationGroups: reindexVariationGroups(nextGroups),
       };
     });
+  };
+
+  const handleGenerateVariationCombinations = () => {
+    const possibleCount = formData.variationGroups.reduce(
+      (total, group) => total * Math.max((group.options ?? []).filter((option) => String(option?.label ?? "").trim()).length, 1),
+      1,
+    );
+    if (possibleCount > 100) {
+      setSubmitError("Combined variations are limited to 100 combinations. Remove some options before generating.");
+      return;
+    }
+    if (possibleCount < 2 || formData.variationGroups.length < 2) {
+      setSubmitError("Add at least two variation groups with options before generating combinations.");
+      return;
+    }
+    setFormData((current) => ({
+      ...current,
+      variationCombinations: generateVariationCombinations(current.variationGroups, current.variationCombinations),
+    }));
+    setSubmitError("");
+  };
+
+  const updateVariationCombination = (combinationKey, field, value) => {
+    setFormData((current) => ({
+      ...current,
+      variationCombinations: (current.variationCombinations ?? []).map((combination) =>
+        combination.combinationKey === combinationKey
+          ? {
+              ...combination,
+              [field]: field === "isActive" ? Boolean(value) : value,
+            }
+          : combination,
+      ),
+    }));
+  };
+
+  const handleCombinationImageChange = async (combinationKey, event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const src = await compressImageFile(file);
+      updateVariationCombination(combinationKey, "imageUrl", src);
+    } catch {
+      // Keep the previous combination image if processing fails.
+    }
+    event.target.value = "";
   };
 
   const handleAddVariationGroup = () => {
@@ -1561,6 +1691,52 @@ function ProductEditorForm({
               No variations added yet. Click Add variation to start.
             </div>
           )}
+
+          <div className="admin-product-form__variation-combinations">
+            <div className="admin-product-form__variation-heading">
+              <div>
+                <span>Combined variations</span>
+                <small className="admin-product-form__hint">
+                  Generate and configure only the attribute combinations you sell. Prices are absolute selling prices.
+                </small>
+              </div>
+              <button
+                type="button"
+                className="admin-product-form__button admin-product-form__button--ghost"
+                onClick={handleGenerateVariationCombinations}
+              >
+                Generate combinations
+              </button>
+            </div>
+            {(formData.variationCombinations ?? []).length > 0 ? (
+              <>
+                <div className="admin-product-form__variation-combination-toolbar">
+                  <strong>{formData.variationCombinations.filter((item) => item.isActive).length} selected</strong>
+                  <button type="button" className="admin-product-form__button admin-product-form__button--ghost" onClick={() => setFormData((current) => ({ ...current, variationCombinations: current.variationCombinations.map((item) => ({ ...item, isActive: true })) }))}>Select all</button>
+                  <button type="button" className="admin-product-form__button admin-product-form__button--ghost" onClick={() => setFormData((current) => ({ ...current, variationCombinations: current.variationCombinations.map((item) => ({ ...item, isActive: false })) }))}>Deselect all</button>
+                </div>
+                <div className="admin-product-form__variation-combination-list">
+                  {formData.variationCombinations.map((combination) => (
+                    <article key={combination.combinationKey} className="admin-product-form__variation-combination-card">
+                      <label className="admin-product-form__variation-toggle">
+                        <input type="checkbox" checked={Boolean(combination.isActive)} onChange={(event) => updateVariationCombination(combination.combinationKey, "isActive", event.target.checked)} />
+                        Available
+                      </label>
+                      <strong>{combination.selectedOptions.map((option) => option.label || option.value).join(" / ")}</strong>
+                      <label className="admin-product-form__variation-inline-field"><span>Price (GH₵)</span><input type="number" min="0" step="0.01" value={combination.price} onChange={(event) => updateVariationCombination(combination.combinationKey, "price", event.target.value)} /></label>
+                      <label className="admin-product-form__variation-inline-field"><span>Compare-at</span><input type="number" min="0" step="0.01" value={combination.compareAt} onChange={(event) => updateVariationCombination(combination.combinationKey, "compareAt", event.target.value)} /></label>
+                      <label className="admin-product-form__variation-inline-field"><span>SKU</span><input type="text" value={combination.sku} onChange={(event) => updateVariationCombination(combination.combinationKey, "sku", event.target.value)} /></label>
+                      <label className="admin-product-form__variation-inline-field"><span>Stock</span><input type="number" min="0" step="1" value={combination.stockQuantity} onChange={(event) => updateVariationCombination(combination.combinationKey, "stockQuantity", event.target.value)} /></label>
+                      <label className="admin-product-form__variation-inline-field"><span>Image</span><input type="file" accept="image/*" onChange={(event) => handleCombinationImageChange(combination.combinationKey, event)} /></label>
+                      {combination.imageUrl ? <img className="admin-product-form__variation-combination-image" src={combination.imageUrl} alt="Combination preview" /> : null}
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="admin-product-form__hint">No combined combinations generated. Existing single-attribute variations continue to work.</p>
+            )}
+          </div>
         </section>
 
         {variationModal ? (
