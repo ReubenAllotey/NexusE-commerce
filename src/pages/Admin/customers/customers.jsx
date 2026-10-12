@@ -193,51 +193,54 @@ function getCustomerAccounting(orders = [], paymentRows = []) {
         .filter((payment) => orderIds.has(payment.orderId) && isOrderPayment(payment) && isSuccessfulPayment(payment))
         .reduce((sum, payment) => sum + Math.max(Number(payment.amount) || 0, 0), 0),
     );
+    group.confirmedOrders = group.orders.filter((order) =>
+      group.paid > 0 && (
+        normalizeText(order.paymentStatus).toLowerCase() === "paid" ||
+        getOrderAccounting(order, paymentRows).paid > 0
+      ),
+    );
   }
 
   const totalOrderValue = [...groups.values()].reduce((sum, group) => sum + group.due, 0);
   const amountPaid = [...groups.values()].reduce((sum, group) => sum + group.paid, 0);
+  const confirmedOrders = [...groups.values()].flatMap((group) => group.confirmedOrders ?? []);
+  const activeOrders = confirmedOrders.filter((order) => {
+    const status = normalizeText(order.status).toLowerCase();
+    return !["delivered", "completed", "cancelled", "canceled"].includes(status);
+  });
 
   return {
     validOrders,
     totalOrderValue,
     amountPaid,
     pendingAmount: Math.max(totalOrderValue - amountPaid, 0),
+    confirmedOrderCount: confirmedOrders.length,
+    activeOrderCount: activeOrders.length,
   };
 }
 
 function getCustomerStatus(customer) {
-  if (customer.blocked) {
-    return "blocked";
-  }
-
   if (customer.orderCount === 0) {
-    return "no_orders";
+    return "no_active_order";
   }
 
-  if (customer.pendingAmount > 0 && customer.amountPaid > 0) {
-    return "partially_paid";
+  if (customer.pendingAmount > 0) {
+    return "pending_payment";
   }
 
-  return customer.pendingAmount > 0 ? "pending_payment" : "active";
+  return customer.activeOrderCount > 0 ? "active_order" : "no_active_order";
 }
 
 function getCustomerStatusLabel(status) {
   switch (status) {
-    case "active":
-      return "Active";
-    case "inactive":
-      return "Inactive";
-    case "no_orders":
-      return "No Orders";
+    case "active_order":
+      return "Active Order";
     case "pending_payment":
       return "Pending Payment";
-    case "partially_paid":
-      return "Partially Paid";
-    case "blocked":
-      return "Blocked";
+    case "no_active_order":
+      return "No Active Order";
     default:
-      return "Inactive";
+      return "No Active Order";
   }
 }
 
@@ -497,8 +500,9 @@ function getCustomerRows({ users = [], orders = [], payments = [], addresses = [
     );
     customer.orderCount = customer.orders.length;
     const accounting = getCustomerAccounting(customer.orders, payments);
-    customer.activeOrderCount = accounting.validOrders.length;
+    customer.activeOrderCount = accounting.activeOrderCount;
     customer.orderCount = accounting.validOrders.length;
+    customer.confirmedOrderCount = accounting.confirmedOrderCount;
     customer.totalOrderValue = accounting.totalOrderValue;
     customer.totalAmountSpent = accounting.totalOrderValue;
     customer.amountPaid = accounting.amountPaid;
@@ -768,7 +772,9 @@ function CustomersPage({ orders = [] }) {
     const term = normalizeKey(searchTerm);
 
     return customers.filter((customer) => {
-      if (statusFilter !== "all" && customer.status !== statusFilter) {
+      const matchesStatus = statusFilter === "blocked" ? customer.blocked : customer.status === statusFilter;
+
+      if (statusFilter !== "all" && !matchesStatus) {
         return false;
       }
 
@@ -782,18 +788,16 @@ function CustomersPage({ orders = [] }) {
 
   const summary = useMemo(() => {
     const totalCustomers = customers.length;
-    const activeCustomers = customers.filter((customer) => customer.status === "active").length;
-    const inactiveCustomers = customers.filter((customer) => ["no_orders", "inactive"].includes(customer.status)).length;
+    const activeCustomers = customers.filter((customer) => customer.status === "active_order").length;
     const pendingCustomers = customers.filter((customer) => customer.status === "pending_payment").length;
-    const partiallyPaidCustomers = customers.filter((customer) => customer.status === "partially_paid").length;
-    const blockedCustomers = customers.filter((customer) => customer.status === "blocked").length;
+    const noActiveCustomers = customers.filter((customer) => customer.status === "no_active_order").length;
+    const blockedCustomers = customers.filter((customer) => customer.blocked).length;
 
     return {
       totalCustomers,
       activeCustomers,
-      inactiveCustomers,
       pendingCustomers,
-      partiallyPaidCustomers,
+      noActiveCustomers,
       blockedCustomers,
     };
   }, [customers]);
@@ -876,7 +880,8 @@ function CustomersPage({ orders = [] }) {
       phoneNumber: customer.phoneNumber,
       orderCount: customer.orderCount,
       orderNumber: customer.latestOrder?.orderNumber || customer.latestOrder?.id || "",
-      totalOrderValue: customer.totalOrderValue,
+      totalOrders: customer.confirmedOrderCount,
+      totalAmount: customer.amountPaid,
       status: getCustomerStatusLabel(customer.status),
     }));
 
@@ -887,7 +892,8 @@ function CustomersPage({ orders = [] }) {
       "Phone Number",
       "Order Count",
       "Latest Order",
-      "Total Order Value",
+      "Total Orders",
+      "Total Amount",
       "Status",
     ];
 
@@ -901,7 +907,8 @@ function CustomersPage({ orders = [] }) {
           row.phoneNumber,
           row.orderCount,
           row.orderNumber,
-          row.totalOrderValue,
+          row.totalOrders,
+          row.totalAmount,
           row.status,
         ]
           .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
@@ -922,7 +929,7 @@ function CustomersPage({ orders = [] }) {
   };
 
   const handleToggleBlocked = (customer) => {
-    const nextBlocked = customer.status !== "blocked";
+    const nextBlocked = !customer.blocked;
 
     if (!window.confirm(nextBlocked ? `Block ${customer.name}? They will remain in the system but be marked as blocked.` : `Unblock ${customer.name}?`)) {
       return;
@@ -948,7 +955,7 @@ function CustomersPage({ orders = [] }) {
   };
 
   const renderCustomerActions = (customer) => {
-    const status = customer.status;
+    const isBlocked = customer.blocked;
     const customerKey = getCustomerKey(customer);
     const isMenuOpen = openMenuKey === customerKey;
 
@@ -969,13 +976,13 @@ function CustomersPage({ orders = [] }) {
             aria-expanded={isMenuOpen}
             onClick={() => setOpenMenuKey(isMenuOpen ? "" : customerKey)}
           >
-            <span aria-hidden="true">•••</span>
+            <span aria-hidden="true">...</span>
           </button>
           {isMenuOpen ? (
             <div className="admin-customers-action-menu__panel admin-customers-action-menu__panel--right">
               <button type="button" onClick={() => openCustomerView(customer, "profile")}>View Customer</button>
               <button type="button" onClick={() => handleToggleBlocked(customer)}>
-                {status === "blocked" ? "Unblock Customer" : "Block Customer"}
+                {isBlocked ? "Unblock Customer" : "Block Customer"}
               </button>
               <button type="button" onClick={() => handleDeleteCustomer(customer)}>Delete Customer</button>
             </div>
@@ -1033,19 +1040,19 @@ function CustomersPage({ orders = [] }) {
           <SummaryCard
             title="Active"
             value={summary.activeCustomers}
-            note="All valid orders are fully paid."
+            note="Confirmed orders still being processed or shipped."
             tone="green"
           />
           <SummaryCard
             title="Pending Payment"
-            value={summary.pendingCustomers + summary.partiallyPaidCustomers}
-            note="Customers with an outstanding order balance."
+            value={summary.pendingCustomers}
+            note="Customers awaiting payment confirmation."
             tone="amber"
           />
           <SummaryCard
-            title="Blocked"
-            value={summary.blockedCustomers}
-            note="Blocked by admin from the customer list."
+            title="No Active Order"
+            value={summary.noActiveCustomers}
+            note="No current unpaid or in-progress order."
             tone="rose"
           />
         </section>
@@ -1073,10 +1080,9 @@ function CustomersPage({ orders = [] }) {
                 onChange={(event) => setStatusFilter(event.target.value)}
               >
                 <option value="all">All</option>
-                <option value="active">Active</option>
+                <option value="active_order">Active Order</option>
                 <option value="pending_payment">Pending Payment</option>
-                <option value="partially_paid">Partially Paid</option>
-                <option value="no_orders">No Orders</option>
+                <option value="no_active_order">No Active Order</option>
                 <option value="blocked">Blocked</option>
               </select>
             </label>
@@ -1089,7 +1095,8 @@ function CustomersPage({ orders = [] }) {
                   <th>Customer Name</th>
                   <th>Email</th>
                   <th>Phone Number</th>
-                  <th>Total Order Value</th>
+                  <th>Total Orders</th>
+                  <th>Total Amount</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -1097,7 +1104,7 @@ function CustomersPage({ orders = [] }) {
               <tbody>
                 {isTableLoading ? (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="6">
+                    <td colSpan="7">
                       <div className="admin-products-empty">
                         <h2>Loading customers...</h2>
                         <p>We are loading customer profiles and delivery addresses from Supabase.</p>
@@ -1115,7 +1122,8 @@ function CustomersPage({ orders = [] }) {
                         <td>
                           <span className="admin-customers-muted-value">{formatPhoneNumber(customer.phoneNumber)}</span>
                         </td>
-                        <td>{formatMoney(customer.totalOrderValue)}</td>
+                        <td>{customer.confirmedOrderCount}</td>
+                        <td>{formatMoney(customer.amountPaid)}</td>
                         <td>
                           <StatusPill status={customer.status} />
                         </td>
@@ -1125,7 +1133,7 @@ function CustomersPage({ orders = [] }) {
                   })
                 ) : (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="6">
+                    <td colSpan="7">
                       <div className="admin-products-empty">
                         <h2>No customers found.</h2>
                         <p>Try a different search term or change the status filter.</p>
@@ -1153,7 +1161,8 @@ function CustomersPage({ orders = [] }) {
                   <dl className="admin-customer-mobile-card__details">
                     <div><dt>Email</dt><dd title={customer.email || "Not added"}>{customer.email || "Not added"}</dd></div>
                     <div><dt>Phone Number</dt><dd>{formatPhoneNumber(customer.phoneNumber)}</dd></div>
-                    <div><dt>Total Order Value</dt><dd>{formatMoney(customer.totalOrderValue)}</dd></div>
+                    <div><dt>Total Orders</dt><dd>{customer.confirmedOrderCount}</dd></div>
+                    <div><dt>Total Amount</dt><dd>{formatMoney(customer.amountPaid)}</dd></div>
                   </dl>
                   {renderCustomerActions(customer)}
                 </article>
