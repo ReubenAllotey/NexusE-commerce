@@ -3,7 +3,6 @@ import { Link, Navigate } from "react-router-dom";
 import { supabase } from "../../../lib/supabaseClient";
 import { loadAdminSession } from "../Auth/adminAuthStorage";
 import { formatMoney, formatShortDate } from "../adminHelpers";
-import { getOrderStatusLabel } from "../../Profile/ordersStorage";
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -132,8 +131,79 @@ function getOrderCustomerKey(order = {}) {
   return normalizeKey(order.customerId || order.customerEmail || order.customerName);
 }
 
-function getPaymentStatus(order = {}) {
-  return normalizeText(order.paymentStatus).toLowerCase() === "paid" ? "Paid" : "Pending";
+function isCancelledOrder(order = {}) {
+  const status = normalizeText(order.status).toLowerCase();
+  return status === "cancelled" || status === "canceled";
+}
+
+function isSuccessfulPayment(payment = {}) {
+  return normalizeText(payment.status).toLowerCase() === "successful";
+}
+
+function isOrderPayment(payment = {}) {
+  return normalizeText(payment.paymentPurpose || payment.payment_purpose || "order").toLowerCase() === "order";
+}
+
+function getOrderAmountDue(order = {}) {
+  const amountDueNow = Number(order.amountDueNow);
+  const total = Number(order.total);
+  return Math.max(Number.isFinite(amountDueNow) && amountDueNow > 0 ? amountDueNow : Number.isFinite(total) ? total : 0, 0);
+}
+
+function getOrderPaymentRows(order = {}, paymentRows = []) {
+  return (Array.isArray(paymentRows) ? paymentRows : []).filter(
+    (payment) => payment.orderId === order.id && isOrderPayment(payment),
+  );
+}
+
+function getOrderAccounting(order = {}, paymentRows = []) {
+  const payments = getOrderPaymentRows(order, paymentRows);
+  const paid = payments.filter(isSuccessfulPayment).reduce((sum, payment) => sum + Math.max(Number(payment.amount) || 0, 0), 0);
+  const due = getOrderAmountDue(order);
+
+  return {
+    due,
+    paid: Math.min(paid, due),
+    pending: Math.max(due - paid, 0),
+    status: paid >= due && due > 0 ? "Paid" : paid > 0 ? "Partially Paid" : "Pending",
+  };
+}
+
+function getCheckoutGroupKey(order = {}) {
+  return normalizeKey(order.checkoutGroupId || order.id);
+}
+
+function getCustomerAccounting(orders = [], paymentRows = []) {
+  const validOrders = orders.filter((order) => !isCancelledOrder(order));
+  const groups = new Map();
+
+  for (const order of validOrders) {
+    const key = getCheckoutGroupKey(order);
+    const group = groups.get(key) ?? { due: 0, paid: 0, orders: [] };
+    group.due += getOrderAmountDue(order);
+    group.orders.push(order);
+    groups.set(key, group);
+  }
+
+  for (const group of groups.values()) {
+    const orderIds = new Set(group.orders.map((order) => order.id).filter(Boolean));
+    group.paid = Math.min(
+      group.due,
+      (Array.isArray(paymentRows) ? paymentRows : [])
+        .filter((payment) => orderIds.has(payment.orderId) && isOrderPayment(payment) && isSuccessfulPayment(payment))
+        .reduce((sum, payment) => sum + Math.max(Number(payment.amount) || 0, 0), 0),
+    );
+  }
+
+  const totalOrderValue = [...groups.values()].reduce((sum, group) => sum + group.due, 0);
+  const amountPaid = [...groups.values()].reduce((sum, group) => sum + group.paid, 0);
+
+  return {
+    validOrders,
+    totalOrderValue,
+    amountPaid,
+    pendingAmount: Math.max(totalOrderValue - amountPaid, 0),
+  };
 }
 
 function getCustomerStatus(customer) {
@@ -141,7 +211,15 @@ function getCustomerStatus(customer) {
     return "blocked";
   }
 
-  return customer.activeOrderCount > 0 ? "active" : "inactive";
+  if (customer.orderCount === 0) {
+    return "no_orders";
+  }
+
+  if (customer.pendingAmount > 0 && customer.amountPaid > 0) {
+    return "partially_paid";
+  }
+
+  return customer.pendingAmount > 0 ? "pending_payment" : "active";
 }
 
 function getCustomerStatusLabel(status) {
@@ -150,21 +228,16 @@ function getCustomerStatusLabel(status) {
       return "Active";
     case "inactive":
       return "Inactive";
+    case "no_orders":
+      return "No Orders";
+    case "pending_payment":
+      return "Pending Payment";
+    case "partially_paid":
+      return "Partially Paid";
     case "blocked":
       return "Blocked";
     default:
       return "Inactive";
-  }
-}
-
-function getCustomerStatusTone(status) {
-  switch (status) {
-    case "active":
-      return "green";
-    case "blocked":
-      return "rose";
-    default:
-      return "amber";
   }
 }
 
@@ -194,7 +267,7 @@ function getCustomerSearchBlob(customer) {
     .toLowerCase();
 }
 
-function getCustomerRows({ users = [], orders = [], addresses = [], overrides = [], adminKeys = [] }) {
+function getCustomerRows({ users = [], orders = [], payments = [], addresses = [], overrides = [], adminKeys = [] }) {
   const customers = new Map();
   const aliasMap = new Map();
   const adminKeySet = new Set(adminKeys.map(normalizeKey).filter(Boolean));
@@ -423,19 +496,24 @@ function getCustomerRows({ users = [], orders = [], addresses = [], overrides = 
       (left, right) => new Date(right.createdAt ?? 0) - new Date(left.createdAt ?? 0),
     );
     customer.orderCount = customer.orders.length;
-    customer.activeOrderCount = customer.orders.filter((order) => {
-      const status = normalizeText(order.status).toLowerCase();
-      return status !== "delivered" && status !== "cancelled" && status !== "canceled";
-    }).length;
-    customer.totalAmountSpent = customer.orders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+    const accounting = getCustomerAccounting(customer.orders, payments);
+    customer.activeOrderCount = accounting.validOrders.length;
+    customer.orderCount = accounting.validOrders.length;
+    customer.totalOrderValue = accounting.totalOrderValue;
+    customer.totalAmountSpent = accounting.totalOrderValue;
+    customer.amountPaid = accounting.amountPaid;
+    customer.pendingAmount = accounting.pendingAmount;
     customer.latestOrder = customer.orders[0] ?? null;
-    customer.paymentHistory = customer.orders.map((order) => ({
-      transactionId: order.id || order.orderNumber,
-      orderId: order.orderNumber || order.id,
-      date: order.createdAt,
-      amount: Number(order.total) || 0,
-      status: getPaymentStatus(order),
-    }));
+    customer.paymentHistory = payments
+      .filter((payment) => customer.orders.some((order) => order.id === payment.orderId) && isOrderPayment(payment))
+      .sort((left, right) => new Date(right.paidAt ?? right.createdAt ?? 0) - new Date(left.paidAt ?? left.createdAt ?? 0))
+      .map((payment) => ({
+        transactionId: payment.providerReference || payment.id,
+        orderId: customer.orders.find((order) => order.id === payment.orderId)?.orderNumber || payment.orderId,
+        date: payment.paidAt || payment.createdAt,
+        amount: Number(payment.amount) || 0,
+        status: isSuccessfulPayment(payment) ? "Paid" : normalizeText(payment.status) || "Pending",
+      }));
     customer.status = getCustomerStatus(customer);
     customer.deliveryContactNumber = customer.deliveryPhoneNumber || "";
     customer.searchBlob = getCustomerSearchBlob(customer);
@@ -475,12 +553,108 @@ function StatusPill({ status }) {
   return <span className={`admin-customers-pill admin-customers-pill--${status}`}>{getCustomerStatusLabel(status)}</span>;
 }
 
+function formatSelectedOptions(item = {}) {
+  if (Array.isArray(item.selectedOptions) && item.selectedOptions.length > 0) {
+    return item.selectedOptions
+      .map((option) => `${option.groupName || "Option"}: ${option.label || option.value || ""}`)
+      .filter((value) => value.endsWith(": ") === false)
+      .join(" · ");
+  }
+
+  return [item.selectedColor && `Color: ${item.selectedColor}`, item.selectedSize && `Size: ${item.selectedSize}`]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function CustomerOrderCard({ order, payments = [] }) {
+  const [expanded, setExpanded] = useState(false);
+  const accounting = getOrderAccounting(order, payments);
+  const items = Array.isArray(order.items) ? order.items : [];
+
+  return (
+    <article className={`admin-customer-order-card${expanded ? " is-expanded" : ""}`}>
+      <button type="button" className="admin-customer-order-card__summary" onClick={() => setExpanded((value) => !value)}>
+        <span>
+          <strong>{order.orderNumber || order.id || "Order"}</strong>
+          <small>{formatShortDate(order.createdAt)} · {items.length} product{items.length === 1 ? "" : "s"}</small>
+        </span>
+        <span className="admin-customer-order-card__totals">
+          <strong>{formatMoney(accounting.due)}</strong>
+          <small>{accounting.status} · {expanded ? "Hide details" : "View details"}</small>
+        </span>
+      </button>
+
+      {expanded ? (
+        <div className="admin-customer-order-card__body">
+          <div className="admin-customer-order-items">
+            {items.length > 0 ? items.map((item, index) => {
+              const quantity = Math.max(Number(item.quantity) || 1, 1);
+              const unitPrice = Number(item.price ?? item.unitPrice) || 0;
+              const subtotal = Number(item.lineSubtotal) || unitPrice * quantity;
+              const image = item.image || item.imageUrl;
+              const options = formatSelectedOptions(item);
+
+              return (
+                <div className="admin-customer-order-item" key={item.id || item.key || `${order.id}-${index}`}>
+                  <div className="admin-customer-order-item__image">
+                    {image ? <img src={image} alt="" /> : <span aria-hidden="true">N</span>}
+                  </div>
+                  <div className="admin-customer-order-item__content">
+                    <strong>{item.name || item.productName || "Unnamed product"}</strong>
+                    {options ? <span>{options}</span> : null}
+                    <small>Qty {quantity} · Unit {formatMoney(unitPrice)}</small>
+                  </div>
+                  <strong className="admin-customer-order-item__subtotal">{formatMoney(subtotal)}</strong>
+                </div>
+              );
+            }) : <p className="admin-customers-empty-note">Historical product details are not available for this order.</p>}
+          </div>
+
+          <div className="admin-customer-order-card__payment-grid">
+            <div><span>Order total</span><strong>{formatMoney(accounting.due)}</strong></div>
+            <div><span>Confirmed paid</span><strong>{formatMoney(accounting.paid)}</strong></div>
+            <div><span>Pending balance</span><strong>{formatMoney(accounting.pending)}</strong></div>
+            <div><span>Payment status</span><strong>{accounting.status}</strong></div>
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function CustomerOrderList({ orders = [], payments = [] }) {
+  const validOrders = orders.filter((order) => !isCancelledOrder(order));
+
+  if (validOrders.length === 0) {
+    return <p className="admin-customers-empty-note">No valid orders have been placed by this customer.</p>;
+  }
+
+  return (
+    <div className="admin-customer-orders-list">
+      {validOrders.slice(0, 10).map((order) => <CustomerOrderCard key={order.id || order.orderNumber} order={order} payments={payments} />)}
+    </div>
+  );
+}
+
+function getCustomerInitials(customer = {}) {
+  const initials = normalizeText(customer.name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  return initials || "C";
+}
+
 function CustomersPage({ orders = [] }) {
   const session = loadAdminSession();
   const liveOrders = orders;
   const [customerOverrides, setCustomerOverrides] = useState([]);
   const [supabaseProfiles, setSupabaseProfiles] = useState([]);
   const [supabaseAddresses, setSupabaseAddresses] = useState([]);
+  const [paymentRows, setPaymentRows] = useState([]);
   const [remoteLoading, setRemoteLoading] = useState(true);
   const [remoteError, setRemoteError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -510,7 +684,7 @@ function CustomersPage({ orders = [] }) {
       setRemoteError("");
 
       try {
-        const [profilesResult, addressesResult] = await Promise.all([
+        const [profilesResult, addressesResult, paymentsResult] = await Promise.all([
           supabase
             .from("profiles")
             .select("id, full_name, email, phone_number, created_at, updated_at, role, account_type, status")
@@ -520,6 +694,10 @@ function CustomersPage({ orders = [] }) {
             .select("id, user_id, address_label, phone_number, email_address, is_default, created_at, updated_at")
             .order("is_default", { ascending: false })
             .order("created_at", { ascending: true }),
+          supabase
+            .from("payments")
+            .select("id, order_id, payment_purpose, provider_reference, status, amount, paid_at, created_at")
+            .order("created_at", { ascending: false }),
         ]);
 
         if (!isMounted) {
@@ -534,8 +712,20 @@ function CustomersPage({ orders = [] }) {
           throw addressesResult.error;
         }
 
+        if (paymentsResult.error) {
+          throw paymentsResult.error;
+        }
+
         setSupabaseProfiles((profilesResult.data ?? []).map(mapSupabaseProfile));
         setSupabaseAddresses((addressesResult.data ?? []).map(mapSupabaseAddress));
+        setPaymentRows((paymentsResult.data ?? []).map((payment) => ({
+          ...payment,
+          orderId: payment.order_id,
+          paymentPurpose: payment.payment_purpose,
+          providerReference: payment.provider_reference,
+          paidAt: payment.paid_at,
+          createdAt: payment.created_at,
+        })));
       } catch (error) {
         if (!isMounted) {
           return;
@@ -544,6 +734,7 @@ function CustomersPage({ orders = [] }) {
         setRemoteError(error?.message || "Unable to load customer data from Supabase.");
         setSupabaseProfiles([]);
         setSupabaseAddresses([]);
+        setPaymentRows([]);
       } finally {
         if (isMounted) {
           setRemoteLoading(false);
@@ -563,13 +754,14 @@ function CustomersPage({ orders = [] }) {
       getCustomerRows({
         users: supabaseProfiles,
         orders: liveOrders,
+        payments: paymentRows,
         addresses: supabaseAddresses,
         overrides: customerOverrides,
         adminKeys: supabaseProfiles
           .filter((profile) => normalizeKey(profile.role) === "admin")
           .flatMap((profile) => [profile.id, profile.customerId, profile.email]),
       }),
-    [liveOrders, customerOverrides, supabaseAddresses, supabaseProfiles],
+    [liveOrders, paymentRows, customerOverrides, supabaseAddresses, supabaseProfiles],
   );
 
   const filteredCustomers = useMemo(() => {
@@ -591,13 +783,17 @@ function CustomersPage({ orders = [] }) {
   const summary = useMemo(() => {
     const totalCustomers = customers.length;
     const activeCustomers = customers.filter((customer) => customer.status === "active").length;
-    const inactiveCustomers = customers.filter((customer) => customer.status === "inactive").length;
+    const inactiveCustomers = customers.filter((customer) => ["no_orders", "inactive"].includes(customer.status)).length;
+    const pendingCustomers = customers.filter((customer) => customer.status === "pending_payment").length;
+    const partiallyPaidCustomers = customers.filter((customer) => customer.status === "partially_paid").length;
     const blockedCustomers = customers.filter((customer) => customer.status === "blocked").length;
 
     return {
       totalCustomers,
       activeCustomers,
       inactiveCustomers,
+      pendingCustomers,
+      partiallyPaidCustomers,
       blockedCustomers,
     };
   }, [customers]);
@@ -680,7 +876,7 @@ function CustomersPage({ orders = [] }) {
       phoneNumber: customer.phoneNumber,
       orderCount: customer.orderCount,
       orderNumber: customer.latestOrder?.orderNumber || customer.latestOrder?.id || "",
-      totalAmountSpent: customer.totalAmountSpent,
+      totalOrderValue: customer.totalOrderValue,
       status: getCustomerStatusLabel(customer.status),
     }));
 
@@ -691,7 +887,7 @@ function CustomersPage({ orders = [] }) {
       "Phone Number",
       "Order Count",
       "Latest Order",
-      "Total Amount Spent",
+      "Total Order Value",
       "Status",
     ];
 
@@ -705,7 +901,7 @@ function CustomersPage({ orders = [] }) {
           row.phoneNumber,
           row.orderCount,
           row.orderNumber,
-          row.totalAmountSpent,
+          row.totalOrderValue,
           row.status,
         ]
           .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
@@ -727,6 +923,11 @@ function CustomersPage({ orders = [] }) {
 
   const handleToggleBlocked = (customer) => {
     const nextBlocked = customer.status !== "blocked";
+
+    if (!window.confirm(nextBlocked ? `Block ${customer.name}? They will remain in the system but be marked as blocked.` : `Unblock ${customer.name}?`)) {
+      return;
+    }
+
     setCustomerOverrides((records) => toggleCustomerBlocked(records, customer, nextBlocked));
 
     if (nextBlocked) {
@@ -745,6 +946,56 @@ function CustomersPage({ orders = [] }) {
 
     closeMenu();
   };
+
+  const renderCustomerActions = (customer) => {
+    const status = customer.status;
+    const customerKey = getCustomerKey(customer);
+    const isMenuOpen = openMenuKey === customerKey;
+
+    return (
+      <div className="admin-customers-table-actions">
+        <button
+          type="button"
+          className="admin-customers-table-actions__view"
+          onClick={() => openCustomerView(customer, "profile")}
+        >
+          View
+        </button>
+        <div className="admin-customers-action-menu">
+          <button
+            type="button"
+            className="admin-customers-table-actions__more"
+            aria-label={`More actions for ${customer.name}`}
+            aria-expanded={isMenuOpen}
+            onClick={() => setOpenMenuKey(isMenuOpen ? "" : customerKey)}
+          >
+            <span aria-hidden="true">•••</span>
+          </button>
+          {isMenuOpen ? (
+            <div className="admin-customers-action-menu__panel admin-customers-action-menu__panel--right">
+              <button type="button" onClick={() => openCustomerView(customer, "profile")}>View Customer</button>
+              <button type="button" onClick={() => handleToggleBlocked(customer)}>
+                {status === "blocked" ? "Unblock Customer" : "Block Customer"}
+              </button>
+              <button type="button" onClick={() => handleDeleteCustomer(customer)}>Delete Customer</button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomerIdentity = (customer) => (
+    <div className="admin-customers-identity">
+      <span className="admin-customers-identity__avatar" aria-hidden="true">{getCustomerInitials(customer)}</span>
+      <span className="admin-customers-identity__content">
+        <strong>{customer.name || "Customer"}</strong>
+        <small title={customer.customerId || "N/A"}>
+          {customer.customerId ? `ID: ${customer.customerId.slice(0, 8)}...${customer.customerId.slice(-4)}` : "ID not available"}
+        </small>
+      </span>
+    </div>
+  );
 
   return (
     <main className="admin-products-page admin-customers-page">
@@ -782,13 +1033,13 @@ function CustomersPage({ orders = [] }) {
           <SummaryCard
             title="Active"
             value={summary.activeCustomers}
-            note="Customers with active orders."
+            note="All valid orders are fully paid."
             tone="green"
           />
           <SummaryCard
-            title="Inactive"
-            value={summary.inactiveCustomers}
-            note="Customers with no active order."
+            title="Pending Payment"
+            value={summary.pendingCustomers + summary.partiallyPaidCustomers}
+            note="Customers with an outstanding order balance."
             tone="amber"
           />
           <SummaryCard
@@ -823,21 +1074,22 @@ function CustomersPage({ orders = [] }) {
               >
                 <option value="all">All</option>
                 <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="pending_payment">Pending Payment</option>
+                <option value="partially_paid">Partially Paid</option>
+                <option value="no_orders">No Orders</option>
                 <option value="blocked">Blocked</option>
               </select>
             </label>
           </div>
 
-          <div className="admin-products-table-wrap">
+          <div className="admin-customers-table-desktop">
             <table className="admin-products-table admin-customers-main-table">
               <thead>
                 <tr>
-                  <th>Customer</th>
+                  <th>Customer Name</th>
                   <th>Email</th>
-                  <th>Phone</th>
-                  <th>Orders</th>
-                  <th>Total Spent</th>
+                  <th>Phone Number</th>
+                  <th>Total Order Value</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -845,7 +1097,7 @@ function CustomersPage({ orders = [] }) {
               <tbody>
                 {isTableLoading ? (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="7">
+                    <td colSpan="6">
                       <div className="admin-products-empty">
                         <h2>Loading customers...</h2>
                         <p>We are loading customer profiles and delivery addresses from Supabase.</p>
@@ -854,85 +1106,26 @@ function CustomersPage({ orders = [] }) {
                   </tr>
                 ) : filteredCustomers.length > 0 ? (
                   filteredCustomers.map((customer) => {
-                    const status = customer.status;
-                    const isMenuOpen = openMenuKey === getCustomerKey(customer);
-
                     return (
                       <tr key={getCustomerKey(customer)} className="admin-products-row">
-                        <td>
-                          <strong>{customer.name}</strong>
-                          <small title={customer.customerId || "N/A"}>
-                            ID: {customer.customerId ? `${customer.customerId.slice(0, 8)}...${customer.customerId.slice(-4)}` : "N/A"}
-                          </small>
+                        <td>{renderCustomerIdentity(customer)}</td>
+                        <td title={customer.email || "Not added"}>
+                          <span className="admin-customers-table__truncate">{customer.email || "Not added"}</span>
                         </td>
-                        <td title={customer.email || "Not added"}>{customer.email || "Not added"}</td>
                         <td>
                           <span className="admin-customers-muted-value">{formatPhoneNumber(customer.phoneNumber)}</span>
-                          {customer.deliveryContactNumber ? (
-                            <small>Delivery: {formatPhoneNumber(customer.deliveryContactNumber)}</small>
-                          ) : null}
                         </td>
+                        <td>{formatMoney(customer.totalOrderValue)}</td>
                         <td>
-                          <strong>{customer.orderCount}</strong>
+                          <StatusPill status={customer.status} />
                         </td>
-                        <td>{formatMoney(customer.totalAmountSpent)}</td>
-                        <td>
-                          <StatusPill status={status} />
-                        </td>
-                        <td>
-                          <div className="admin-products-actions admin-customers-action-group">
-                            <div className="admin-customers-action-menu">
-                              <button
-                                type="button"
-                                className="admin-products-action admin-customers-action-button admin-customers-action-button--view"
-                                onClick={() =>
-                                  setOpenMenuKey(isMenuOpen ? "" : getCustomerKey(customer))
-                                }
-                              >
-                                View
-                              </button>
-
-                              {isMenuOpen ? (
-                                <div className="admin-customers-action-menu__panel">
-                                  <button type="button" onClick={() => openCustomerView(customer, "profile")}>
-                                    Profile
-                                  </button>
-                                  <button type="button" onClick={() => openCustomerView(customer, "orders")}>
-                                    Orders
-                                  </button>
-                                  <button type="button" onClick={() => openCustomerView(customer, "payments")}>
-                                    Payment History
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            <button
-                              type="button"
-                              className={`admin-products-action admin-customers-action-button ${
-                                status === "blocked"
-                                  ? "admin-customers-action-button--activate"
-                                  : "admin-customers-action-button--block"
-                              }`}
-                              onClick={() => handleToggleBlocked(customer)}
-                            >
-                              {status === "blocked" ? "Activate" : "Block"}
-                            </button>
-                            <button
-                              type="button"
-                              className="admin-products-action admin-customers-action-button admin-customers-action-button--delete"
-                              onClick={() => handleDeleteCustomer(customer)}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
+                        <td>{renderCustomerActions(customer)}</td>
                       </tr>
                     );
                   })
                 ) : (
                   <tr className="admin-products-empty-row">
-                    <td colSpan="7">
+                    <td colSpan="6">
                       <div className="admin-products-empty">
                         <h2>No customers found.</h2>
                         <p>Try a different search term or change the status filter.</p>
@@ -942,6 +1135,35 @@ function CustomersPage({ orders = [] }) {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="admin-customers-table-mobile">
+            {isTableLoading ? (
+              <div className="admin-products-empty">
+                <h2>Loading customers...</h2>
+                <p>We are loading customer profiles and delivery addresses from Supabase.</p>
+              </div>
+            ) : filteredCustomers.length > 0 ? (
+              filteredCustomers.map((customer) => (
+                <article className="admin-customer-mobile-card" key={getCustomerKey(customer)}>
+                  <div className="admin-customer-mobile-card__header">
+                    {renderCustomerIdentity(customer)}
+                    <StatusPill status={customer.status} />
+                  </div>
+                  <dl className="admin-customer-mobile-card__details">
+                    <div><dt>Email</dt><dd title={customer.email || "Not added"}>{customer.email || "Not added"}</dd></div>
+                    <div><dt>Phone Number</dt><dd>{formatPhoneNumber(customer.phoneNumber)}</dd></div>
+                    <div><dt>Total Order Value</dt><dd>{formatMoney(customer.totalOrderValue)}</dd></div>
+                  </dl>
+                  {renderCustomerActions(customer)}
+                </article>
+              ))
+            ) : (
+              <div className="admin-products-empty">
+                <h2>No customers found.</h2>
+                <p>Try a different search term or change the status filter.</p>
+              </div>
+            )}
           </div>
         </section>
       </section>
@@ -1099,8 +1321,16 @@ function CustomersPage({ orders = [] }) {
                   </div>
                 ) : null}
                 <div className="admin-customers-profile__card">
-                  <span>Total Spent</span>
-                  <strong>{formatMoney(activeCustomer.totalAmountSpent)}</strong>
+                  <span>Total Order Value</span>
+                  <strong>{formatMoney(activeCustomer.totalOrderValue)}</strong>
+                </div>
+                <div className="admin-customers-profile__card">
+                  <span>Amount Paid</span>
+                  <strong>{formatMoney(activeCustomer.amountPaid)}</strong>
+                </div>
+                <div className="admin-customers-profile__card">
+                  <span>Pending Amount</span>
+                  <strong>{formatMoney(activeCustomer.pendingAmount)}</strong>
                 </div>
                 <div className="admin-customers-profile__card">
                   <span>Orders</span>
@@ -1108,44 +1338,26 @@ function CustomersPage({ orders = [] }) {
                 </div>
                 <div className="admin-customers-profile__card">
                   <span>Status</span>
-                  <strong>{getCustomerStatusLabel(activeCustomer.status)}</strong>
+                  <strong><StatusPill status={activeCustomer.status} /></strong>
                 </div>
+                <section className="admin-customers-profile__orders">
+                  <div className="admin-customers-profile__orders-header">
+                    <div>
+                      <span>Recent orders</span>
+                      <strong>Select an order to view its original products and payment details.</strong>
+                    </div>
+                    <Link to="/admin/orders" className="admin-customers-modal__button admin-customers-modal__button--ghost">
+                      View all orders
+                    </Link>
+                  </div>
+                  <CustomerOrderList orders={activeCustomerOrders} payments={paymentRows} />
+                </section>
               </div>
             ) : null}
 
             {activeView === "orders" ? (
               <div className="admin-customers-modal__table-wrap">
-                <table className="admin-products-table admin-customers-table">
-                  <thead>
-                    <tr>
-                      <th>Order Id</th>
-                      <th>Date</th>
-                      <th>Amount</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeCustomerOrders.length > 0 ? (
-                      activeCustomerOrders.slice(0, 6).map((order) => (
-                        <tr key={order.id}>
-                          <td>{order.orderNumber || order.id}</td>
-                          <td>{formatShortDate(order.createdAt)}</td>
-                          <td>{formatMoney(order.total ?? 0)}</td>
-                          <td>{getOrderStatusLabel(order.status)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr className="admin-products-empty-row">
-                        <td colSpan="4">
-                          <div className="admin-products-empty">
-                            <h2>No recent orders.</h2>
-                            <p>This customer has not placed any orders yet.</p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                <CustomerOrderList orders={activeCustomerOrders} payments={paymentRows} />
 
                 <div className="admin-customers-modal__footer">
                   <Link to="/admin/orders" className="admin-customers-modal__button admin-customers-modal__button--ghost">
