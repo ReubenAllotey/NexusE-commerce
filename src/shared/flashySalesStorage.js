@@ -73,28 +73,12 @@ async function queryMerchandisingAssignments() {
   return Array.isArray(data) ? data : [];
 }
 
-export async function loadFlashySalesCatalog() {
+export async function loadFlashySalesProducts(products = []) {
   try {
-    const [productsResult, assignments] = await Promise.all([
-      loadProducts(),
-      queryMerchandisingAssignments(),
-    ]);
-
-    if (!productsResult.ok) {
-      return {
-        ok: false,
-        message: productsResult.message || "Unable to load merchandising products.",
-        error: productsResult.error ?? null,
-        records: [],
-        flashyProducts: [],
-        bestSellingProducts: [],
-      };
-    }
-
+    const assignments = await queryMerchandisingAssignments();
     const productById = new Map(
-      (productsResult.products ?? []).map((product) => [product.id, product]),
+      (Array.isArray(products) ? products : []).map((product) => [product.id, product]),
     );
-
     const records = assignments
       .filter(isVisibleAssignment)
       .map((assignment) =>
@@ -115,6 +99,34 @@ export async function loadFlashySalesCatalog() {
       error: null,
       message: "",
     };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error?.message || "Unable to load merchandising products.",
+      error,
+      records: [],
+      flashyProducts: [],
+      bestSellingProducts: [],
+    };
+  }
+}
+
+export async function loadFlashySalesCatalog() {
+  try {
+    const productsResult = await loadProducts();
+
+    if (!productsResult.ok) {
+      return {
+        ok: false,
+        message: productsResult.message || "Unable to load merchandising products.",
+        error: productsResult.error ?? null,
+        records: [],
+        flashyProducts: [],
+        bestSellingProducts: [],
+      };
+    }
+
+    return loadFlashySalesProducts(productsResult.products ?? []);
   } catch (error) {
     return {
       ok: false,

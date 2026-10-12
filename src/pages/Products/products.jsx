@@ -16,6 +16,7 @@ import NexusProductCard from "./ProductCard";
 import UnavailableStockButton from "./UnavailableStockButton";
 import logo from "../../assets/images/nexusLogomain.png";
 import { getDiscoverCategoryCards } from "../../shared/categoryStorage";
+import { loadFlashySalesProducts } from "../../shared/flashySalesStorage";
 import SiteFooter from "../../shared/SiteFooter";
 
 const ITEMS_PER_PAGE = 24;
@@ -52,6 +53,7 @@ const sortOptions = [
   { value: "featured", label: "Featured" },
   { value: "price-asc", label: "Price: Low to High" },
   { value: "price-desc", label: "Price: High to Low" },
+  { value: "flash-sales", label: "Flash Sales" },
 ];
 
 function SearchIcon() {
@@ -332,6 +334,11 @@ function Products({
   const [searchTerm, setSearchTerm] = useState(searchParam);
   const [sortBy, setSortBy] = useState("featured");
   const [currentPage, setCurrentPage] = useState(1);
+  const [flashSalesState, setFlashSalesState] = useState({
+    loading: true,
+    error: "",
+    products: [],
+  });
   const visibleCategoryRecords = useMemo(
     () =>
       categoryRecords
@@ -392,10 +399,45 @@ function Products({
     setCurrentPage(1);
   }, [searchParam]);
 
+  useEffect(() => {
+    let active = true;
+
+    if (!Array.isArray(products) || products.length === 0) {
+      setFlashSalesState({ loading: false, error: "", products: [] });
+      return () => {
+        active = false;
+      };
+    }
+
+    setFlashSalesState((current) => ({ ...current, loading: true, error: "" }));
+    void loadFlashySalesProducts(products).then((result) => {
+      if (!active) {
+        return;
+      }
+
+      setFlashSalesState({
+        loading: false,
+        error: result.ok ? "" : result.message || "Unable to load Flash Sales products.",
+        products: result.flashyProducts ?? [],
+      });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [products]);
+
+  const flashSaleProductsById = useMemo(
+    () => new Map(flashSalesState.products.map((product) => [product.id, product])),
+    [flashSalesState.products],
+  );
+
   const filteredProducts = useMemo(
     () =>
       (Array.isArray(products) ? products : [])
         .filter((item) => {
+          const matchesFlashSales =
+            sortBy !== "flash-sales" || flashSaleProductsById.has(item.id);
           const haystack =
             `${item.name} ${item.description} ${item.brand} ${item.category}`.toLowerCase();
           const matchesSearch = haystack.includes(searchTerm.toLowerCase());
@@ -405,7 +447,7 @@ function Products({
           const matchesAvailability =
             !selectedAvailability ||
             normalizeAvailabilityType(item?.availabilityType ?? item?.availability_type) === selectedAvailability;
-          return matchesSearch && matchesCategory && matchesAvailability;
+          return matchesFlashSales && matchesSearch && matchesCategory && matchesAvailability;
         })
         .sort((a, b) => {
           switch (sortBy) {
@@ -417,7 +459,7 @@ function Products({
               return new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0);
           }
         }),
-    [products, searchTerm, selectedCategories, selectedAvailability, sortBy],
+    [products, searchTerm, selectedCategories, selectedAvailability, sortBy, flashSaleProductsById],
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
@@ -588,7 +630,7 @@ function Products({
                 visibleProducts.map((item) => (
                   <NexusProductCard
                     key={item.name}
-                    item={item}
+                    item={sortBy === "flash-sales" ? flashSaleProductsById.get(item.id) ?? item : item}
                     isWishlisted={wishlistItems.includes(item.name)}
                     onAddToCart={onAddToCart}
                     onToggleWishlist={onToggleWishlist}
@@ -599,8 +641,10 @@ function Products({
                 ))
               ) : (
                 <div className="shop-empty">
-                  <h3>No products match your filters.</h3>
-                  <p>Try clearing a category, availability, or search term to see more items.</p>
+                  <h3>{sortBy === "flash-sales" ? "No Flash Sales products available at the moment." : "No products match your filters."}</h3>
+                  <p>{sortBy === "flash-sales" && flashSalesState.error
+                    ? flashSalesState.error
+                    : "Try clearing a category, availability, or search term to see more items."}</p>
                 </div>
               )}
             </div>
