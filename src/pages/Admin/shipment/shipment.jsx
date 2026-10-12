@@ -11,8 +11,10 @@ import { loadAdminBatches } from "../../../shared/batchStorage";
 import ShipmentTrack from "../../../shared/ShipmentTrack";
 import {
   getShipmentStepsForFreight,
+  archiveShipmentTrack,
   loadAdminShipmentTracks,
   saveShipmentTrack,
+  saveShipmentTrackStages,
 } from "../../../shared/shipmentStorage";
 
 const EMPTY_TRACK = {
@@ -55,7 +57,7 @@ function SummaryCard({ title, value, note }) {
   );
 }
 
-function TrackRow({ track, onEdit, onView }) {
+function TrackRow({ track, onEdit, onView, onManage, onDelete }) {
   return (
     <article className="admin-shipment-card">
       <div className="admin-shipment-card__header">
@@ -67,8 +69,12 @@ function TrackRow({ track, onEdit, onView }) {
         <span className="admin-shipment-pill">{track.shippingMethodLabel}</span>
       </div>
       <ShipmentTrack stepStates={track.stepStates} />
+      <div className="admin-shipment-card__progress" aria-label={`${track.progressPercent}% complete`}>
+        <span style={{ width: `${track.progressPercent}%` }} />
+      </div>
       <div className="admin-shipment-card__meta">
         <div><span>Stage</span><strong>{track.currentStatusLabel}</strong></div>
+        <div><span>Progress</span><strong>{track.completedStageCount}/{track.totalStageCount} stages</strong></div>
         <div><span>Departure</span><strong>{formatShortDate(track.estimatedDeparture)}</strong></div>
         <div><span>Arrival</span><strong>{formatShortDate(track.estimatedArrival)}</strong></div>
         <div><span>Updated</span><strong>{formatShortDate(track.updatedAt)}</strong></div>
@@ -76,6 +82,8 @@ function TrackRow({ track, onEdit, onView }) {
       <div className="admin-shipment-card__actions">
         <button type="button" className="admin-products-action admin-products-action--edit" onClick={onView}>View</button>
         <button type="button" className="admin-products-action admin-products-action--edit" onClick={onEdit}>Edit</button>
+        <button type="button" className="admin-products-action admin-products-action--edit" onClick={onManage}>Manage Stages</button>
+        <button type="button" className="admin-products-action admin-products-action--delete" onClick={onDelete}>Delete</button>
       </div>
     </article>
   );
@@ -86,6 +94,8 @@ function ShipmentPage({ authUser = null }) {
   const [batches, setBatches] = useState([]);
   const [tracks, setTracks] = useState([]);
   const [selectedTrack, setSelectedTrack] = useState(null);
+  const [stageTrack, setStageTrack] = useState(null);
+  const [stageDraft, setStageDraft] = useState([]);
   const [trackDraft, setTrackDraft] = useState(EMPTY_TRACK);
   const [trackModalOpen, setTrackModalOpen] = useState(false);
   const [feeModalOpen, setFeeModalOpen] = useState(false);
@@ -94,6 +104,7 @@ function ShipmentPage({ authUser = null }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingFee, setSavingFee] = useState(false);
+  const [savingStages, setSavingStages] = useState(false);
   const { products, loading: productsLoading, refresh: refreshProducts } = useProducts();
 
   const pendingFeeProducts = useMemo(
@@ -124,6 +135,8 @@ function ShipmentPage({ authUser = null }) {
     setTrackModalOpen(false);
     setFeeModalOpen(false);
     setSelectedTrack(null);
+    setStageTrack(null);
+    setStageDraft([]);
     setError("");
   };
 
@@ -152,6 +165,90 @@ function ShipmentPage({ authUser = null }) {
     setTrackModalOpen(true);
     setFeeModalOpen(false);
     setError("");
+  };
+
+  const openManageStages = (track) => {
+    setStageTrack(track);
+    setStageDraft((track.stages ?? []).map((stage, index) => ({
+      ...stage,
+      position: index,
+      completedAt: stage.completedAt ? String(stage.completedAt).slice(0, 10) : "",
+    })));
+    setSelectedTrack(null);
+    setTrackModalOpen(false);
+    setFeeModalOpen(false);
+    setError("");
+  };
+
+  const updateStage = (stageId, field, value) => {
+    setStageDraft((current) => current.map((stage) => (stage.id || stage.key) === stageId ? { ...stage, [field]: value } : stage));
+  };
+
+  const moveStage = (index, direction) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= stageDraft.length) return;
+    setStageDraft((current) => {
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next.map((stage, position) => ({ ...stage, position }));
+    });
+  };
+
+  const addStage = () => {
+    setStageDraft((current) => ([...current, {
+      id: "",
+      key: `stage-${Date.now()}`,
+      label: "New stage",
+      description: "",
+      position: current.length,
+      isCompleted: false,
+      completedAt: "",
+    }]));
+  };
+
+  const removeStage = (stage, index) => {
+    if (!window.confirm(`Remove stage "${stage.label || `Stage ${index + 1}`}"? Existing shipment history will be preserved.`)) return;
+    setStageDraft((current) => current.filter((_, itemIndex) => itemIndex !== index).map((item, position) => ({ ...item, position })));
+  };
+
+  const handleSaveStages = async (event) => {
+    event.preventDefault();
+    if (!stageTrack || stageDraft.length === 0) {
+      setError("Add at least one shipment stage before saving.");
+      return;
+    }
+    if (stageDraft.some((stage) => !clean(stage.label))) {
+      setError("Every shipment stage needs a name.");
+      return;
+    }
+    setSavingStages(true);
+    setError("");
+    const result = await saveShipmentTrackStages(stageTrack.id, stageDraft.map((stage, position) => ({
+      id: stage.id || null,
+      stage_key: stage.key || `stage-${position + 1}`,
+      stage_name: clean(stage.label),
+      description: clean(stage.description),
+      position,
+      is_completed: Boolean(stage.isCompleted),
+      completed_at: stage.isCompleted ? stage.completedAt || null : null,
+    })));
+    if (!result.ok) setError(result.message);
+    else {
+      await refresh();
+      setStageTrack(null);
+      setStageDraft([]);
+    }
+    setSavingStages(false);
+  };
+
+  const handleDeleteTrack = async (track) => {
+    const reference = track.batchNumber || track.id;
+    const linkedOrders = track.orderCount > 0 ? ` ${track.orderCount} linked order${track.orderCount === 1 ? " is" : "s are"} present; orders and history will not be deleted.` : "";
+    if (!window.confirm(`Archive shipment track ${reference} (${track.shippingMethodLabel})?${linkedOrders}`)) return;
+    setError("");
+    const result = await archiveShipmentTrack(track.id);
+    if (!result.ok) setError(result.message);
+    else await refresh();
   };
 
   const handleTrackChange = (field, value) => {
@@ -234,7 +331,7 @@ function ShipmentPage({ authUser = null }) {
 
         <section className="admin-products-panel admin-shipment-panel">
           <div className="admin-shipment-panel__heading"><div><p>Managed tracking</p><h2>Existing tracks</h2></div><span>{loading ? "Loading..." : `${tracks.length} track${tracks.length === 1 ? "" : "s"}`}</span></div>
-          {tracks.length > 0 ? <div className="admin-shipment-cards">{tracks.map((track) => <TrackRow key={track.id} track={track} onView={() => setSelectedTrack(track)} onEdit={() => openEdit(track)} />)}</div> : <div className="admin-products-empty"><h2>No shipment tracks yet.</h2><p>Create an Air or Sea track for any managed batch, even before orders exist.</p></div>}
+          {tracks.length > 0 ? <div className="admin-shipment-cards">{tracks.map((track) => <TrackRow key={track.id} track={track} onView={() => setSelectedTrack(track)} onEdit={() => openEdit(track)} onManage={() => openManageStages(track)} onDelete={() => handleDeleteTrack(track)} />)}</div> : <div className="admin-products-empty"><h2>No shipment tracks yet.</h2><p>Create an Air or Sea track for any managed batch, even before orders exist.</p></div>}
         </section>
       </section>
 
@@ -263,12 +360,39 @@ function ShipmentPage({ authUser = null }) {
         </div>
       ) : null}
 
+      {stageTrack ? (
+        <div className="admin-shipment-modal" role="dialog" aria-modal="true" aria-label="Manage shipment stages">
+          <button type="button" className="admin-shipment-modal__scrim" onClick={closeDialogs} aria-label="Close stage manager" />
+          <aside className="admin-shipment-modal__panel admin-shipment-stages-modal__panel">
+            <header className="admin-shipment-modal__header"><div><p>{stageTrack.shippingMethodLabel}</p><h2>Manage Stages</h2><span>{stageTrack.batchNumber || "Shipment track"} · {stageDraft.length} stage{stageDraft.length === 1 ? "" : "s"}</span></div><button type="button" className="admin-shipment-modal__close" onClick={closeDialogs}>Close</button></header>
+            <form className="admin-shipment-modal__form" onSubmit={handleSaveStages}>
+              <div className="admin-shipment-stages__toolbar"><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={addStage}>Add Stage</button><span>Changes to completion state can notify linked customers through the existing tracking event flow.</span></div>
+              <div className="admin-shipment-stages">
+                {stageDraft.map((stage, index) => (
+                  <div className="admin-shipment-stage-editor" key={stage.id || stage.key || index}>
+                    <div className="admin-shipment-stage-editor__top"><strong>Stage {index + 1}</strong><label className="admin-shipment-stage-editor__check"><input type="checkbox" checked={Boolean(stage.isCompleted)} onChange={(event) => updateStage(stage.id || stage.key, "isCompleted", event.target.checked)} /> Completed</label><span className={stage.isCompleted ? "admin-shipment-stage-editor__status admin-shipment-stage-editor__status--complete" : "admin-shipment-stage-editor__status"}>{stage.isCompleted ? "Complete" : "Pending"}</span></div>
+                    <div className="admin-shipment-stage-editor__grid">
+                      <label className="admin-shipment-modal__field"><span>Stage name</span><input value={stage.label} onChange={(event) => updateStage(stage.id || stage.key, "label", event.target.value)} required /></label>
+                      <label className="admin-shipment-modal__field"><span>Completion date</span><input type="date" value={stage.completedAt || ""} disabled={!stage.isCompleted} onChange={(event) => updateStage(stage.id || stage.key, "completedAt", event.target.value)} /></label>
+                    </div>
+                    <label className="admin-shipment-modal__field"><span>Description</span><textarea value={stage.description || ""} onChange={(event) => updateStage(stage.id || stage.key, "description", event.target.value)} placeholder="What should the customer know about this stage?" /></label>
+                    <div className="admin-shipment-stage-editor__actions"><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => moveStage(index, -1)} disabled={index === 0}>Up</button><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => moveStage(index, 1)} disabled={index === stageDraft.length - 1}>Down</button><button type="button" className="admin-products-action admin-products-action--delete" onClick={() => removeStage(stage, index)}>Delete</button></div>
+                  </div>
+                ))}
+              </div>
+              <div className="admin-shipment-modal__actions"><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={closeDialogs}>Cancel</button><button type="submit" className="admin-shipment-modal__button admin-shipment-modal__button--primary" disabled={savingStages}>{savingStages ? "Saving..." : "Save Stages"}</button></div>
+            </form>
+          </aside>
+        </div>
+      ) : null}
+
       {selectedTrack ? (
         <div className="admin-shipment-modal" role="dialog" aria-modal="true" aria-label="Shipment track details">
           <button type="button" className="admin-shipment-modal__scrim" onClick={closeDialogs} aria-label="Close shipment details" />
           <aside className="admin-shipment-modal__panel">
             <header className="admin-shipment-modal__header"><div><p>{selectedTrack.shippingMethodLabel}</p><h2>{selectedTrack.batchNumber}</h2><span>{selectedTrack.headline || selectedTrack.stepLabel}</span></div><button type="button" className="admin-shipment-modal__close" onClick={closeDialogs}>Close</button></header>
             <ShipmentTrack stepStates={selectedTrack.stepStates} />
+            <div className="admin-shipment-modal__stage-list">{(selectedTrack.stages ?? []).map((stage) => <div key={stage.id} className="admin-shipment-modal__stage-item"><div><strong>{stage.label}</strong><span>{stage.description || "No stage description"}</span></div><em>{stage.isCompleted ? `Completed${stage.completedAt ? ` · ${formatShortDate(stage.completedAt)}` : ""}` : "Pending"}</em></div>)}</div>
             <div className="admin-shipment-modal__details"><div><span>Status</span><strong>{selectedTrack.currentStatusLabel}</strong></div><div><span>Announcement</span><strong>{selectedTrack.announcement || "No announcement"}</strong></div><div><span>Departure</span><strong>{formatShortDate(selectedTrack.estimatedDeparture)}</strong></div><div><span>Arrival</span><strong>{formatShortDate(selectedTrack.estimatedArrival)}</strong></div><div><span>Last updated</span><strong>{formatShortDate(selectedTrack.updatedAt)}</strong></div></div>
             <div className="admin-shipment-modal__actions"><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--primary" onClick={() => openEdit(selectedTrack)}>Edit Track</button></div>
           </aside>

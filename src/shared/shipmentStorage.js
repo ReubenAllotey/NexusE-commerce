@@ -194,6 +194,31 @@ function mapTrackItems(items = []) {
   }));
 }
 
+function mapTrackStages(stages = [], track = {}) {
+  const fallback = getShipmentStepsForFreight(track.freightType ?? track.freight_type);
+  const source = Array.isArray(stages) && stages.length > 0
+    ? stages
+    : fallback.map((step, index) => ({
+        id: `${clean(track.id)}-${step.key}`,
+        stage_key: step.key,
+        stage_name: step.label,
+        description: "",
+        position: index,
+        is_completed: index < clampStepIndex(track.currentStep ?? track.current_step),
+        completed_at: null,
+      }));
+
+  return source.map((stage, index) => ({
+    id: clean(stage?.id) || `${clean(track.id)}-stage-${index}`,
+    key: clean(stage?.stageKey ?? stage?.stage_key) || `stage-${index + 1}`,
+    label: clean(stage?.stageName ?? stage?.stage_name ?? stage?.label) || `Stage ${index + 1}`,
+    description: clean(stage?.description),
+    position: Math.max(Math.round(toNumber(stage?.position, index)), 0),
+    isCompleted: Boolean(stage?.isCompleted ?? stage?.is_completed),
+    completedAt: stage?.completedAt ?? stage?.completed_at ?? null,
+  }));
+}
+
 function mapNewShipmentTrack(row = {}) {
   const freightType = normalizeShipmentMethod(readField(row, "freightType", "freight_type"));
   const currentStatus = normalizeShipmentStatus(
@@ -204,11 +229,13 @@ function mapNewShipmentTrack(row = {}) {
     ? 4
     : clampStepIndex(readField(row, "currentStep", "current_step"));
   const steps = getShipmentStepsForFreight(freightType);
+  const stages = mapTrackStages(row?.stages, { ...row, freightType, currentStep });
   const orders = Array.isArray(row?.orders) ? row.orders : [];
   const items = mapTrackItems(row?.items);
-  const stepStates = steps.map((step, index) => ({
-    ...step,
-    state: getStepState(currentStep, index, currentStatus),
+  const stepStates = stages.map((stage, index) => ({
+    key: stage.id || stage.key,
+    label: stage.label,
+    state: stage.isCompleted ? "done" : index === stages.findIndex((item) => !item.isCompleted) ? "active" : "pending",
   }));
 
   return {
@@ -224,8 +251,8 @@ function mapNewShipmentTrack(row = {}) {
     currentStep,
     currentStatus,
     currentStatusLabel: getStatusLabel(currentStatus),
-    stepLabel: currentStatus === "delivered" ? "Delivered" : steps[currentStep]?.label ?? steps[0].label,
-    progressPercent: getProgressPercent(currentStep, currentStatus),
+    stepLabel: currentStatus === "delivered" ? "Delivered" : stages.find((stage) => !stage.isCompleted)?.label ?? stages[stages.length - 1]?.label ?? steps[0].label,
+    progressPercent: stages.length > 0 ? Math.round((stages.filter((stage) => stage.isCompleted).length / stages.length) * 100) : getProgressPercent(currentStep, currentStatus),
     estimatedDeparture: readField(row, "estimatedDeparture", "estimated_departure"),
     estimatedArrival: readField(row, "estimatedArrival", "estimated_arrival"),
     updatedAt: readField(row, "updatedAt", "updated_at"),
@@ -234,6 +261,9 @@ function mapNewShipmentTrack(row = {}) {
     items,
     orderCount: orders.length,
     customerCount: new Set(orders.map((order) => clean(order?.customerId ?? order?.userId))).size,
+    stages,
+    completedStageCount: stages.filter((stage) => stage.isCompleted).length,
+    totalStageCount: stages.length,
     stepStates,
     events: [],
     latestEvent: null,
@@ -245,6 +275,7 @@ export async function loadAdminShipmentTracks() {
     supabase
       .from("shipment_tracks")
       .select("*")
+      .is("archived_at", null)
       .order("updated_at", { ascending: false })
       .order("created_at", { ascending: false }),
     supabase
@@ -265,11 +296,35 @@ export async function loadAdminShipmentTracks() {
     (Array.isArray(batchRows) ? batchRows : []).map((batch) => [clean(batch.id), batch.batch_number]),
   );
 
+  const trackIds = (Array.isArray(data) ? data : []).map((row) => clean(row.id)).filter(Boolean);
+  let stagesByTrackId = new Map();
+
+  if (trackIds.length > 0) {
+    const { data: stageRows, error: stageError } = await supabase
+      .from("shipment_track_stages")
+      .select("*")
+      .in("shipment_track_id", trackIds)
+      .order("position", { ascending: true });
+
+    if (stageError) {
+      return { ok: false, message: stageError.message || "Unable to load shipment stages.", tracks: [] };
+    }
+
+    stagesByTrackId = new Map();
+    for (const stage of Array.isArray(stageRows) ? stageRows : []) {
+      const key = clean(stage.shipment_track_id);
+      const existing = stagesByTrackId.get(key) ?? [];
+      existing.push(stage);
+      stagesByTrackId.set(key, existing);
+    }
+  }
+
   return {
     ok: true,
     tracks: (Array.isArray(data) ? data : []).map((row) => mapNewShipmentTrack({
       ...row,
       batch_number: batchNumbers.get(clean(row.batch_id)) ?? "",
+      stages: stagesByTrackId.get(clean(row.id)) ?? [],
     })),
   };
 }
@@ -298,6 +353,29 @@ export async function saveShipmentTrack(payload = {}) {
   return { ok: true, tracks: rows.map(mapNewShipmentTrack), raw: data };
 }
 
+export async function saveShipmentTrackStages(trackId, stages = []) {
+  const { data, error } = await supabase.rpc("save_shipment_track_stages", {
+    p_track_id: trackId,
+    p_stages: Array.isArray(stages) ? stages : [],
+  });
+
+  if (error) {
+    return { ok: false, message: error.message || "Unable to save shipment stages." };
+  }
+
+  return { ok: true, stages: Array.isArray(data?.stages) ? data.stages.map((stage) => mapTrackStages([stage])[0]) : [] };
+}
+
+export async function archiveShipmentTrack(trackId) {
+  const { data, error } = await supabase.rpc("archive_shipment_track", { p_track_id: trackId });
+
+  if (error) {
+    return { ok: false, message: error.message || "Unable to archive shipment track." };
+  }
+
+  return { ok: true, track: data ?? null };
+}
+
 export function useCustomerShipmentTracks() {
   const [state, setState] = useState({ loading: true, error: "", tracks: [] });
   const [refreshToken, setRefreshToken] = useState(0);
@@ -307,7 +385,7 @@ export function useCustomerShipmentTracks() {
 
     const load = async () => {
       setState((current) => ({ ...current, loading: true, error: "" }));
-      const { data, error } = await supabase.rpc("get_my_shipment_tracks");
+      const { data, error } = await supabase.rpc("get_my_active_shipment_tracks");
 
       if (!active) return;
 
@@ -316,10 +394,23 @@ export function useCustomerShipmentTracks() {
         return;
       }
 
+      const stageResult = await supabase.rpc("get_my_shipment_track_stages");
+      const stagesByTrackId = new Map();
+      if (!stageResult.error) {
+        for (const stage of Array.isArray(stageResult.data) ? stageResult.data : []) {
+          const existing = stagesByTrackId.get(clean(stage.shipment_track_id)) ?? [];
+          existing.push(stage);
+          stagesByTrackId.set(clean(stage.shipment_track_id), existing);
+        }
+      }
+
       setState({
         loading: false,
         error: "",
-        tracks: (Array.isArray(data) ? data : []).map(mapNewShipmentTrack),
+        tracks: (Array.isArray(data) ? data : []).map((track) => mapNewShipmentTrack({
+          ...track,
+          stages: stagesByTrackId.get(clean(track.id)) ?? [],
+        })),
       });
     };
 

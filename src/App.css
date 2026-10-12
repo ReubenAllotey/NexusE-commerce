@@ -15002,6 +15002,193 @@ body[data-theme="dark"] .admin-flashy-modal__suggestions-empty {
   font-weight: 800;
 }
 
+.admin-shipment-card__progress {
+  width: 100%;
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7edf7;
+}
+
+.admin-shipment-card__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0240cd;
+  transition: width 180ms ease;
+}
+
+.admin-shipment-card__actions .admin-products-action {
+  min-height: 2.45rem;
+  padding: 0.45rem 0.8rem;
+}
+
+.admin-products-action--delete {
+  border-color: rgba(190, 42, 42, 0.28);
+  color: #b3261e;
+}
+
+.admin-shipment-stages-modal__panel {
+  width: min(66rem, 100%);
+}
+
+.admin-shipment-stages__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.85rem;
+  background: #f8fbff;
+}
+
+.admin-shipment-stages__toolbar span {
+  color: #5d6c83;
+  font-size: 0.86rem;
+}
+
+.admin-shipment-stages {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.admin-shipment-stage-editor {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.95rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 0.9rem;
+  background: #ffffff;
+}
+
+.admin-shipment-stage-editor__top,
+.admin-shipment-stage-editor__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.admin-shipment-stage-editor__top strong {
+  color: #13244c;
+  margin-right: auto;
+}
+
+.admin-shipment-stage-editor__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #394a62;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.admin-shipment-stage-editor__status {
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.admin-shipment-stage-editor__status--complete {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-shipment-stage-editor__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(10rem, 0.8fr);
+  gap: 0.8rem;
+}
+
+.admin-shipment-stage-editor__actions .admin-products-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.admin-shipment-modal__stage-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.admin-shipment-modal__stage-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.85rem;
+  border-left: 3px solid #0240cd;
+  border-radius: 0.6rem;
+  background: #f8fbff;
+}
+
+.admin-shipment-modal__stage-item div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.admin-shipment-modal__stage-item span {
+  color: #5d6c83;
+  font-size: 0.86rem;
+}
+
+.admin-shipment-modal__stage-item em {
+  flex: 0 0 auto;
+  color: #166534;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+body[data-theme="dark"] .admin-shipment-card,
+body[data-theme="dark"] .admin-shipment-stage-editor,
+body[data-theme="dark"] .admin-shipment-modal__panel {
+  background: #101a2c;
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+body[data-theme="dark"] .admin-shipment-card__meta,
+body[data-theme="dark"] .admin-shipment-stages__toolbar,
+body[data-theme="dark"] .admin-shipment-modal__stage-item {
+  background: #162238;
+}
+
+body[data-theme="dark"] .admin-shipment-card__header h3,
+body[data-theme="dark"] .admin-shipment-card__meta strong,
+body[data-theme="dark"] .admin-shipment-stage-editor__top strong {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-shipment-stages__toolbar span,
+body[data-theme="dark"] .admin-shipment-stage-editor__check,
+body[data-theme="dark"] .admin-shipment-modal__stage-item span {
+  color: #b7c4d8;
+}
+
+body[data-theme="dark"] .admin-shipment-modal__stage-item {
+  color: #f8fafc;
+}
+
+@media (max-width: 720px) {
+  .admin-shipment-stages__toolbar,
+  .admin-shipment-modal__stage-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-shipment-stage-editor__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-shipment-stage-editor__actions .admin-products-action {
+    flex: 1 1 5rem;
+  }
+}
+
 .admin-shipment-modal {
   position: fixed;
   inset: 0;
