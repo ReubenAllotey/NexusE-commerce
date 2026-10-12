@@ -1095,8 +1095,8 @@ function CustomersPage({ orders = [] }) {
                   <th>Customer Name</th>
                   <th>Email</th>
                   <th>Phone Number</th>
-                  <th>Total Orders</th>
-                  <th>Total Amount</th>
+                  <th>Orders</th>
+                  <th>Amount Paid</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -1162,7 +1162,7 @@ function CustomersPage({ orders = [] }) {
                     <div><dt>Email</dt><dd title={customer.email || "Not added"}>{customer.email || "Not added"}</dd></div>
                     <div><dt>Phone Number</dt><dd>{formatPhoneNumber(customer.phoneNumber)}</dd></div>
                     <div><dt>Total Orders</dt><dd>{customer.confirmedOrderCount}</dd></div>
-                    <div><dt>Total Amount</dt><dd>{formatMoney(customer.amountPaid)}</dd></div>
+                    <div><dt>Amount Paid</dt><dd>{formatMoney(customer.amountPaid)}</dd></div>
                   </dl>
                   {renderCustomerActions(customer)}
                 </article>
