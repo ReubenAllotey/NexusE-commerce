@@ -73,7 +73,7 @@ function createEmptyForm(authUser = null, address = null) {
   };
 }
 
-function readScopedCheckoutDraft(ownerUserId) {
+function readScopedCheckoutDraft(ownerUserId, addresses = []) {
   const currentOwnerId = clean(ownerUserId);
   const draft = loadPaymentCheckoutDraft(currentOwnerId);
 
@@ -82,8 +82,19 @@ function readScopedCheckoutDraft(ownerUserId) {
   }
 
   const shippingAddress = draft.shippingAddress ?? null;
+  const addressId = clean(shippingAddress?.id);
 
-  return shippingAddress && clean(shippingAddress.id) ? shippingAddress : null;
+  if (!addressId) {
+    return null;
+  }
+
+  // Resolve the draft back to the current profile record so edits and deletes
+  // made in Profile > Addresses are reflected in checkout immediately.
+  const currentAddress = (Array.isArray(addresses) ? addresses : []).find(
+    (address) => clean(address?.id) === addressId,
+  );
+
+  return currentAddress ?? null;
 }
 
 function resolveCartRows(cartItems = [], productLookup = new Map()) {
@@ -162,7 +173,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
   }, [currentUserId, location.state?.shippingPaymentPreference]);
 
   useEffect(() => {
-    const nextSavedCheckoutAddress = readScopedCheckoutDraft(currentUserId);
+    const nextSavedCheckoutAddress = readScopedCheckoutDraft(currentUserId, visibleAddresses);
     const nextInitialAddress = nextSavedCheckoutAddress ?? profileAddress ?? null;
 
     setSavedCheckoutAddress(nextSavedCheckoutAddress);
