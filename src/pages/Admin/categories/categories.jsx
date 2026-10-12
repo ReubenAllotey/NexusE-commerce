@@ -10,6 +10,7 @@ import {
   getCategoryProductCount,
   restoreCategoryRecord,
   setCategoryStatus,
+  updateCategoryRecord,
   useCategoryRecords,
 } from "../../../shared/categoryStorage";
 import { getCategoryProductsPath } from "../../Home/catalogData";
@@ -66,10 +67,12 @@ function CategoriesPage({ orders = [] }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState("");
   const [draft, setDraft] = useState(getEmptyDraft);
   const [formError, setFormError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [openMenuKey, setOpenMenuKey] = useState("");
   const products = liveProducts;
   const categoryMetrics = useMemo(() => getCategoryMetrics(records), [records]);
   const recordIndex = useMemo(
@@ -79,11 +82,11 @@ function CategoriesPage({ orders = [] }) {
   const parentCategoryOptions = useMemo(
     () =>
       records
-        .filter((record) => record.status === "active" && !record.deletedAt)
+        .filter((record) => record.status === "active" && !record.deletedAt && record.id !== editingCategoryId)
         .sort((left, right) =>
           (left.order ?? 0) - (right.order ?? 0) || left.name.localeCompare(right.name),
         ),
-    [records],
+    [editingCategoryId, records],
   );
   const selectedParentId = draft.parentId || "";
   const selectedParent = selectedParentId ? recordIndex.get(selectedParentId) ?? null : null;
@@ -134,11 +137,13 @@ function CategoriesPage({ orders = [] }) {
   const closeModal = () => {
     setIsModalOpen(false);
     setDraft(getEmptyDraft());
+    setEditingCategoryId("");
     setFormError("");
   };
 
   const openCreateModal = () => {
     setDraft(getEmptyDraft());
+    setEditingCategoryId("");
     setFormError("");
     setStatusMessage("");
     setIsModalOpen(true);
@@ -149,8 +154,22 @@ function CategoriesPage({ orders = [] }) {
       ...getEmptyDraft(),
       parentId: record.id,
     });
+    setEditingCategoryId("");
     setFormError("");
     setStatusMessage("");
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (record) => {
+    setDraft({
+      name: record.name || "",
+      description: record.description || "",
+      parentId: record.parentId || "",
+    });
+    setEditingCategoryId(record.id);
+    setFormError("");
+    setStatusMessage("");
+    setOpenMenuKey("");
     setIsModalOpen(true);
   };
 
@@ -223,13 +242,16 @@ function CategoriesPage({ orders = [] }) {
     const payload = {
       name: draft.name.trim(),
       description: draft.description.trim(),
-      status: "active",
-      showOnHomepage: false,
+      ...(editingCategoryId ? {} : { status: "active", showOnHomepage: false }),
     };
 
     const result = selectedParentId
-      ? await createSubcategoryRecord(selectedParentId, payload)
-      : await createCategoryRecord(payload);
+      ? editingCategoryId
+        ? await updateCategoryRecord(editingCategoryId, { ...payload, parentId: selectedParentId })
+        : await createSubcategoryRecord(selectedParentId, payload)
+      : editingCategoryId
+        ? await updateCategoryRecord(editingCategoryId, payload)
+        : await createCategoryRecord(payload);
 
     setIsSaving(false);
 
@@ -250,7 +272,7 @@ function CategoriesPage({ orders = [] }) {
           <div>
             <p>Admin catalog</p>
             <h1>Categories</h1>
-            <span>Manage storefront categories, add subcategories, and keep the product menu in sync.</span>
+            <span>Manage product categories and subcategories.</span>
           </div>
 
           <div className="admin-categories-header__actions">
@@ -324,21 +346,22 @@ function CategoriesPage({ orders = [] }) {
           {statusMessage ? <p className="admin-categories-modal__error">{statusMessage}</p> : null}
           {productsLoading && !loading ? <p className="admin-categories-modal__error">Loading product counts from Supabase...</p> : null}
 
-          <div className="admin-categories-table-wrap">
+          <div className="admin-categories-table-desktop">
             <table className="admin-categories-table">
               <thead>
                 <tr>
-                  <th>Categories</th>
+                  <th>Category</th>
                   <th>Parent</th>
                   <th>Products</th>
-                  <th>Order</th>
+                  <th>Display Order</th>
+                  <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && filteredRows.length === 0 ? (
                   <tr className="admin-categories-empty-row">
-                    <td colSpan="5">
+                    <td colSpan="6">
                       <div className="admin-categories-empty">
                         <h2>Loading categories...</h2>
                         <p>Please wait while the category list is loaded from Supabase.</p>
@@ -351,13 +374,13 @@ function CategoriesPage({ orders = [] }) {
                       <td>
                         <div className="admin-categories-row__category">
                           <strong>{record.name}</strong>
-                          <CategoryPill status={record.rowState} />
                           {record.description ? <small>{record.description}</small> : null}
                         </div>
                       </td>
                       <td>{record.parentName}</td>
                       <td>{record.productCount}</td>
                       <td>{record.order ?? 0}</td>
+                      <td><CategoryPill status={record.rowState} /></td>
                       <td>
                         <div className="admin-categories-actions">
                           <Link
@@ -366,41 +389,36 @@ function CategoriesPage({ orders = [] }) {
                           >
                             View
                           </Link>
-                          <button
-                            type="button"
-                            className="admin-categories-action admin-categories-action--secondary"
-                            onClick={() => openSubcategoryModal(record)}
-                            disabled={isSaving}
-                          >
-                            Add Subcategory
-                          </button>
-                          <button
-                            type="button"
-                            className="admin-categories-action admin-categories-action--toggle"
-                            onClick={() => handleToggleVisibility(record)}
-                            disabled={isSaving}
-                          >
-                            {record.rowState === "deleted"
-                              ? "Restore"
-                              : record.rowState === "hidden"
-                                ? "Display"
-                                : "Disable"}
-                          </button>
-                          <button
-                            type="button"
-                            className="admin-categories-action admin-categories-action--danger"
-                            onClick={() => handleDelete(record)}
-                            disabled={isSaving || record.rowState === "deleted"}
-                          >
-                            {record.rowState === "deleted" ? "Deleted" : "Delete"}
-                          </button>
+                          <div className="admin-categories-action-menu">
+                            <button
+                              type="button"
+                              className="admin-categories-action admin-categories-action--more"
+                              aria-label={`More actions for ${record.name}`}
+                              aria-expanded={openMenuKey === record.id}
+                              onClick={() => setOpenMenuKey(openMenuKey === record.id ? "" : record.id)}
+                            >
+                              <span aria-hidden="true">•••</span>
+                            </button>
+                            {openMenuKey === record.id ? (
+                              <div className="admin-categories-action-menu__panel">
+                                <button type="button" onClick={() => openEditModal(record)}>Edit Category</button>
+                                <button type="button" onClick={() => openSubcategoryModal(record)}>Add Subcategory</button>
+                                <button type="button" onClick={() => handleToggleVisibility(record)} disabled={isSaving}>
+                                  {record.rowState === "deleted" ? "Enable Category" : record.rowState === "hidden" ? "Enable Category" : "Disable Category"}
+                                </button>
+                                <button type="button" className="is-danger" onClick={() => handleDelete(record)} disabled={isSaving || record.rowState === "deleted"}>
+                                  Delete Category
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr className="admin-categories-empty-row">
-                    <td colSpan="5">
+                    <td colSpan="6">
                       <div className="admin-categories-empty">
                         <h2>No categories found.</h2>
                         <p>Try a different search term or status filter, or add a new category.</p>
@@ -410,6 +428,61 @@ function CategoriesPage({ orders = [] }) {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="admin-categories-table-mobile">
+            {loading && filteredRows.length === 0 ? (
+              <div className="admin-categories-empty">
+                <h2>Loading categories...</h2>
+                <p>Please wait while the category list is loaded from Supabase.</p>
+              </div>
+            ) : filteredRows.length > 0 ? (
+              filteredRows.map((record) => (
+                <article className="admin-category-mobile-card" key={record.id}>
+                  <div className="admin-category-mobile-card__header">
+                    <div className="admin-categories-row__category">
+                      <strong>{record.name}</strong>
+                      {record.description ? <small>{record.description}</small> : null}
+                    </div>
+                    <CategoryPill status={record.rowState} />
+                  </div>
+                  <dl className="admin-category-mobile-card__details">
+                    <div><dt>Parent</dt><dd>{record.parentName}</dd></div>
+                    <div><dt>Products</dt><dd>{record.productCount}</dd></div>
+                    <div><dt>Display Order</dt><dd>{record.order ?? 0}</dd></div>
+                  </dl>
+                  <div className="admin-categories-actions">
+                    <Link to={getCategoryProductsPath(record.slug)} className="admin-categories-action admin-categories-action--view">View</Link>
+                    <div className="admin-categories-action-menu">
+                      <button
+                        type="button"
+                        className="admin-categories-action admin-categories-action--more"
+                        aria-label={`More actions for ${record.name}`}
+                        aria-expanded={openMenuKey === record.id}
+                        onClick={() => setOpenMenuKey(openMenuKey === record.id ? "" : record.id)}
+                      >
+                        <span aria-hidden="true">•••</span>
+                      </button>
+                      {openMenuKey === record.id ? (
+                        <div className="admin-categories-action-menu__panel">
+                          <button type="button" onClick={() => openEditModal(record)}>Edit Category</button>
+                          <button type="button" onClick={() => openSubcategoryModal(record)}>Add Subcategory</button>
+                          <button type="button" onClick={() => handleToggleVisibility(record)} disabled={isSaving}>
+                            {record.rowState === "deleted" || record.rowState === "hidden" ? "Enable Category" : "Disable Category"}
+                          </button>
+                          <button type="button" className="is-danger" onClick={() => handleDelete(record)} disabled={isSaving || record.rowState === "deleted"}>Delete Category</button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="admin-categories-empty">
+                <h2>No categories found.</h2>
+                <p>Try a different search term or status filter, or add a new category.</p>
+              </div>
+            )}
           </div>
         </section>
       </section>
@@ -426,8 +499,8 @@ function CategoriesPage({ orders = [] }) {
           <aside className="admin-categories-modal__panel">
             <header className="admin-categories-modal__header">
               <div>
-                <p>{isSubcategory ? "Add subcategory" : "Add category"}</p>
-                <h2>{isSubcategory ? `Under ${selectedParent?.name ?? "parent"}` : "New Category"}</h2>
+                <p>{editingCategoryId ? "Edit category" : isSubcategory ? "Add subcategory" : "Add category"}</p>
+                <h2>{editingCategoryId ? "Edit Category" : isSubcategory ? `Under ${selectedParent?.name ?? "parent"}` : "New Category"}</h2>
                 <span>Category changes are saved to the storefront category menu.</span>
               </div>
             </header>
