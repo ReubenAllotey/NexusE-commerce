@@ -2139,9 +2139,12 @@ async function handleAdminShippingPaymentNotice(req, res) {
     .eq("source_type", "payment_status")
     .eq("source_key", sourceKey)
     .maybeSingle()).data;
-  const email = inserted
+  const queueAvailable = await isEmailQueueAvailable();
+  const email = inserted && !queueAvailable
     ? await sendNotificationEmailForRow(existing ?? notificationValues)
-    : { ok: true, skipped: true, message: "This notification was already created." };
+    : inserted
+      ? { ok: true, queued: true, message: "Email queued for delivery." }
+      : { ok: true, skipped: true, message: "This notification was already created." };
 
   sendJson(res, 200, {
     ok: true,
@@ -2149,7 +2152,7 @@ async function handleAdminShippingPaymentNotice(req, res) {
     accounting,
     email,
     message: email.ok && !email.skipped
-      ? "Shipping notice sent via profile notifications and email."
+      ? email.queued ? "Shipping notice saved and email queued for delivery." : "Shipping notice sent via profile notifications and email."
       : "Shipping notice already exists in the customer profile.",
   });
 }
@@ -2266,14 +2269,14 @@ async function sendTransactionalEmail({ to, from, subject, text, html }) {
   const smtp = getSmtpTransporter();
   if (smtp) {
     try {
-      await smtp.sendMail({
+      const result = await smtp.sendMail({
         from: configuredFrom,
         to: recipient,
         subject: clean(subject),
         text: clean(text),
         html: clean(html) || undefined,
       });
-      return { ok: true, provider: "smtp" };
+      return { ok: true, provider: "smtp", providerMessageId: result?.messageId || "" };
     } catch {
       // Try the optional fallback without exposing SMTP details to the client.
     }
@@ -2299,7 +2302,8 @@ async function sendTransactionalEmail({ to, from, subject, text, html }) {
       });
 
       if (response.ok) {
-        return { ok: true, provider: "resend" };
+        const body = await response.json().catch(() => ({}));
+        return { ok: true, provider: "resend", providerMessageId: clean(body?.id) };
       }
     } catch {
       // Return a safe delivery failure below.
@@ -2324,7 +2328,7 @@ async function sendOrderPaymentEmail({ recipient, customerName, orderNumber, out
   });
 }
 
-async function sendNotificationEmailForRow(notification) {
+async function sendNotificationEmailForRow(notification, delivery = {}) {
   const userId = clean(notification?.user_id);
   if (!userId) {
     return { ok: false, message: "The notification has no customer recipient." };
@@ -2340,7 +2344,7 @@ async function sendNotificationEmailForRow(notification) {
     return { ok: false, message: error.message || "Unable to load the customer email address." };
   }
 
-  const recipient = clean(profile?.email);
+  const recipient = clean(delivery.recipientEmail) || clean(profile?.email);
   if (!recipient) {
     return { ok: false, message: "The customer has no registered email address." };
   }
@@ -2359,6 +2363,188 @@ async function sendNotificationEmailForRow(notification) {
     text: `Dear ${customerName},\n\n${message}\n\nView details: ${absoluteActionUrl}\n\nNexus Import Hub`,
     html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033;max-width:640px"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>Dear ${escapeHtml(customerName)},</p><p>${safeMessage}</p><p><a href="${escapeHtml(absoluteActionUrl)}" style="display:inline-block;background:#0240CD;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">${escapeHtml(notification.action_label || "View notification")}</a></p><p style="color:#64748b">Shop Beyond Borders. We Handle the Rest.</p></div>`,
   });
+}
+
+function isEmailQueueProcessingEnabled() {
+  return isTruthyEnv(process.env.EMAIL_QUEUE_ENABLED) && Boolean(supabaseAdmin);
+}
+
+async function isEmailQueueAvailable() {
+  if (!supabaseAdmin) return false;
+  const { error } = await supabaseAdmin
+    .from("notification_email_deliveries")
+    .select("id", { head: true, count: "exact" });
+  return !error;
+}
+
+function getEmailRetryDelaySeconds(attempts) {
+  return [60, 300, 900, 3600][Math.max(0, Math.min(Number(attempts) || 1, 4)) - 1] || 3600;
+}
+
+function isValidQueuedEmailAddress(value) {
+  const email = clean(value);
+  return Boolean(email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+}
+
+async function updateClaimedEmailJob(job, values) {
+  const { data, error } = await supabaseAdmin
+    .from("notification_email_deliveries")
+    .update(values)
+    .eq("id", job.id)
+    .eq("lock_token", job.lock_token)
+    .eq("status", "processing")
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("Email queue job update failed:", error.message);
+    return false;
+  }
+  if (!data) {
+    // A newer worker lease owns this job. Never overwrite its result.
+    console.warn("Email queue job lease was lost before completion.");
+    return false;
+  }
+  return true;
+}
+
+async function drainNotificationEmailQueue() {
+  if (!isEmailQueueProcessingEnabled() || !supabaseAdmin) {
+    return { ok: false, skipped: true, processed: 0 };
+  }
+
+  const { data: jobs, error: claimError } = await supabaseAdmin.rpc("claim_notification_email_jobs", {
+    p_limit: 20,
+    p_lease_timeout: "5 minutes",
+  });
+
+  if (claimError) {
+    if (!/does not exist|relation/i.test(claimError.message || "")) {
+      console.error("Email queue lookup failed:", claimError.message);
+    }
+    return { ok: false, message: claimError.message, processed: 0 };
+  }
+
+  let processed = 0;
+  for (const job of jobs ?? []) {
+    const { data: notification, error: notificationError } = await supabaseAdmin
+      .from("notifications")
+      .select("*")
+      .eq("id", job.notification_id)
+      .maybeSingle();
+
+    let result;
+    if (!isValidQueuedEmailAddress(job.recipient_email)) {
+      result = { ok: false, permanent: true, message: "The queued recipient email address is invalid." };
+    } else if (notificationError) {
+      result = { ok: false, message: notificationError.message || "Unable to load the notification." };
+    } else if (!notification) {
+      result = { ok: false, permanent: true, message: "The notification no longer exists." };
+    } else {
+      try {
+        result = await sendNotificationEmailForRow(notification, {
+          recipientEmail: job.recipient_email,
+        });
+      } catch (error) {
+        result = { ok: false, message: error?.message || "Email delivery failed." };
+      }
+    }
+
+    const now = new Date().toISOString();
+    if (result.ok) {
+      await updateClaimedEmailJob(job, {
+        status: "sent",
+        sent_at: now,
+        provider: result.provider || null,
+        provider_message_id: result.providerMessageId || null,
+        locked_at: null,
+        lock_token: null,
+        updated_at: now,
+        last_error: null,
+      });
+    } else {
+      const attempts = Number(job.attempts) || 1;
+      const permanent = result.permanent || /no registered email|invalid recipient|invalid.*email|notification no longer exists/i.test(result.message || "");
+      const exhausted = attempts >= (Number(job.max_attempts) || 5);
+      const retryAt = new Date(Date.now() + getEmailRetryDelaySeconds(attempts) * 1000).toISOString();
+      await updateClaimedEmailJob(job, {
+        status: "failed",
+        attempts: permanent ? (Number(job.max_attempts) || 5) : attempts,
+        next_attempt_at: permanent || exhausted ? now : retryAt,
+        locked_at: null,
+        lock_token: null,
+        last_error: clean(result.message).slice(0, 500) || "Email delivery failed.",
+        updated_at: now,
+      });
+    }
+
+    processed += 1;
+  }
+
+  return { ok: true, processed };
+}
+
+let emailWorkerRunning = false;
+
+async function runNotificationEmailWorkerCycle() {
+  if (emailWorkerRunning) {
+    return { ok: false, skipped: true, processed: 0 };
+  }
+
+  emailWorkerRunning = true;
+  try {
+    return await drainNotificationEmailQueue();
+  } finally {
+    emailWorkerRunning = false;
+  }
+}
+
+async function requeueNotificationEmail(notificationId) {
+  if (!(await isEmailQueueAvailable())) {
+    return { ok: false, message: "The email queue is not enabled." };
+  }
+
+  const { data: existing, error: lookupError } = await supabaseAdmin
+    .from("notification_email_deliveries")
+    .select("id, status")
+    .eq("notification_id", notificationId)
+    .maybeSingle();
+  if (lookupError || !existing) {
+    return { ok: false, message: lookupError?.message || "No email queue job exists for this notification." };
+  }
+  if (existing.status !== "failed") {
+    return { ok: false, message: "Only failed notification emails can be retried." };
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("notification_email_deliveries")
+    .update({
+      status: "pending",
+      attempts: 0,
+      next_attempt_at: now,
+      last_attempt_at: null,
+      sent_at: null,
+      locked_at: null,
+      lock_token: null,
+      last_error: null,
+      updated_at: now,
+    })
+    .eq("id", existing.id)
+    .eq("status", "failed")
+    .select("id, status, attempts")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ok: false, message: error?.message || "No email queue job exists for this notification." };
+  }
+
+  return { ok: true, queued: true, message: "Email queued for retry." };
+}
+
+function isAuthorizedEmailWorkerRequest(req) {
+  const configuredSecret = clean(process.env.EMAIL_QUEUE_WORKER_SECRET);
+  return Boolean(configuredSecret) && req.headers.authorization === `Bearer ${configuredSecret}`;
 }
 
 async function handleAdminNotificationEmail(req, res) {
@@ -2398,13 +2584,25 @@ async function handleAdminNotificationEmail(req, res) {
     sendJson(res, 404, { ok: false, message: "Notification not found." });
     return;
   }
+  if (notification.source_type === "announcement") {
+    sendJson(res, 409, {
+      ok: false,
+      message: "Announcement email delivery is disabled until customer email preferences are implemented.",
+    });
+    return;
+  }
 
-  const email = await sendNotificationEmailForRow(notification);
-  sendJson(res, email.ok ? 200 : 502, {
+  const queueAvailable = await isEmailQueueAvailable();
+  const email = queueAvailable
+    ? await requeueNotificationEmail(notification.id)
+    : await sendNotificationEmailForRow(notification);
+  sendJson(res, email.ok ? 200 : 409, {
     ok: email.ok,
     email,
     notificationId: notification.id,
-    message: email.ok ? "Notification email accepted for delivery." : email.message,
+    message: email.ok
+      ? email.queued ? "Notification email queued for retry." : "Notification email accepted for delivery."
+      : email.message,
   });
 }
 
@@ -2482,20 +2680,23 @@ async function handleAdminOrderPaymentNotice(req, res) {
     if (body?.retryEmail) {
       const retryOrderNumber = order.order_number || order.id;
       const retryMessage = clean(body?.message) || `Dear ${order.customer_name || "Customer"},\n\nYour order ${retryOrderNumber} with Nexus Import Hub has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}.\n\nKindly complete your payment so we can continue processing your order.`;
-      const retryEmail = await sendOrderPaymentEmail({
-        recipient: order.customer_email,
-        customerName: order.customer_name || "Customer",
-        orderNumber: retryOrderNumber,
-        outstanding: accounting.outstanding,
-        message: retryMessage,
-      });
+      const queueAvailable = await isEmailQueueAvailable();
+      const retryEmail = queueAvailable
+        ? await requeueNotificationEmail(existing.id)
+        : await sendOrderPaymentEmail({
+            recipient: order.customer_email,
+            customerName: order.customer_name || "Customer",
+            orderNumber: retryOrderNumber,
+            outstanding: accounting.outstanding,
+            message: retryMessage,
+          });
       sendJson(res, 200, {
         ok: true,
         notification: existing,
         accounting,
         email: retryEmail,
         message: retryEmail.ok
-          ? "The payment reminder email was sent successfully."
+          ? retryEmail.queued ? "The payment reminder email was queued for retry." : "The payment reminder email was sent successfully."
           : "The in-app notification was already sent, but email delivery failed again.",
       });
       return;
@@ -2533,20 +2734,23 @@ async function handleAdminOrderPaymentNotice(req, res) {
     return;
   }
 
-  const email = await sendOrderPaymentEmail({
-    recipient: order.customer_email,
-    customerName: order.customer_name || "Customer",
-    orderNumber,
-    outstanding: accounting.outstanding,
-    message,
-  });
+  const queueAvailable = await isEmailQueueAvailable();
+  const email = queueAvailable
+    ? { ok: true, queued: true, message: "Email queued for delivery." }
+    : await sendOrderPaymentEmail({
+        recipient: order.customer_email,
+        customerName: order.customer_name || "Customer",
+        orderNumber,
+        outstanding: accounting.outstanding,
+        message,
+      });
   sendJson(res, 200, {
     ok: true,
     notification,
     accounting,
     email,
     message: email.ok
-      ? "Payment notice sent successfully via email and customer notifications."
+      ? email.queued ? "Payment notice saved and email queued for delivery." : "Payment notice sent successfully via email and customer notifications."
       : "In-app notification sent, but email delivery failed.",
   });
 }
@@ -4659,6 +4863,17 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/notification-email" && req.method === "POST") {
     await handleAdminNotificationEmail(req, res);
+    return;
+  }
+
+  if (pathname === "/internal/email-queue/worker" && req.method === "POST") {
+    if (!isAuthorizedEmailWorkerRequest(req)) {
+      sendJson(res, 401, { ok: false, message: "Unauthorized queue worker request." });
+      return;
+    }
+
+    const result = await runNotificationEmailWorkerCycle();
+    sendJson(res, result.ok ? 200 : 503, result);
     return;
   }
 
