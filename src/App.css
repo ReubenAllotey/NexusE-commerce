@@ -15871,10 +15871,23 @@ body[data-theme="dark"] .admin-flashy-modal__suggestions-empty {
 }
 
 .admin-product-form__variation-combination-toolbar {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: auto auto auto;
   gap: 0.6rem;
   flex-wrap: wrap;
+  align-items: end;
+}
+
+.admin-product-form__variation-bulk-editor {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(10rem, 1fr)) auto;
+  gap: 0.65rem;
+  grid-column: 1 / -1;
+  align-items: end;
+  padding: 0.8rem;
+  border: 1px solid rgba(247, 79, 0, 0.2);
+  border-radius: 0.8rem;
+  background: rgba(247, 79, 0, 0.05);
 }
 
 .admin-product-form__variation-combination-list {
@@ -15884,13 +15897,56 @@ body[data-theme="dark"] .admin-flashy-modal__suggestions-empty {
 
 .admin-product-form__variation-combination-card {
   display: grid;
-  grid-template-columns: auto minmax(9rem, 1fr) repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.7rem;
   align-items: end;
   padding: 0.85rem;
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 0.9rem;
   background: #f8fbff;
+}
+
+.admin-product-form__variation-combination-card > .admin-product-form__variation-toggle {
+  grid-column: 1;
+}
+
+.admin-product-form__variation-combination-card > strong {
+  grid-column: 2 / 4;
+}
+
+.admin-product-form__variation-combination-card > .admin-product-form__variation-status {
+  grid-column: 4;
+}
+
+.admin-product-form__variation-combination-card > label:nth-of-type(2) {
+  grid-column: 1;
+}
+
+.admin-product-form__variation-combination-card > label:nth-of-type(3) {
+  grid-column: 2;
+}
+
+.admin-product-form__variation-combination-card > label:nth-of-type(4) {
+  grid-column: 3;
+}
+
+.admin-product-form__variation-combination-card > label:nth-of-type(5) {
+  grid-column: 4;
+}
+
+.admin-product-form__variation-combination-card > label:nth-of-type(2) span,
+.admin-product-form__variation-combination-card > label:nth-of-type(3) span {
+  font-size: 0;
+}
+
+.admin-product-form__variation-combination-card > label:nth-of-type(2) span::before {
+  content: "Selling Price (GH\\20B5) *";
+  font-size: 0.84rem;
+}
+
+.admin-product-form__variation-combination-card > label:nth-of-type(3) span::before {
+  content: "Compare-at Price (GH\\20B5)";
+  font-size: 0.84rem;
 }
 
 .admin-product-form__variation-combination-card > strong {
@@ -15904,6 +15960,75 @@ body[data-theme="dark"] .admin-flashy-modal__suggestions-empty {
   object-fit: contain;
   border-radius: 0.55rem;
   background: #ffffff;
+}
+
+.admin-product-form__variation-combination-media {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.admin-product-form__variation-combination-placeholder {
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  border-radius: 0.55rem;
+  color: #64748b;
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.admin-product-form__variation-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.admin-product-form__variation-combination-media-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.admin-product-form__variation-combination-media-actions > span {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.admin-product-form__variation-status {
+  justify-self: end;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.admin-product-form__variation-status.is-active {
+  color: #0240cd;
+}
+
+body[data-theme="dark"] .admin-product-form__variation-combination-card,
+body[data-theme="dark"] .admin-product-form__variation-bulk-editor {
+  background: #17233d;
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+body[data-theme="dark"] .admin-product-form__variation-combination-card > strong,
+body[data-theme="dark"] .admin-product-form__variation-combination-card .admin-product-form__variation-toggle {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-product-form__variation-combination-card .admin-product-form__variation-inline-field input {
+  background: #101a31;
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.3);
 }
 
 /* A color option is the swatch; no nested oval or padded inner shape. */
@@ -15936,13 +16061,33 @@ body[data-theme="dark"] .admin-flashy-modal__suggestions-empty {
 }
 
 @media (max-width: 720px) {
+  .admin-product-form__variation-bulk-editor {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-product-form__variation-bulk-editor .admin-product-form__button {
+    grid-column: 1 / -1;
+  }
+
   .admin-product-form__variation-combination-card {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .admin-product-form__variation-combination-card > strong,
-  .admin-product-form__variation-combination-card > .admin-product-form__variation-toggle {
+  .admin-product-form__variation-combination-card > .admin-product-form__variation-toggle,
+  .admin-product-form__variation-combination-card > .admin-product-form__variation-status {
     grid-column: 1 / -1;
+  }
+
+  .admin-product-form__variation-combination-card > label:nth-of-type(2),
+  .admin-product-form__variation-combination-card > label:nth-of-type(3),
+  .admin-product-form__variation-combination-card > label:nth-of-type(4),
+  .admin-product-form__variation-combination-card > label:nth-of-type(5) {
+    grid-column: auto;
+  }
+
+  .admin-product-form__variation-combination-media {
+    align-items: flex-start;
   }
 }
 
