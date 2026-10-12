@@ -259,6 +259,14 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   const [shippingNoticeSaving, setShippingNoticeSaving] = useState(false);
   const [shippingNoticeError, setShippingNoticeError] = useState("");
   const [shippingNoticeSuccess, setShippingNoticeSuccess] = useState("");
+  const [paymentNoticeOrderId, setPaymentNoticeOrderId] = useState(null);
+  const [paymentNoticeData, setPaymentNoticeData] = useState(null);
+  const [paymentNoticeMessage, setPaymentNoticeMessage] = useState("");
+  const [paymentNoticeLoading, setPaymentNoticeLoading] = useState(false);
+  const [paymentNoticeSaving, setPaymentNoticeSaving] = useState(false);
+  const [paymentNoticeError, setPaymentNoticeError] = useState("");
+  const [paymentNoticeSuccess, setPaymentNoticeSuccess] = useState("");
+  const [paymentNoticeEmailFailed, setPaymentNoticeEmailFailed] = useState(false);
 
   const session = authUser ?? loadAdminSession();
   const activeStatusOrder = useMemo(
@@ -272,6 +280,10 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   const activeShippingOrder = useMemo(
     () => orders.find((order) => order.id === shippingPaymentOrderId) ?? null,
     [orders, shippingPaymentOrderId],
+  );
+  const activePaymentNoticeOrder = useMemo(
+    () => orders.find((order) => order.id === paymentNoticeOrderId) ?? null,
+    [orders, paymentNoticeOrderId],
   );
   const {
     shipmentsByOrderId,
@@ -375,6 +387,100 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     setShippingNoticeSuccess("");
   };
 
+  const closePaymentNoticeModal = () => {
+    setPaymentNoticeOrderId(null);
+    setPaymentNoticeData(null);
+    setPaymentNoticeMessage("");
+    setPaymentNoticeLoading(false);
+    setPaymentNoticeSaving(false);
+    setPaymentNoticeError("");
+    setPaymentNoticeSuccess("");
+    setPaymentNoticeEmailFailed(false);
+  };
+
+  const openPaymentNoticeModal = async (order) => {
+    if (!order || paymentNoticeLoading || paymentNoticeSaving) {
+      return;
+    }
+
+    setPaymentNoticeOrderId(order.id);
+    setPaymentNoticeData(null);
+    setPaymentNoticeMessage("");
+    setPaymentNoticeLoading(true);
+    setPaymentNoticeError("");
+    setPaymentNoticeSuccess("");
+    setPaymentNoticeEmailFailed(false);
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error(sessionError?.message || "Please sign in again to view this payment balance.");
+      }
+
+      const response = await fetch(`/api/admin/order-payment-notice?orderId=${encodeURIComponent(order.id)}`, {
+        headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Unable to load the payment balance.");
+      }
+
+      const customerName = result.order?.customerName || "Customer";
+      const orderNumber = result.order?.orderNumber || order.orderNumber || order.id;
+      const outstanding = result.accounting?.outstanding ?? 0;
+      setPaymentNoticeData(result);
+      setPaymentNoticeMessage(
+        `Dear ${customerName},\n\nYour order ${orderNumber} with Nexus Import Hub has an outstanding payment of ${formatMoney(outstanding)}.\n\nKindly complete your payment so we can continue processing your order.\n\nYou can view your order and payment details by logging into your Nexus Import Hub account.\n\nThank you for shopping with Nexus Import Hub.`,
+      );
+    } catch (error) {
+      setPaymentNoticeError(error instanceof Error ? error.message : "Unable to load the payment balance.");
+    } finally {
+      setPaymentNoticeLoading(false);
+    }
+  };
+
+  const handleSendPaymentNotice = async () => {
+    if (!activePaymentNoticeOrder || paymentNoticeSaving || !paymentNoticeMessage.trim()) {
+      return;
+    }
+
+    setPaymentNoticeSaving(true);
+    setPaymentNoticeError("");
+    setPaymentNoticeSuccess("");
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error(sessionError?.message || "Please sign in again to send this notice.");
+      }
+
+      const response = await fetch("/api/admin/order-payment-notice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({
+          orderId: activePaymentNoticeOrder.id,
+          message: paymentNoticeMessage,
+          retryEmail: paymentNoticeEmailFailed,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Unable to send the payment notice.");
+      }
+
+      const emailFailed = result.email?.ok === false;
+      setPaymentNoticeEmailFailed(emailFailed);
+      setPaymentNoticeSuccess(result.message || "Payment notice sent successfully.");
+    } catch (error) {
+      setPaymentNoticeError(error instanceof Error ? error.message : "Unable to send the payment notice.");
+    } finally {
+      setPaymentNoticeSaving(false);
+    }
+  };
+
   const handleSendShippingNotice = async () => {
     if (!activeShippingOrder || shippingNoticeSaving) {
       return;
@@ -403,7 +509,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
         throw new Error(result?.message || "Unable to send the shipping payment notice.");
       }
 
-      setShippingNoticeSuccess("Payment notice sent to the customer.");
+      setShippingNoticeSuccess(
+        result.email?.ok === false
+          ? "In-app notification sent, but email delivery failed."
+          : result.message || "Payment notice sent to the customer.",
+      );
     } catch (error) {
       setShippingNoticeError(error instanceof Error ? error.message : "Unable to send the shipping payment notice.");
     } finally {
@@ -652,9 +762,20 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                             <td>{orderCount}</td>
                             <td>{formatMoney(order.total ?? 0)}</td>
                             <td>
-                              <Pill tone={normalizeText(order.paymentStatus) === "paid" ? "green" : "amber"}>
-                                {getPaymentStatusLabel(order)}
-                              </Pill>
+                              <div className="admin-orders-payment-cell">
+                                <Pill tone={normalizeText(order.paymentStatus) === "paid" ? "green" : "amber"}>
+                                  {getPaymentStatusLabel(order)}
+                                </Pill>
+                                {normalizeText(order.paymentStatus) !== "paid" && getOrderSummaryStatus(order) !== "cancelled" ? (
+                                  <button
+                                    type="button"
+                                    className="admin-orders-payment-notice-trigger"
+                                    onClick={() => openPaymentNoticeModal(order)}
+                                  >
+                                    Pending Payment
+                                  </button>
+                                ) : null}
+                              </div>
                             </td>
                             <td>
                               <button
@@ -817,10 +938,29 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                   <dl className="admin-orders-view-modal__facts">
                     <div><dt>Name</dt><dd>{activeViewOrder.customerName || "Guest checkout"}</dd></div>
                     <div><dt>Email</dt><dd>{activeViewOrder.customerEmail || "No email captured"}</dd></div>
-                    {activeViewOrder.shippingAddress?.phone ? (
-                      <div><dt>Phone</dt><dd>{activeViewOrder.shippingAddress.phone}</dd></div>
+                    {activeViewOrder.shippingAddress?.phoneNumber ? (
+                      <div><dt>Phone</dt><dd>{activeViewOrder.shippingAddress.phoneNumber}</dd></div>
                     ) : null}
                   </dl>
+                </section>
+
+                <section className="admin-orders-view-modal__section">
+                  <h3>Delivery Details</h3>
+                  {activeViewOrder.shippingAddress ? (
+                    <dl className="admin-orders-view-modal__facts">
+                      {activeViewOrder.shippingAddress.addressLabel ? <div><dt>Delivery method</dt><dd>{activeViewOrder.shippingAddress.addressLabel}</dd></div> : null}
+                      {activeViewOrder.shippingAddress.region ? <div><dt>Region</dt><dd>{activeViewOrder.shippingAddress.region}</dd></div> : null}
+                      {(activeViewOrder.shippingAddress.city || activeViewOrder.shippingAddress.deliveryLocation) ? <div><dt>City / Town</dt><dd>{activeViewOrder.shippingAddress.city || activeViewOrder.shippingAddress.deliveryLocation}</dd></div> : null}
+                      {activeViewOrder.shippingAddress.deliveryLocation && activeViewOrder.shippingAddress.deliveryLocation !== activeViewOrder.shippingAddress.city ? <div><dt>Delivery location</dt><dd>{activeViewOrder.shippingAddress.deliveryLocation}</dd></div> : null}
+                      {activeViewOrder.shippingAddress.streetAddress || activeViewOrder.shippingAddress.houseNumber || activeViewOrder.shippingAddress.landmark ? (
+                        <div><dt>Address / Landmark</dt><dd>{[activeViewOrder.shippingAddress.houseNumber, activeViewOrder.shippingAddress.streetAddress, activeViewOrder.shippingAddress.landmark].filter(Boolean).join(", ")}</dd></div>
+                      ) : null}
+                      {activeViewOrder.shippingAddress.fullName || activeViewOrder.customerName ? <div><dt>Recipient</dt><dd>{activeViewOrder.shippingAddress.fullName || activeViewOrder.customerName}</dd></div> : null}
+                      {activeViewOrder.shippingAddress.phoneNumber ? <div><dt>Phone</dt><dd>{activeViewOrder.shippingAddress.phoneNumber}</dd></div> : null}
+                    </dl>
+                  ) : (
+                    <p className="admin-orders-view-modal__empty">Delivery information not available.</p>
+                  )}
                 </section>
 
                 <section className="admin-orders-view-modal__section">
@@ -940,6 +1080,61 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                 disabled={statusSaving}
               >
                 {statusSaving ? "Saving..." : "Save status"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {activePaymentNoticeOrder ? (
+        <div className="admin-orders-modal" role="dialog" aria-modal="true" aria-labelledby="order-payment-modal-title">
+          <button
+            type="button"
+            className="admin-orders-modal__scrim"
+            aria-label="Close payment notice modal"
+            onClick={closePaymentNoticeModal}
+          />
+          <div className="admin-orders-modal__panel admin-orders-payment-notice-modal">
+            <header className="admin-orders-modal__header">
+              <div>
+                <p>Pending order payment</p>
+                <h2 id="order-payment-modal-title">Send Payment Notice</h2>
+                <span>{paymentNoticeData?.order?.orderNumber || activePaymentNoticeOrder.orderNumber || activePaymentNoticeOrder.id}</span>
+              </div>
+              <button type="button" className="admin-orders-modal__close" onClick={closePaymentNoticeModal}>Close</button>
+            </header>
+            <div className="admin-orders-modal__body">
+              {paymentNoticeLoading ? <p className="admin-orders-modal__section-label">Rechecking the verified payment balance...</p> : null}
+              {paymentNoticeData ? (
+                <>
+                  <div className="admin-orders-payment-notice-summary">
+                    <div><span>Customer</span><strong>{paymentNoticeData.order.customerName}</strong></div>
+                    <div><span>Email</span><strong>{paymentNoticeData.order.customerEmail}</strong></div>
+                    <div><span>Order amount due</span><strong>{formatMoney(paymentNoticeData.accounting.orderAmountDue)}</strong></div>
+                    <div><span>Verified order payments</span><strong>{formatMoney(paymentNoticeData.accounting.verifiedOrderPayments)}</strong></div>
+                    <div className="is-emphasis"><span>Outstanding balance</span><strong>{formatMoney(paymentNoticeData.accounting.outstanding)}</strong></div>
+                    <div><span>Payment status</span><strong>{paymentNoticeData.accounting.paymentStatus === "paid" ? "Paid" : "Pending"}</strong></div>
+                  </div>
+                  {paymentNoticeData.accounting.outstanding > 0 ? (
+                    <label className="admin-orders-payment-notice-message">
+                      <span>Message</span>
+                      <textarea value={paymentNoticeMessage} onChange={(event) => setPaymentNoticeMessage(event.target.value)} rows={9} />
+                    </label>
+                  ) : <p className="admin-orders-modal__success">This order has no outstanding order payment.</p>}
+                </>
+              ) : null}
+              {paymentNoticeError ? <p className="admin-orders-modal__error">{paymentNoticeError}</p> : null}
+              {paymentNoticeSuccess ? <p className="admin-orders-modal__success">{paymentNoticeSuccess}</p> : null}
+            </div>
+            <footer className="admin-orders-modal__actions">
+              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={closePaymentNoticeModal}>Cancel</button>
+              <button
+                type="button"
+                className="admin-orders-modal__button admin-orders-modal__button--primary"
+                onClick={handleSendPaymentNotice}
+                disabled={paymentNoticeLoading || paymentNoticeSaving || !paymentNoticeData?.accounting?.outstanding || (Boolean(paymentNoticeSuccess) && !paymentNoticeEmailFailed)}
+              >
+                {paymentNoticeSaving ? "Sending..." : paymentNoticeEmailFailed ? "Retry Email" : paymentNoticeSuccess ? "Notice sent" : "Send Payment Notice"}
               </button>
             </footer>
           </div>

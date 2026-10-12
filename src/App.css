@@ -19873,6 +19873,109 @@ body[data-theme="dark"] .admin-product-form__modal input {
   }
 }
 
+.admin-orders-payment-cell {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+}
+
+.admin-orders-payment-notice-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0240cd;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.16rem;
+}
+
+.admin-orders-payment-notice-trigger:hover {
+  color: #f74f00;
+}
+
+.admin-orders-payment-notice-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.admin-orders-payment-notice-summary div {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+}
+
+.admin-orders-payment-notice-summary span,
+.admin-orders-payment-notice-message > span {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-orders-payment-notice-summary strong {
+  overflow-wrap: anywhere;
+  color: #172033;
+}
+
+.admin-orders-payment-notice-summary .is-emphasis {
+  border-color: rgba(247, 79, 0, 0.45);
+  background: rgba(247, 79, 0, 0.08);
+}
+
+.admin-orders-payment-notice-summary .is-emphasis strong {
+  color: #f74f00;
+  font-size: 1.1rem;
+}
+
+.admin-orders-payment-notice-message {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.admin-orders-payment-notice-message textarea {
+  width: 100%;
+  min-height: 10rem;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid #d7dee8;
+  border-radius: 0.75rem;
+  padding: 0.8rem;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+  line-height: 1.5;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-summary div {
+  border-color: #2b3648;
+  background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-summary strong,
+body[data-theme="dark"] .admin-orders-payment-notice-message textarea {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-message textarea {
+  border-color: #3a475b;
+  background: #111827;
+}
+
+@media (max-width: 640px) {
+  .admin-orders-payment-notice-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Responsive polish pass */
 :where(
     .site-shell,

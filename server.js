@@ -4,12 +4,15 @@ import path from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import nodemailer from "nodemailer";
 import webpush from "web-push";
 import { analyzeProduct } from "./server/services/aiProductService.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 const PORT = Number(process.env.PORT || 3001);
+let smtpTransporter = null;
+let smtpTransporterConfig = "";
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -2136,8 +2139,416 @@ async function handleAdminShippingPaymentNotice(req, res) {
     .eq("source_type", "payment_status")
     .eq("source_key", sourceKey)
     .maybeSingle()).data;
+  const email = inserted
+    ? await sendNotificationEmailForRow(existing ?? notificationValues)
+    : { ok: true, skipped: true, message: "This notification was already created." };
 
-  sendJson(res, 200, { ok: true, notification: existing ?? null, accounting });
+  sendJson(res, 200, {
+    ok: true,
+    notification: existing ?? null,
+    accounting,
+    email,
+    message: email.ok && !email.skipped
+      ? "Shipping notice sent via profile notifications and email."
+      : "Shipping notice already exists in the customer profile.",
+  });
+}
+
+async function loadAdminOrderPaymentNotice(orderId) {
+  const { data: order, error: orderError } = await supabaseAdmin
+    .from("orders")
+    .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, total, amount_due_now, payment_status, status")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (orderError) {
+    throw new Error(orderError.message || "Unable to load the order.");
+  }
+
+  if (!order) {
+    return { ok: false, message: "Order not found." };
+  }
+
+  const orderQuery = order.checkout_group_id
+    ? supabaseAdmin
+        .from("orders")
+        .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, total, amount_due_now, payment_status, status")
+        .eq("checkout_group_id", order.checkout_group_id)
+        .eq("user_id", order.user_id)
+    : { data: [order], error: null };
+  const linkedOrdersResult = await orderQuery;
+
+  if (linkedOrdersResult.error) {
+    throw new Error(linkedOrdersResult.error.message || "Unable to load linked checkout orders.");
+  }
+
+  const linkedOrders = Array.isArray(linkedOrdersResult.data) && linkedOrdersResult.data.length > 0
+    ? linkedOrdersResult.data
+    : [order];
+  const orderIds = linkedOrders.map((linkedOrder) => linkedOrder.id).filter(Boolean);
+  const { data: payments, error: paymentError } = await supabaseAdmin
+    .from("payments")
+    .select("id, order_id, payment_purpose, amount, status, provider_reference, paid_at")
+    .in("order_id", orderIds);
+
+  if (paymentError) {
+    throw new Error(paymentError.message || "Unable to calculate the verified payment balance.");
+  }
+
+  const orderAmountDue = linkedOrders.reduce(
+    (sum, linkedOrder) => sum + Math.max(Number(linkedOrder.amount_due_now ?? linkedOrder.total) || 0, 0),
+    0,
+  );
+  const verifiedOrderPayments = (Array.isArray(payments) ? payments : []).reduce((sum, payment) => {
+    if (clean(payment.payment_purpose).toLowerCase() !== "order" || normalizePaymentStatus(payment.status) !== "successful") {
+      return sum;
+    }
+
+    return sum + Math.max(Number(payment.amount) || 0, 0);
+  }, 0);
+  const outstanding = Math.max(orderAmountDue - verifiedOrderPayments, 0);
+  const sourceKey = `order-payment-request:${order.checkout_group_id || order.id}`;
+
+  return {
+    ok: true,
+    order,
+    linkedOrders,
+    accounting: {
+      orderAmountDue,
+      verifiedOrderPayments,
+      outstanding,
+      sourceKey,
+      paymentStatus: outstanding > 0 ? "pending" : "paid",
+    },
+  };
+}
+
+function isTruthyEnv(value) {
+  return ["1", "true", "yes", "on"].includes(clean(value).toLowerCase());
+}
+
+function getSmtpTransporter() {
+  const user = clean(process.env.SMTP_USER);
+  const pass = clean(process.env.SMTP_PASS);
+
+  if (!user || !pass) {
+    return null;
+  }
+
+  const host = clean(process.env.SMTP_HOST) || "smtp.gmail.com";
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = isTruthyEnv(process.env.SMTP_SECURE);
+  const configKey = `${host}:${port}:${secure}:${user}`;
+
+  if (!smtpTransporter || smtpTransporterConfig !== configKey) {
+    smtpTransporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      requireTLS: !secure && port === 587,
+      auth: { user, pass },
+      tls: { minVersion: "TLSv1.2" },
+    });
+    smtpTransporterConfig = configKey;
+  }
+
+  return smtpTransporter;
+}
+
+async function sendTransactionalEmail({ to, from, subject, text, html }) {
+  const recipient = clean(to);
+  const configuredFrom = clean(from) || clean(process.env.SMTP_FROM) || clean(process.env.SMTP_USER);
+
+  if (!recipient || !configuredFrom || !clean(subject) || (!clean(text) && !clean(html))) {
+    return { ok: false, message: "The email request is incomplete." };
+  }
+
+  const smtp = getSmtpTransporter();
+  if (smtp) {
+    try {
+      await smtp.sendMail({
+        from: configuredFrom,
+        to: recipient,
+        subject: clean(subject),
+        text: clean(text),
+        html: clean(html) || undefined,
+      });
+      return { ok: true, provider: "smtp" };
+    } catch {
+      // Try the optional fallback without exposing SMTP details to the client.
+    }
+  }
+
+  const resendKey = clean(process.env.RESEND_API_KEY);
+  const resendFrom = clean(process.env.RESEND_FROM_EMAIL) || configuredFrom;
+  if (resendKey && resendFrom) {
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: resendFrom,
+          to: [recipient],
+          subject: clean(subject),
+          text: clean(text) || undefined,
+          html: clean(html) || undefined,
+        }),
+      });
+
+      if (response.ok) {
+        return { ok: true, provider: "resend" };
+      }
+    } catch {
+      // Return a safe delivery failure below.
+    }
+  }
+
+  return { ok: false, message: "The email could not be delivered." };
+}
+
+async function sendOrderPaymentEmail({ recipient, customerName, orderNumber, outstanding, message }) {
+  const subject = `Payment Reminder - Nexus Order #${orderNumber}`;
+  const safeMessage = escapeHtml(message).replace(/\n/g, "<br />");
+  const appUrl = clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com";
+  const paymentLink = `${appUrl}/profile/orders`;
+  const footer = `\n\nOutstanding balance: ${formatGhanaCedis(outstanding)}\nView your orders and payment details: ${paymentLink}`;
+
+  return sendTransactionalEmail({
+    to: recipient,
+    subject,
+    text: `${message}${footer}`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>${safeMessage}</p><p style="color:#64748b">Outstanding balance: <strong>${escapeHtml(formatGhanaCedis(outstanding))}</strong></p><p><a href="${escapeHtml(paymentLink)}" style="color:#0240CD;font-weight:700">View your orders and payment details</a></p></div>`,
+  });
+}
+
+async function sendNotificationEmailForRow(notification) {
+  const userId = clean(notification?.user_id);
+  if (!userId) {
+    return { ok: false, message: "The notification has no customer recipient." };
+  }
+
+  const { data: profile, error } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, message: error.message || "Unable to load the customer email address." };
+  }
+
+  const recipient = clean(profile?.email);
+  if (!recipient) {
+    return { ok: false, message: "The customer has no registered email address." };
+  }
+
+  const appUrl = clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com";
+  const actionUrl = clean(notification.action_url);
+  const absoluteActionUrl = actionUrl.startsWith("http") ? actionUrl : `${appUrl}${actionUrl || "/profile/notifications"}`;
+  const customerName = clean(profile?.full_name) || "Customer";
+  const subject = `${clean(notification.title) || "Nexus Import Hub notification"} - Nexus Import Hub`;
+  const message = clean(notification.message) || "You have a new notification from Nexus Import Hub.";
+  const safeMessage = escapeHtml(message).replace(/\n/g, "<br />");
+
+  return sendTransactionalEmail({
+    to: recipient,
+    subject,
+    text: `Dear ${customerName},\n\n${message}\n\nView details: ${absoluteActionUrl}\n\nNexus Import Hub`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033;max-width:640px"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>Dear ${escapeHtml(customerName)},</p><p>${safeMessage}</p><p><a href="${escapeHtml(absoluteActionUrl)}" style="display:inline-block;background:#0240CD;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">${escapeHtml(notification.action_label || "View notification")}</a></p><p style="color:#64748b">Shop Beyond Borders. We Handle the Rest.</p></div>`,
+  });
+}
+
+async function handleAdminNotificationEmail(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can send notification emails." });
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  const notificationId = clean(body?.notificationId);
+  const sourceType = clean(body?.sourceType);
+  const sourceKey = clean(body?.sourceKey);
+  let query = supabaseAdmin.from("notifications").select("*");
+
+  if (notificationId) {
+    query = query.eq("id", notificationId);
+  } else if (sourceType && sourceKey) {
+    query = query.eq("source_type", sourceType).eq("source_key", sourceKey);
+  } else {
+    sendJson(res, 400, { ok: false, message: "A notification reference is required." });
+    return;
+  }
+
+  const { data: notification, error } = await query.maybeSingle();
+  if (error) {
+    sendJson(res, 500, { ok: false, message: error.message || "Unable to load the notification." });
+    return;
+  }
+  if (!notification) {
+    sendJson(res, 404, { ok: false, message: "Notification not found." });
+    return;
+  }
+
+  const email = await sendNotificationEmailForRow(notification);
+  sendJson(res, email.ok ? 200 : 502, {
+    ok: email.ok,
+    email,
+    notificationId: notification.id,
+    message: email.ok ? "Notification email accepted for delivery." : email.message,
+  });
+}
+
+async function handleAdminOrderPaymentNotice(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can send order payment notices." });
+    return;
+  }
+
+  const body = req.method === "POST" ? await readJsonBody(req) : {};
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const orderId = clean(body?.orderId || requestUrl.searchParams.get("orderId"));
+  if (!orderId) {
+    sendJson(res, 400, { ok: false, message: "An order is required." });
+    return;
+  }
+
+  let notice;
+  try {
+    notice = await loadAdminOrderPaymentNotice(orderId);
+  } catch (error) {
+    sendJson(res, 500, { ok: false, message: error.message || "Unable to calculate the payment balance." });
+    return;
+  }
+
+  if (!notice.ok) {
+    sendJson(res, 404, { ok: false, message: notice.message });
+    return;
+  }
+
+  const { order, accounting } = notice;
+  if (!order.user_id || !clean(order.customer_email)) {
+    sendJson(res, 409, { ok: false, message: "This order does not have an eligible customer recipient." });
+    return;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 200, {
+      ok: true,
+      order: {
+        id: order.id,
+        orderNumber: order.order_number || order.id,
+        customerName: order.customer_name || "Customer",
+        customerEmail: order.customer_email,
+      },
+      accounting,
+    });
+    return;
+  }
+
+  if (accounting.outstanding <= 0) {
+    sendJson(res, 409, { ok: false, message: "This order has no outstanding order payment.", accounting });
+    return;
+  }
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("notifications")
+    .select("*")
+    .eq("user_id", order.user_id)
+    .eq("source_type", "payment_status")
+    .eq("source_key", accounting.sourceKey)
+    .maybeSingle();
+  if (existingError) {
+    sendJson(res, 500, { ok: false, message: existingError.message || "Unable to check previous notices." });
+    return;
+  }
+  if (existing) {
+    if (body?.retryEmail) {
+      const retryOrderNumber = order.order_number || order.id;
+      const retryMessage = clean(body?.message) || `Dear ${order.customer_name || "Customer"},\n\nYour order ${retryOrderNumber} with Nexus Import Hub has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}.\n\nKindly complete your payment so we can continue processing your order.`;
+      const retryEmail = await sendOrderPaymentEmail({
+        recipient: order.customer_email,
+        customerName: order.customer_name || "Customer",
+        orderNumber: retryOrderNumber,
+        outstanding: accounting.outstanding,
+        message: retryMessage,
+      });
+      sendJson(res, 200, {
+        ok: true,
+        notification: existing,
+        accounting,
+        email: retryEmail,
+        message: retryEmail.ok
+          ? "The payment reminder email was sent successfully."
+          : "The in-app notification was already sent, but email delivery failed again.",
+      });
+      return;
+    }
+
+    sendJson(res, 409, { ok: false, message: "A payment notice has already been sent for this outstanding balance.", notification: existing, accounting });
+    return;
+  }
+
+  const orderNumber = order.order_number || order.id;
+  const defaultMessage = `Dear ${order.customer_name || "Customer"},\n\nYour order ${orderNumber} with Nexus Import Hub has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}.\n\nKindly complete your payment so we can continue processing your order.\n\nYou can view your order and payment details by logging into your Nexus Import Hub account.\n\nThank you for shopping with Nexus Import Hub.`;
+  const message = clean(body?.message) || defaultMessage;
+  const notificationValues = {
+    user_id: order.user_id,
+    category: "orders",
+    title: "Payment Required for Your Order",
+    message: `Your order #${orderNumber} has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}. Please complete your payment to continue processing your order.`,
+    order_id: order.id,
+    payment_id: null,
+    source_type: "payment_status",
+    source_key: accounting.sourceKey,
+    action_url: `/profile/orders`,
+    action_label: "View Order",
+    action_description: "Review the outstanding payment for this order.",
+    is_read: false,
+    read_at: null,
+  };
+  const { data: notification, error: notificationError } = await supabaseAdmin
+    .from("notifications")
+    .insert(notificationValues)
+    .select("*")
+    .single();
+  if (notificationError) {
+    sendJson(res, 500, { ok: false, message: notificationError.message || "Unable to create the customer notification." });
+    return;
+  }
+
+  const email = await sendOrderPaymentEmail({
+    recipient: order.customer_email,
+    customerName: order.customer_name || "Customer",
+    orderNumber,
+    outstanding: accounting.outstanding,
+    message,
+  });
+  sendJson(res, 200, {
+    ok: true,
+    notification,
+    accounting,
+    email,
+    message: email.ok
+      ? "Payment notice sent successfully via email and customer notifications."
+      : "In-app notification sent, but email delivery failed.",
+  });
 }
 
 async function handleGenerateProductContent(req, res) {
@@ -4238,6 +4649,16 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/shipping-payment-notice" && req.method === "POST") {
     await handleAdminShippingPaymentNotice(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/order-payment-notice" && (req.method === "GET" || req.method === "POST")) {
+    await handleAdminOrderPaymentNotice(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/notification-email" && req.method === "POST") {
+    await handleAdminNotificationEmail(req, res);
     return;
   }
 
