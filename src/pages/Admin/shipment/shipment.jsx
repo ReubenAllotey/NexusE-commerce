@@ -101,6 +101,7 @@ function ShipmentPage({ authUser = null }) {
   const [feeModalOpen, setFeeModalOpen] = useState(false);
   const [feeDraft, setFeeDraft] = useState(EMPTY_FEE);
   const [loading, setLoading] = useState(true);
+  const [trackLoadError, setTrackLoadError] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingFee, setSavingFee] = useState(false);
@@ -122,8 +123,13 @@ function ShipmentPage({ authUser = null }) {
 
     if (batchResult?.error) setError(batchResult.error.message || "Unable to load managed batches.");
     else setBatches(batchResult ?? []);
-    if (!trackResult.ok) setError(trackResult.message);
-    else setTracks(trackResult.tracks);
+    if (!trackResult.ok) {
+      setTrackLoadError(trackResult.message || "Unable to load shipment tracks.");
+      setTracks([]);
+    } else {
+      setTrackLoadError("");
+      setTracks(trackResult.tracks);
+    }
     setLoading(false);
   };
 
@@ -331,7 +337,7 @@ function ShipmentPage({ authUser = null }) {
 
         <section className="admin-products-panel admin-shipment-panel">
           <div className="admin-shipment-panel__heading"><div><p>Managed tracking</p><h2>Existing tracks</h2></div><span>{loading ? "Loading..." : `${tracks.length} track${tracks.length === 1 ? "" : "s"}`}</span></div>
-          {tracks.length > 0 ? <div className="admin-shipment-cards">{tracks.map((track) => <TrackRow key={track.id} track={track} onView={() => setSelectedTrack(track)} onEdit={() => openEdit(track)} onManage={() => openManageStages(track)} onDelete={() => handleDeleteTrack(track)} />)}</div> : <div className="admin-products-empty"><h2>No shipment tracks yet.</h2><p>Create an Air or Sea track for any managed batch, even before orders exist.</p></div>}
+          {loading ? <div className="admin-products-empty"><h2>Loading shipment tracks...</h2><p>We are checking the managed shipment records.</p></div> : trackLoadError ? <div className="admin-products-empty admin-shipment-empty--error"><h2>Unable to load shipment tracks.</h2><p>{trackLoadError}</p><p>Apply the shipment tracking migration in Supabase, then try again.</p></div> : tracks.length > 0 ? <div className="admin-shipment-cards">{tracks.map((track) => <TrackRow key={track.id} track={track} onView={() => setSelectedTrack(track)} onEdit={() => openEdit(track)} onManage={() => openManageStages(track)} onDelete={() => handleDeleteTrack(track)} />)}</div> : <div className="admin-products-empty"><h2>No shipment tracks yet.</h2><p>Create an Air or Sea track for any managed batch, even before orders exist.</p></div>}
         </section>
       </section>
 

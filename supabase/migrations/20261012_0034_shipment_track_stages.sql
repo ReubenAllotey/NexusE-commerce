@@ -28,6 +28,18 @@ create table if not exists public.shipment_track_stages (
   unique (shipment_track_id, position)
 );
 
+-- Keep this migration safe if an interrupted/manual deployment created only
+-- part of the stage table before being retried.
+alter table public.shipment_track_stages
+  add column if not exists stage_key text,
+  add column if not exists stage_name text,
+  add column if not exists description text,
+  add column if not exists position integer,
+  add column if not exists is_completed boolean not null default false,
+  add column if not exists completed_at timestamptz,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 create index if not exists shipment_track_stages_track_position_idx
   on public.shipment_track_stages (shipment_track_id, position);
 
