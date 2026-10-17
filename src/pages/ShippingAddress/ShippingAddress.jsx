@@ -16,6 +16,7 @@ import {
   loadCheckoutDraft as loadPaymentCheckoutDraft,
   saveCheckoutDraft as savePaymentCheckoutDraft,
 } from "../payment/paymentStorage";
+import LocationPicker from "./LocationPicker";
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -70,6 +71,7 @@ function createEmptyForm(authUser = null, address = null) {
     houseNumber: address?.houseNumber ?? "",
     landmark: address?.landmark ?? "",
     postalCode: address?.postalCode ?? "",
+    deliveryInstructions: address?.deliveryInstructions ?? "",
   };
 }
 
@@ -166,6 +168,8 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
   const [formData, setFormData] = useState(() => createEmptyForm(authUser, null));
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
+  const [locationPickerOpen, setLocationPickerOpen] = useState(true);
+  const [locationCandidate, setLocationCandidate] = useState(null);
 
   useEffect(() => {
     const savedPreference = location.state?.shippingPaymentPreference ?? loadShippingPaymentPreference(currentUserId || "guest");
@@ -178,7 +182,9 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
 
     setSavedCheckoutAddress(nextSavedCheckoutAddress);
     setSelectedAddress(nextInitialAddress ? { ...nextInitialAddress } : null);
-    setIsFormOpen(true);
+    setLocationCandidate(nextInitialAddress ? { ...nextInitialAddress } : null);
+    setLocationPickerOpen(true);
+    setIsFormOpen(false);
     setFormData(createEmptyForm(authUser, nextInitialAddress));
     setFormError("");
     setFieldErrors({});
@@ -234,7 +240,25 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
   function openForm(address = selectedAddress ?? profileAddress) {
     setFormError("");
     setFormData(createEmptyForm(authUser, address ?? null));
+    setLocationCandidate(address ?? null);
+    setLocationPickerOpen(false);
     setIsFormOpen(true);
+  }
+
+  function openLocationPicker() {
+    setFormError("");
+    setLocationPickerOpen(true);
+    setIsFormOpen(false);
+  }
+
+  function handleLocationConfirm(candidate) {
+    const nextAddress = { ...candidate, deliveryLocation: candidate.city || candidate.formattedAddress };
+    setLocationCandidate(nextAddress);
+    setSelectedAddress(nextAddress);
+    setFormData(createEmptyForm(authUser, nextAddress));
+    setLocationPickerOpen(false);
+    setIsFormOpen(true);
+    setFormError("");
   }
 
   function closeForm() {
@@ -322,6 +346,10 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       houseNumber: formData.id ? clean(formData.houseNumber) : "",
       landmark: clean(formData.landmark),
       postalCode: clean(formData.postalCode),
+      deliveryInstructions: clean(formData.deliveryInstructions),
+      formattedAddress: clean(locationCandidate?.formattedAddress),
+      latitude: locationCandidate?.latitude ?? null,
+      longitude: locationCandidate?.longitude ?? null,
     };
 
     const nextFieldErrors = {};
@@ -351,6 +379,10 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
           houseNumber: "",
           landmark: clean(payload.landmark),
           postalCode: clean(payload.postalCode),
+          deliveryInstructions: clean(payload.deliveryInstructions),
+          formattedAddress: clean(payload.formattedAddress),
+          latitude: payload.latitude,
+          longitude: payload.longitude,
           isDefault: false,
         };
 
@@ -369,7 +401,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
       const saveResult = await onSaveAddress(payload);
 
       if (saveResult?.ok && saveResult?.address) {
-        const savedAddress = saveResult.address;
+        const savedAddress = { ...saveResult.address, ...locationCandidateFields(payload) };
         setSelectedAddress(savedAddress);
         setFormError("");
         setFieldErrors({});
@@ -384,6 +416,15 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function locationCandidateFields(payload) {
+    return {
+      formattedAddress: clean(payload.formattedAddress),
+      latitude: payload.latitude ?? null,
+      longitude: payload.longitude ?? null,
+      deliveryInstructions: clean(payload.deliveryInstructions),
+    };
   }
 
   function handleProceed() {
@@ -450,7 +491,15 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
 
         <section className="cart-layout shipping-layout">
           <div className="shipping-main">
-            <section className="shipping-panel">
+            {locationPickerOpen ? (
+              <LocationPicker
+                savedAddresses={visibleAddresses}
+                initialAddress={locationCandidate}
+                onConfirm={handleLocationConfirm}
+              />
+            ) : null}
+
+            {!locationPickerOpen ? <section className="shipping-panel">
               <div className="shipping-panel__header">
                 <div>
                   <p className="shipping-panel__eyebrow">
@@ -460,8 +509,8 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                 </div>
 
                 {selectedAddress ? (
-                  <button type="button" className="shipping-panel__link" onClick={() => openForm(selectedAddress)}>
-                    Change address
+                  <button type="button" className="shipping-panel__link" onClick={openLocationPicker}>
+                    Change location
                   </button>
                 ) : null}
               </div>
@@ -534,6 +583,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                         name="region"
                         value={formData.region}
                         onChange={handleFieldChange}
+                        disabled={Boolean(locationCandidate?.formattedAddress)}
                         required
                         autoComplete="address-level1"
                         aria-invalid={Boolean(fieldErrors.region)}
@@ -554,6 +604,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                         name="city"
                         value={formData.city}
                         onChange={handleFieldChange}
+                        readOnly={Boolean(locationCandidate?.formattedAddress)}
                         required
                         placeholder="Tema Community 25 or Amasaman-Pokuase"
                         aria-invalid={Boolean(fieldErrors.city)}
@@ -561,6 +612,16 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                       />
                       <small id="shipping-city-help" className="shipping-form__helper">Enter the area or community where you want your order delivered.</small>
                       {fieldErrors.city ? <small id="shipping-city-error" className="shipping-form__field-error">{fieldErrors.city}</small> : null}
+                    </label>
+
+                    <label className="address-modal__field address-modal__field--full">
+                      <span>Delivery instructions <span className="shipping-form__optional">(Optional)</span></span>
+                      <textarea
+                        name="deliveryInstructions"
+                        value={formData.deliveryInstructions}
+                        onChange={handleFieldChange}
+                        placeholder="Call on arrival or add any useful delivery instructions"
+                      />
                     </label>
 
                     <label className="address-modal__field">
@@ -585,12 +646,12 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
                   {formError ? <p className="shipping-form__error">{formError}</p> : null}
                 </form>
               )}
-            </section>
+            </section> : null}
           </div>
 
         </section>
 
-        <footer className="shipping-footer">
+        {!locationPickerOpen ? <footer className="shipping-footer">
           <button
             type={isFormOpen ? "submit" : "button"}
             form={isFormOpen ? "shipping-address-form" : undefined}
@@ -600,7 +661,7 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
           >
             {isSubmitting ? "Saving..." : isFormOpen ? "Save Delivery Location" : "Continue to Checkout"}
           </button>
-        </footer>
+        </footer> : null}
       </div>
     </main>
   );

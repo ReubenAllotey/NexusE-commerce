@@ -35,16 +35,23 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
-function getStageOptions(freightType) {
-  return [
+function getStageOptions(freightType, currentStatus = "") {
+  const options = [
     ...getShipmentStepsForFreight(freightType).map((step, index) => ({
       value: `${index}:${step.status}`,
       label: step.label,
       step: index,
       status: step.status,
     })),
-    { value: "4:delivered", label: "Delivered", step: 4, status: "delivered" },
   ];
+
+  // Keep historical delivered tracks editable without offering a new direct
+  // delivered transition outside the configurable stage workflow.
+  if (currentStatus === "delivered") {
+    options.push({ value: "4:delivered", label: "Delivered (historical)", step: 4, status: "delivered", disabled: true });
+  }
+
+  return options;
 }
 
 function SummaryCard({ title, value, note }) {
@@ -125,12 +132,15 @@ function ShipmentPage({ authUser = null }) {
     else setBatches(batchResult ?? []);
     if (!trackResult.ok) {
       setTrackLoadError(trackResult.message || "Unable to load shipment tracks.");
-      setTracks([]);
     } else {
       setTrackLoadError("");
       setTracks(trackResult.tracks);
     }
     setLoading(false);
+    return {
+      ok: !batchResult?.error && Boolean(trackResult.ok),
+      message: batchResult?.error?.message || trackResult.message || "",
+    };
   };
 
   useEffect(() => { void refresh(); }, []);
@@ -190,6 +200,19 @@ function ShipmentPage({ authUser = null }) {
     setStageDraft((current) => current.map((stage) => (stage.id || stage.key) === stageId ? { ...stage, [field]: value } : stage));
   };
 
+  const setStageCompleted = (index, completed) => {
+    if (completed && stageDraft.slice(0, index).some((stage) => !stage.isCompleted)) {
+      setError("Complete shipment stages in order. Finish earlier stages before later stages.");
+      return;
+    }
+    setError("");
+    setStageDraft((current) => current.map((stage, stageIndex) => {
+      if (stageIndex < index) return stage;
+      if (stageIndex === index) return { ...stage, isCompleted: completed, completedAt: completed ? stage.completedAt : "" };
+      return completed ? stage : { ...stage, isCompleted: false, completedAt: "" };
+    }));
+  };
+
   const moveStage = (index, direction) => {
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= stageDraft.length) return;
@@ -212,6 +235,23 @@ function ShipmentPage({ authUser = null }) {
     }]));
   };
 
+  const addDeliveryStage = () => {
+    if (stageDraft.some((stage) => clean(stage.key).toLowerCase() === "delivered")) {
+      setError("This shipment already has a delivery confirmation stage.");
+      return;
+    }
+    setError("");
+    setStageDraft((current) => ([...current, {
+      id: "",
+      key: "delivered",
+      label: "Delivered",
+      description: "Shipment delivered to customer.",
+      position: current.length,
+      isCompleted: false,
+      completedAt: "",
+    }]));
+  };
+
   const removeStage = (stage, index) => {
     if (!window.confirm(`Remove stage "${stage.label || `Stage ${index + 1}`}"? Existing shipment history will be preserved.`)) return;
     setStageDraft((current) => current.filter((_, itemIndex) => itemIndex !== index).map((item, position) => ({ ...item, position })));
@@ -227,24 +267,60 @@ function ShipmentPage({ authUser = null }) {
       setError("Every shipment stage needs a name.");
       return;
     }
+    if (stageDraft.some((stage) => !/^[a-z0-9_-]+$/i.test(clean(stage.key)))) {
+      setError("Each stage needs a stable key using letters, numbers, hyphens, or underscores.");
+      return;
+    }
+    const stageKeys = stageDraft.map((stage) => clean(stage.key).toLowerCase());
+    if (new Set(stageKeys).size !== stageKeys.length) {
+      setError("Each shipment stage must have a unique stable key.");
+      return;
+    }
+    const firstPendingStage = stageDraft.findIndex((stage) => !stage.isCompleted);
+    if (firstPendingStage >= 0 && stageDraft.slice(firstPendingStage + 1).some((stage) => stage.isCompleted)) {
+      setError("Complete shipment stages in order. Finish earlier stages before later stages.");
+      return;
+    }
+    if (savingStages) return;
     setSavingStages(true);
     setError("");
-    const result = await saveShipmentTrackStages(stageTrack.id, stageDraft.map((stage, position) => ({
-      id: stage.id || null,
-      stage_key: stage.key || `stage-${position + 1}`,
-      stage_name: clean(stage.label),
-      description: clean(stage.description),
-      position,
-      is_completed: Boolean(stage.isCompleted),
-      completed_at: stage.isCompleted ? stage.completedAt || null : null,
-    })));
-    if (!result.ok) setError(result.message);
-    else {
-      await refresh();
+    try {
+      const result = await saveShipmentTrackStages(stageTrack.id, stageDraft.map((stage, position) => ({
+        id: stage.id || null,
+        stage_key: clean(stage.key) || `stage-${position + 1}`,
+        stage_name: clean(stage.label),
+        description: clean(stage.description),
+        position,
+        is_completed: Boolean(stage.isCompleted),
+        completed_at: stage.isCompleted ? stage.completedAt || null : null,
+      })));
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+
+      // Keep the modal truthful immediately, then confirm the complete track
+      // reload before closing it. This avoids stale local state masking a
+      // successful RPC or a failed follow-up query.
+      if (result.stages.length > 0) {
+        setStageDraft(result.stages.map((stage, position) => ({
+          ...stage,
+          position,
+          completedAt: stage.completedAt ? String(stage.completedAt).slice(0, 10) : "",
+        })));
+      }
+      const refreshed = await refresh();
+      if (!refreshed.ok) {
+        setError(`Stages were saved, but the latest shipment data could not be loaded. ${refreshed.message}`.trim());
+        return;
+      }
       setStageTrack(null);
       setStageDraft([]);
+    } catch (saveError) {
+      setError(saveError?.message || "Unable to save shipment stages.");
+    } finally {
+      setSavingStages(false);
     }
-    setSavingStages(false);
   };
 
   const handleDeleteTrack = async (track) => {
@@ -353,7 +429,7 @@ function ShipmentPage({ authUser = null }) {
               </div>
               <div className="admin-shipment-modal__grid">
                 <label className="admin-shipment-modal__field"><span>Headline</span><input value={trackDraft.headline} onChange={(event) => handleTrackChange("headline", event.target.value)} placeholder="Shipment headline" /></label>
-                <label className="admin-shipment-modal__field"><span>Current Stage</span><select value={stageValue} onChange={(event) => { const [step, status] = event.target.value.split(":"); handleTrackChange("currentStep", Number(step)); handleTrackChange("currentStatus", status); }}>{getStageOptions(trackDraft.freightType).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                <label className="admin-shipment-modal__field"><span>Current Stage</span><select value={stageValue} onChange={(event) => { const [step, status] = event.target.value.split(":"); handleTrackChange("currentStep", Number(step)); handleTrackChange("currentStatus", status); }}>{getStageOptions(trackDraft.freightType, trackDraft.currentStatus).map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select><small className="admin-shipment-modal__hint">Delivery confirmation is handled through Manage Stages with a completed <code>delivered</code> stage.</small></label>
               </div>
               <div className="admin-shipment-modal__grid">
                 <label className="admin-shipment-modal__field"><span>Estimated Departure</span><input type="date" value={String(trackDraft.estimatedDeparture ?? "").slice(0, 10)} onChange={(event) => handleTrackChange("estimatedDeparture", event.target.value)} /></label>
@@ -372,13 +448,14 @@ function ShipmentPage({ authUser = null }) {
           <aside className="admin-shipment-modal__panel admin-shipment-stages-modal__panel">
             <header className="admin-shipment-modal__header"><div><p>{stageTrack.shippingMethodLabel}</p><h2>Manage Stages</h2><span>{stageTrack.batchNumber || "Shipment track"} · {stageDraft.length} stage{stageDraft.length === 1 ? "" : "s"}</span></div><button type="button" className="admin-shipment-modal__close" onClick={closeDialogs}>Close</button></header>
             <form className="admin-shipment-modal__form" onSubmit={handleSaveStages}>
-              <div className="admin-shipment-stages__toolbar"><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={addStage}>Add Stage</button><span>Changes to completion state can notify linked customers through the existing tracking event flow.</span></div>
+              <div className="admin-shipment-stages__toolbar"><div className="admin-shipment-stages__toolbar-actions"><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={addStage}>Add Stage</button><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={addDeliveryStage}>Add Delivery Confirmation</button></div><span>Complete stages in order. Delivery is confirmed only when the <code>delivered</code> stage is completed.</span></div>
               <div className="admin-shipment-stages">
                 {stageDraft.map((stage, index) => (
                   <div className="admin-shipment-stage-editor" key={stage.id || stage.key || index}>
-                    <div className="admin-shipment-stage-editor__top"><strong>Stage {index + 1}</strong><label className="admin-shipment-stage-editor__check"><input type="checkbox" checked={Boolean(stage.isCompleted)} onChange={(event) => updateStage(stage.id || stage.key, "isCompleted", event.target.checked)} /> Completed</label><span className={stage.isCompleted ? "admin-shipment-stage-editor__status admin-shipment-stage-editor__status--complete" : "admin-shipment-stage-editor__status"}>{stage.isCompleted ? "Complete" : "Pending"}</span></div>
+                    <div className="admin-shipment-stage-editor__top"><strong>Stage {index + 1}</strong><label className="admin-shipment-stage-editor__check"><input type="checkbox" checked={Boolean(stage.isCompleted)} onChange={(event) => setStageCompleted(index, event.target.checked)} /> Completed</label><span className={stage.isCompleted ? "admin-shipment-stage-editor__status admin-shipment-stage-editor__status--complete" : "admin-shipment-stage-editor__status"}>{stage.isCompleted ? "Complete" : "Pending"}</span></div>
                     <div className="admin-shipment-stage-editor__grid">
                       <label className="admin-shipment-modal__field"><span>Stage name</span><input value={stage.label} onChange={(event) => updateStage(stage.id || stage.key, "label", event.target.value)} required /></label>
+                      <label className="admin-shipment-modal__field"><span>Stable stage key</span><input value={stage.key || ""} onChange={(event) => updateStage(stage.id || stage.key, "key", event.target.value)} pattern="[A-Za-z0-9_-]+" required /></label>
                       <label className="admin-shipment-modal__field"><span>Completion date</span><input type="date" value={stage.completedAt || ""} disabled={!stage.isCompleted} onChange={(event) => updateStage(stage.id || stage.key, "completedAt", event.target.value)} /></label>
                     </div>
                     <label className="admin-shipment-modal__field"><span>Description</span><textarea value={stage.description || ""} onChange={(event) => updateStage(stage.id || stage.key, "description", event.target.value)} placeholder="What should the customer know about this stage?" /></label>

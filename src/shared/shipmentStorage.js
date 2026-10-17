@@ -39,6 +39,13 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function formatSupabaseError(error, fallback) {
+  if (!error) return fallback;
+  return [error.message, error.details, error.hint, error.code ? `(${error.code})` : ""]
+    .filter(Boolean)
+    .join(" ") || fallback;
+}
+
 function normalizeKey(value) {
   return clean(value).toLowerCase();
 }
@@ -285,11 +292,11 @@ export async function loadAdminShipmentTracks() {
   ]);
 
   if (error) {
-    return { ok: false, message: error.message || "Unable to load shipment tracks.", tracks: [] };
+    return { ok: false, message: formatSupabaseError(error, "Unable to load shipment tracks."), tracks: [] };
   }
 
   if (batchError) {
-    return { ok: false, message: batchError.message || "Unable to load managed batches.", tracks: [] };
+    return { ok: false, message: formatSupabaseError(batchError, "Unable to load managed batches."), tracks: [] };
   }
 
   const batchNumbers = new Map(
@@ -307,7 +314,7 @@ export async function loadAdminShipmentTracks() {
       .order("position", { ascending: true });
 
     if (stageError) {
-      return { ok: false, message: stageError.message || "Unable to load shipment stages.", tracks: [] };
+      return { ok: false, message: formatSupabaseError(stageError, "Unable to load shipment stages."), tracks: [] };
     }
 
     stagesByTrackId = new Map();
@@ -354,16 +361,28 @@ export async function saveShipmentTrack(payload = {}) {
 }
 
 export async function saveShipmentTrackStages(trackId, stages = []) {
-  const { data, error } = await supabase.rpc("save_shipment_track_stages", {
-    p_track_id: trackId,
-    p_stages: Array.isArray(stages) ? stages : [],
-  });
-
-  if (error) {
-    return { ok: false, message: error.message || "Unable to save shipment stages." };
+  if (!clean(trackId) || !Array.isArray(stages) || stages.length === 0) {
+    return { ok: false, message: "A shipment track and at least one stage are required." };
   }
 
-  return { ok: true, stages: Array.isArray(data?.stages) ? data.stages.map((stage) => mapTrackStages([stage])[0]) : [] };
+  try {
+    const { data, error } = await supabase.rpc("save_shipment_track_stages", {
+      p_track_id: trackId,
+      p_stages: stages,
+    });
+
+    if (error) {
+      return { ok: false, message: formatSupabaseError(error, "Unable to save shipment stages.") };
+    }
+
+    return {
+      ok: true,
+      stages: Array.isArray(data?.stages) ? data.stages.map((stage) => mapTrackStages([stage])[0]) : [],
+      raw: data,
+    };
+  } catch (error) {
+    return { ok: false, message: formatSupabaseError(error, "Unable to save shipment stages.") };
+  }
 }
 
 export async function archiveShipmentTrack(trackId) {
@@ -396,17 +415,15 @@ export function useCustomerShipmentTracks() {
 
       const stageResult = await supabase.rpc("get_my_shipment_track_stages");
       const stagesByTrackId = new Map();
-      if (!stageResult.error) {
-        for (const stage of Array.isArray(stageResult.data) ? stageResult.data : []) {
-          const existing = stagesByTrackId.get(clean(stage.shipment_track_id)) ?? [];
-          existing.push(stage);
-          stagesByTrackId.set(clean(stage.shipment_track_id), existing);
-        }
+      for (const stage of Array.isArray(stageResult.data) ? stageResult.data : []) {
+        const existing = stagesByTrackId.get(clean(stage.shipment_track_id)) ?? [];
+        existing.push(stage);
+        stagesByTrackId.set(clean(stage.shipment_track_id), existing);
       }
 
       setState({
         loading: false,
-        error: "",
+        error: stageResult.error ? formatSupabaseError(stageResult.error, "Unable to load shipment stages.") : "",
         tracks: (Array.isArray(data) ? data : []).map((track) => mapNewShipmentTrack({
           ...track,
           stages: stagesByTrackId.get(clean(track.id)) ?? [],

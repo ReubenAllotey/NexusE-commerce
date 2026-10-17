@@ -143,8 +143,6 @@ function Cart({
   const taxEstimate = 0;
   const totalPrice = summary.amountPayableNow + taxEstimate;
   const hasOutOfStock = rows.some((row) => row.outOfStock);
-  const savedLocation = (Array.isArray(addresses) ? addresses : []).find((address) => address.isDefault)
-    ?? (Array.isArray(addresses) ? addresses[0] : null);
   const cartProductIds = rows.map((row) => String(row.product.id ?? row.product.slug));
   const recommendationProducts = useMemo(() => {
     const eligibleProducts = products.filter(
@@ -243,11 +241,6 @@ function Cart({
       },
       shippingPaymentPreference,
     };
-
-    if (savedLocation) {
-      navigate("/payment", { state: { ...checkoutState, shippingAddress: savedLocation } });
-      return;
-    }
 
     navigate("/shipping-address", {
       state: checkoutState,
@@ -463,25 +456,6 @@ function Cart({
               >
                 {hasOutOfStock ? "Remove out-of-stock items" : "Proceed to Checkout"}
               </button>
-
-              <section className={`cart-location-card${savedLocation ? " is-saved" : ""}`}>
-                <div>
-                  <p className="cart-location-card__eyebrow">Delivery location</p>
-                  <h3>{savedLocation ? "Ready for delivery" : "Add a delivery location"}</h3>
-                  <p>
-                    {savedLocation
-                      ? [savedLocation.region, savedLocation.deliveryLocation || savedLocation.city, savedLocation.landmark].filter(Boolean).join(" · ")
-                      : "Choose where your order should be delivered before checkout."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="cart-location-card__action"
-                  onClick={() => navigate("/shipping-address", { state: { cartRows: rows, shippingPaymentPreference } })}
-                >
-                  {savedLocation ? "Change" : "Add location"}
-                </button>
-              </section>
 
               {hasOutOfStock ? (
                 <p className="cart-summary__stock-warning">
