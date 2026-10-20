@@ -1279,6 +1279,34 @@ function normalizeVariationGroupInput(group = {}, index = 0) {
   };
 }
 
+function normalizeEditorCombinationPayload(combinations = [], groups = []) {
+  const source = Array.isArray(combinations) ? combinations : [];
+  const groupRows = Array.isArray(groups) ? groups : [];
+
+  return source.map((combination) => ({
+    ...combination,
+    selectedOptions: (Array.isArray(combination?.selectedOptions) ? combination.selectedOptions : []).map((selected) => {
+      const group = groupRows.find((candidate) =>
+        (cleanText(candidate?.id) && cleanText(candidate.id) === cleanText(selected?.groupId))
+        || cleanText(candidate?.groupName).toLowerCase() === cleanText(selected?.groupName).toLowerCase(),
+      );
+      const optionRows = Array.isArray(group?.options) ? group.options : [];
+      const option = optionRows.find((candidate) => cleanText(candidate?.id) === cleanText(selected?.optionId))
+        || optionRows.find((candidate) => cleanText(candidate?.value ?? candidate?.label).toLowerCase() === cleanText(selected?.value ?? selected?.label).toLowerCase());
+
+      return option && group
+        ? {
+            groupId: group.id,
+            groupName: group.groupName,
+            optionId: option.id,
+            value: option.value || slugify(option.label),
+            label: option.label,
+          }
+        : selected;
+    }),
+  }));
+}
+
 function buildVariationGroupsFromEditorValues(values = {}, existingProduct = null) {
   const explicitGroups = Array.isArray(values?.variationGroups)
     ? values.variationGroups.filter((group) => cleanText(group?.groupName ?? group?.group_name))
@@ -1478,7 +1506,7 @@ export function buildProductBundlePayloadFromLegacyProduct(product = {}, overrid
       display_order: index + 1,
     })),
     variationGroups,
-    variationCombinations: Array.isArray(next.variationCombinations) ? next.variationCombinations : [],
+    variationCombinations: normalizeEditorCombinationPayload(next.variationCombinations, variationGroups),
   };
 }
 
@@ -1571,7 +1599,7 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
       display_order: index + 1,
     })),
     variationGroups,
-    variationCombinations: Array.isArray(values.variationCombinations) ? values.variationCombinations : [],
+    variationCombinations: normalizeEditorCombinationPayload(values.variationCombinations, variationGroups),
   };
 }
 
@@ -1608,6 +1636,211 @@ async function queryRpc(functionName, args = {}) {
   }
 
   return createResult(true, { data });
+}
+
+function combinationLabel(combination, index) {
+  const label = (Array.isArray(combination?.selectedOptions) ? combination.selectedOptions : [])
+    .map((option) => cleanText(option?.label ?? option?.value))
+    .filter(Boolean)
+    .join(" / ");
+
+  return label || `Combination ${index + 1}`;
+}
+
+function combinationOptionKey(option = {}) {
+  return `${cleanText(option?.groupName).toLowerCase()}=${cleanText(option?.value).toLowerCase()}`;
+}
+
+async function remapSavedProductCombinations(productId, combinations = []) {
+  if (!Array.isArray(combinations) || combinations.length === 0) {
+    return createResult(true, { combinations: [] });
+  }
+
+  const { data: groups, error: groupsError } = await supabase
+    .from("product_variation_groups")
+    .select("id,group_name")
+    .eq("product_id", productId);
+
+  if (groupsError) {
+    return mapDbError(groupsError, "Unable to reload the product variation groups.");
+  }
+
+  const groupRows = Array.isArray(groups) ? groups : [];
+  const groupIds = groupRows.map((group) => cleanText(group.id)).filter(Boolean);
+  const { data: options, error: optionsError } = groupIds.length > 0
+    ? await supabase
+        .from("product_variation_options")
+        .select("id,group_id,option_label,option_value")
+        .in("group_id", groupIds)
+    : { data: [], error: null };
+
+  if (optionsError) {
+    return mapDbError(optionsError, "Unable to reload the product variation options.");
+  }
+
+  const groupsById = new Map(groupRows.map((group) => [cleanText(group.id), group]));
+  const groupsByName = new Map(groupRows.map((group) => [cleanText(group.group_name).toLowerCase(), group]));
+  const optionsByGroupId = new Map();
+  (Array.isArray(options) ? options : []).forEach((option) => {
+    const groupId = cleanText(option.group_id);
+    const list = optionsByGroupId.get(groupId) ?? [];
+    list.push(option);
+    optionsByGroupId.set(groupId, list);
+  });
+
+  const seenKeys = new Set();
+  const remapped = [];
+
+  for (const [index, combination] of combinations.entries()) {
+    const sourceOptions = Array.isArray(combination?.selectedOptions)
+      ? combination.selectedOptions
+      : [];
+
+    if (sourceOptions.length < 2) {
+      return createResult(false, {
+        message: `${combinationLabel(combination, index)} must contain at least two selected attributes.`,
+      });
+    }
+
+    const selectedOptions = [];
+    const selectedGroups = new Set();
+
+    for (const sourceOption of sourceOptions) {
+      const groupName = cleanText(sourceOption?.groupName).toLowerCase();
+      const group = groupsById.get(cleanText(sourceOption?.groupId)) || groupsByName.get(groupName);
+      const displayGroupName = cleanText(group?.group_name);
+      const normalizedGroupName = displayGroupName.toLowerCase();
+      const groupOptions = optionsByGroupId.get(cleanText(group?.id)) ?? [];
+      const sourceValue = cleanText(sourceOption?.value ?? sourceOption?.label).toLowerCase();
+      const option = groupOptions.find((candidate) => cleanText(candidate.id) === cleanText(sourceOption?.optionId))
+        || groupOptions.find((candidate) => cleanText(candidate.option_value ?? candidate.option_label).toLowerCase() === sourceValue);
+
+      if (!group || !option) {
+        const missingValue = cleanText(sourceOption?.label ?? sourceOption?.value) || "selected option";
+        return createResult(false, {
+          message: `${combinationLabel(combination, index)} contains an unavailable option: ${missingValue}. Rebuild the combinations after updating the variation options.`,
+        });
+      }
+
+      if (selectedGroups.has(normalizedGroupName)) {
+        return createResult(false, {
+          message: `${combinationLabel(combination, index)} contains the variation group "${displayGroupName}" more than once.`,
+        });
+      }
+      selectedGroups.add(normalizedGroupName);
+      selectedOptions.push({
+        groupId: group.id,
+        groupName: displayGroupName,
+        optionId: option.id,
+        value: cleanText(option.option_value ?? option.option_label),
+      });
+    }
+
+    const combinationKey = selectedOptions
+      .map(combinationOptionKey)
+      .sort()
+      .join("::");
+    if (seenKeys.has(combinationKey)) {
+      return createResult(false, {
+        message: `${combinationLabel(combination, index)} duplicates another variation combination.`,
+      });
+    }
+    seenKeys.add(combinationKey);
+
+    const price = normalizeNumber(combination?.price);
+    const compareAt = normalizeNumber(combination?.compareAt ?? combination?.compare_at);
+    const stockValue = combination?.stockQuantity ?? combination?.stock_quantity;
+    const stock = stockValue === "" || stockValue == null ? null : Number(stockValue);
+
+    if (price == null || price < 0) {
+      return createResult(false, { message: `Please enter a valid price for ${combinationLabel(combination, index)}.` });
+    }
+    if (compareAt != null && compareAt < price) {
+      return createResult(false, { message: `Compare-at price must be at least the selling price for ${combinationLabel(combination, index)}.` });
+    }
+    if (stock != null && (!Number.isInteger(stock) || stock < 0)) {
+      return createResult(false, { message: `Stock quantity must be a non-negative whole number for ${combinationLabel(combination, index)}.` });
+    }
+
+    remapped.push({
+      ...combination,
+      combinationKey,
+      selectedOptions,
+      price,
+      compareAt,
+      stockQuantity: stock,
+    });
+  }
+
+  return createResult(true, { combinations: remapped });
+}
+
+function validateEditorCombinationsBeforeSave(combinations = [], groups = []) {
+  if (!Array.isArray(combinations) || combinations.length === 0) {
+    return createResult(true, { combinations: [] });
+  }
+
+  const groupRows = Array.isArray(groups) ? groups : [];
+  const seenKeys = new Set();
+  const validated = [];
+
+  for (const [index, combination] of combinations.entries()) {
+    const selectedOptions = Array.isArray(combination?.selectedOptions)
+      ? combination.selectedOptions
+      : [];
+    if (selectedOptions.length < 2) {
+      return createResult(false, { message: `${combinationLabel(combination, index)} must contain at least two selected attributes.` });
+    }
+
+    const usedGroups = new Set();
+    const canonicalOptions = selectedOptions.map((selected) => {
+      const group = groupRows.find((candidate) =>
+        cleanText(candidate?.id) === cleanText(selected?.groupId)
+        || cleanText(candidate?.groupName).toLowerCase() === cleanText(selected?.groupName).toLowerCase(),
+      );
+      const optionRows = Array.isArray(group?.options) ? group.options : [];
+      const option = optionRows.find((candidate) => cleanText(candidate?.id) === cleanText(selected?.optionId))
+        || optionRows.find((candidate) => cleanText(candidate?.value ?? candidate?.label).toLowerCase() === cleanText(selected?.value ?? selected?.label).toLowerCase());
+      if (!group || !option) {
+        throw new Error(`${combinationLabel(combination, index)} contains an unavailable option: ${cleanText(selected?.label ?? selected?.value) || "selected option"}.`);
+      }
+      const groupKey = cleanText(group.groupName).toLowerCase();
+      if (usedGroups.has(groupKey)) {
+        throw new Error(`${combinationLabel(combination, index)} contains a duplicate variation group: ${group.groupName}.`);
+      }
+      usedGroups.add(groupKey);
+      return {
+        groupId: group.id,
+        groupName: group.groupName,
+        optionId: option.id,
+        value: option.value || slugify(option.label),
+        label: option.label,
+      };
+    });
+
+    const combinationKey = canonicalOptions.map(combinationOptionKey).sort().join("::");
+    if (seenKeys.has(combinationKey)) {
+      return createResult(false, { message: `${combinationLabel(combination, index)} duplicates another variation combination.` });
+    }
+    seenKeys.add(combinationKey);
+
+    const price = normalizeNumber(combination?.price);
+    const compareAt = normalizeNumber(combination?.compareAt ?? combination?.compare_at);
+    const stockValue = combination?.stockQuantity ?? combination?.stock_quantity;
+    const stock = stockValue === "" || stockValue == null ? null : Number(stockValue);
+    if (price == null || price < 0) {
+      return createResult(false, { message: `Please enter a valid price for ${combinationLabel(combination, index)}.` });
+    }
+    if (compareAt != null && compareAt < price) {
+      return createResult(false, { message: `Compare-at price must be at least the selling price for ${combinationLabel(combination, index)}.` });
+    }
+    if (stock != null && (!Number.isInteger(stock) || stock < 0)) {
+      return createResult(false, { message: `Stock quantity must be a non-negative whole number for ${combinationLabel(combination, index)}.` });
+    }
+    validated.push({ ...combination, combinationKey, selectedOptions: canonicalOptions });
+  }
+
+  return createResult(true, { combinations: validated });
 }
 
 async function resolveUniqueProductSlug(product = {}) {
@@ -1654,6 +1887,19 @@ export async function saveProductBundle(payload = {}) {
   const normalizedPayload = ensureProductBundleRows(payload);
 
   try {
+    const validation = validateEditorCombinationsBeforeSave(
+      normalizedPayload.variationCombinations,
+      normalizedPayload.variationGroups,
+    );
+    if (!validation.ok) {
+      return validation;
+    }
+    normalizedPayload.variationCombinations = validation.combinations;
+  } catch (error) {
+    return createResult(false, { message: error?.message || "Please check the variation combinations before saving." });
+  }
+
+  try {
     normalizedPayload.product = {
       ...normalizedPayload.product,
       slug: await resolveUniqueProductSlug(normalizedPayload.product),
@@ -1683,9 +1929,17 @@ export async function saveProductBundle(payload = {}) {
   }
 
   if (Array.isArray(normalizedPayload.variationCombinations)) {
+    const combinationPayload = await remapSavedProductCombinations(
+      productId,
+      normalizedPayload.variationCombinations,
+    );
+    if (!combinationPayload.ok) {
+      return combinationPayload;
+    }
+
     const combinationResult = await queryRpc("save_product_variation_combinations", {
       p_product_id: productId,
-      p_combinations: normalizedPayload.variationCombinations,
+      p_combinations: combinationPayload.combinations,
     });
 
     if (!combinationResult.ok && normalizedPayload.variationCombinations.length > 0) {
