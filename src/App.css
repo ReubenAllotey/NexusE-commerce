@@ -26703,7 +26703,6 @@ body[data-theme="dark"] td {
   color: var(--nexus-text);
 }
 
-body[data-theme="dark"] .product-view__swatch,
 body[data-theme="dark"] .product-view__size,
 body[data-theme="dark"] .product-card__variant,
 body[data-theme="dark"] .shop-card__variant {
@@ -31833,7 +31832,6 @@ body[data-theme="dark"] .cart-table__actions .cart-remove {
   margin-bottom: 0.5rem;
 }
 
-body[data-theme="dark"] .product-view__swatch.is-active,
 body[data-theme="dark"] .product-view__size.is-active {
   border-color: #1c3fb7;
   background: #1c3fb7;
@@ -34817,6 +34815,22 @@ body[data-theme="dark"] .product-view__main-image {
   border-color: #0240cd !important;
   background: var(--swatch-color, #cfd9e6) !important;
   box-shadow: 0 0 0 3px #ffffff, 0 0 0 5px #0240cd !important;
+}
+
+/* Theme surface rules must not replace an unselected color's actual fill. */
+body[data-theme="dark"] .product-view__swatches .product-view__swatch,
+body[data-theme="dark"] .product-view__swatches .product-view__swatch:hover {
+  background: var(--swatch-color, #cfd9e6);
+  border-color: rgba(255, 255, 255, 0.42);
+  color: transparent;
+}
+
+body[data-theme="dark"] .product-view__swatches .product-view__swatch.is-selected,
+body[data-theme="dark"] .product-view__swatches .product-view__swatch.is-selected:hover {
+  background: var(--swatch-color, #cfd9e6);
+  border-color: #0240cd;
+  box-shadow: 0 0 0 3px rgba(2, 64, 205, 0.28);
+  color: transparent;
 }
 
 @media (max-width: 560px) {

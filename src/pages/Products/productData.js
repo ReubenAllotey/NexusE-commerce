@@ -558,6 +558,7 @@ function normalizeVariationOptionRow(row = {}, basePrice = 0, baseCompareAt = nu
 }
 
 function normalizeVariationGroupRow(row = {}, options = [], basePrice = 0, baseCompareAt = null) {
+  const groupName = normalizeVariationGroupName(row?.groupName ?? row?.group_name);
   const normalizedOptions = [...(Array.isArray(options) ? options : [])]
     .filter(Boolean)
     .map((option) => normalizeVariationOptionRow(option, basePrice, baseCompareAt))
@@ -568,19 +569,29 @@ function normalizeVariationGroupRow(row = {}, options = [], basePrice = 0, baseC
         String(left.id ?? "").localeCompare(String(right.id ?? "")),
     );
 
+  const kind = inferVariationKind(groupName, normalizedOptions);
+  const displayOptions = kind === "color"
+    ? normalizedOptions.map((option) => ({
+        ...option,
+        // Older color options may not have stored swatch_color values. Resolve
+        // their label so the storefront can render the fill before selection.
+        swatchColor: option.swatchColor || resolveColorMeta(option.label || option.value).swatch,
+      }))
+    : normalizedOptions;
+
   return {
     id:
       cleanText(row?.id) ||
       slugify(normalizeVariationGroupName(row?.groupName ?? row?.group_name)) ||
       `variation-group-${displayOrder + 1}`,
     productId: cleanText(row?.productId ?? row?.product_id),
-    groupName: normalizeVariationGroupName(row?.groupName ?? row?.group_name),
+    groupName,
     displayOrder: Math.max(Math.round(Number(row?.displayOrder ?? row?.display_order) || 0), 0),
     isRequired: Boolean(row?.isRequired ?? row?.is_required),
     createdAt: row?.createdAt ?? row?.created_at ?? "",
     updatedAt: row?.updatedAt ?? row?.updated_at ?? "",
-    kind: inferVariationKind(row?.groupName ?? row?.group_name, normalizedOptions),
-    options: normalizedOptions,
+    kind,
+    options: displayOptions,
   };
 }
 
