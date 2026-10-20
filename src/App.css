@@ -10347,8 +10347,9 @@ body[data-theme="dark"] .location-picker__selected {
   }
 
   .product-view__swatch-label {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 
   .product-view__add,
@@ -34815,6 +34816,32 @@ body[data-theme="dark"] .product-view__main-image {
   border-color: #0240cd !important;
   background: var(--swatch-color, #cfd9e6) !important;
   box-shadow: 0 0 0 3px #ffffff, 0 0 0 5px #0240cd !important;
+}
+
+/* Keep each variation name and its selected value on one responsive row. */
+.product-view__swatch-label {
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  flex-direction: row;
+}
+
+.product-view__swatch-label > span,
+.product-view__swatch-label > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-view__swatch-label > span {
+  flex: 1 1 auto;
+}
+
+.product-view__swatch-label > strong {
+  flex: 0 1 50%;
+  text-align: right;
 }
 
 /* Theme surface rules must not replace an unselected color's actual fill. */
