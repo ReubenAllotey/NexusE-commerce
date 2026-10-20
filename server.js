@@ -4735,6 +4735,120 @@ function isLikelyBrandImage(imageValue) {
   return fileName.includes("nexus") || fileName.includes("logo") || fileName.includes("pwa");
 }
 
+function isUsableProductImageCandidate(imageValue) {
+  const image = clean(imageValue);
+
+  if (!image || /^data:|^blob:/i.test(image)) {
+    return false;
+  }
+
+  return !/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(image);
+}
+
+function extractImageValues(value, seen = new Set()) {
+  if (value == null) {
+    return [];
+  }
+
+  if (typeof value === "string") {
+    const text = value.trim();
+
+    if (!text) {
+      return [];
+    }
+
+    if (/^[\[{]/.test(text)) {
+      try {
+        return extractImageValues(JSON.parse(text), seen);
+      } catch {
+        // Keep non-JSON image paths as ordinary string candidates.
+      }
+    }
+
+    return [text];
+  }
+
+  if (typeof value !== "object" || seen.has(value)) {
+    return [];
+  }
+
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => extractImageValues(entry, seen));
+  }
+
+  const imageKeys = [
+    "url",
+    "src",
+    "image_url",
+    "imageUrl",
+    "public_url",
+    "publicUrl",
+    "path",
+  ];
+
+  return imageKeys.flatMap((key) => extractImageValues(value[key], seen));
+}
+
+function chooseProductImage(productRow, imageRows = []) {
+  const primaryFields = [
+    ["primary_image_url", productRow?.primary_image_url],
+    ["primaryImageUrl", productRow?.primaryImageUrl],
+    ["main_image", productRow?.main_image],
+    ["mainImage", productRow?.mainImage],
+    ["image_url", productRow?.image_url],
+    ["imageUrl", productRow?.imageUrl],
+    ["image", productRow?.image],
+    ["images", productRow?.images],
+    ["gallery", productRow?.gallery],
+    ["image_urls", productRow?.image_urls],
+  ];
+
+  for (const [field, value] of primaryFields) {
+    const candidates = extractImageValues(value);
+    const productImage = candidates.find(
+      (candidate) => isUsableProductImageCandidate(candidate) && !isLikelyBrandImage(candidate),
+    );
+
+    if (productImage) {
+      return { value: productImage, source: `products.${field}`, fallbackUsed: false };
+    }
+  }
+
+  const galleryCandidates = (Array.isArray(imageRows) ? imageRows : [])
+    .flatMap((row) => extractImageValues(row))
+    .filter((candidate) => isUsableProductImageCandidate(candidate) && !isLikelyBrandImage(candidate));
+
+  if (galleryCandidates[0]) {
+    return { value: galleryCandidates[0], source: "product_images.image_url", fallbackUsed: false };
+  }
+
+  return {
+    value: "",
+    source: "nexus-fallback",
+    fallbackUsed: true,
+    fallbackReason: "No valid non-brand product image was found in the main image fields or gallery.",
+  };
+}
+
+function logProductMetadataImage(product, image) {
+  const debugEnabled = clean(process.env.DEBUG_PRODUCT_METADATA || fileEnv.DEBUG_PRODUCT_METADATA).toLowerCase() === "true";
+
+  if (!debugEnabled) {
+    return;
+  }
+
+  console.info("[product-metadata-image]", JSON.stringify({
+    productId: product.id || null,
+    slug: product.slug,
+    selectedField: product.imageSource,
+    normalizedUrl: image.url,
+    fallbackUsed: Boolean(product.imageFallbackUsed),
+    fallbackReason: product.imageFallbackReason || null,
+  }));
+}
+
 async function loadPublicProductMetadata(slug) {
   if (!supabaseAdmin || !slug) {
     return null;
@@ -4756,10 +4870,10 @@ async function loadPublicProductMetadata(slug) {
     return null;
   }
 
-  let imageUrl = clean(productRow.primary_image_url || productRow.image_url || productRow.image);
+  let imageRows = [];
 
   if (productRow.id) {
-    const { data: imageRows, error: imageError } = await supabaseAdmin
+    const { data: fetchedImageRows, error: imageError } = await supabaseAdmin
       .from("product_images")
       .select("image_url")
       .eq("product_id", productRow.id)
@@ -4771,21 +4885,21 @@ async function loadPublicProductMetadata(slug) {
       throw imageError;
     }
 
-    const galleryImage = (Array.isArray(imageRows) ? imageRows : [])
-      .map((row) => clean(row?.image_url))
-      .find((value) => value && !isLikelyBrandImage(value)) || "";
-
-    if (!imageUrl || isLikelyBrandImage(imageUrl)) {
-      imageUrl = galleryImage || imageUrl;
-    }
+    imageRows = Array.isArray(fetchedImageRows) ? fetchedImageRows : [];
   }
 
+  const selectedImage = chooseProductImage(productRow, imageRows);
+
   return {
+    id: clean(productRow.id),
     name: clean(productRow.name) || "Nexus Import Hub Product",
     description:
       clean(productRow.short_description || productRow.description || productRow.overview) ||
       "Discover this product at Nexus Import Hub.",
-    imageUrl,
+    imageUrl: selectedImage.value,
+    imageSource: selectedImage.source,
+    imageFallbackUsed: selectedImage.fallbackUsed,
+    imageFallbackReason: selectedImage.fallbackReason || "",
     slug: clean(productRow.slug) || slug,
   };
 }
@@ -4794,6 +4908,7 @@ function buildProductMetadataHtml(html, product, origin) {
   const canonicalUrl = `${origin}/products/${encodeURIComponent(product.slug)}`;
   const title = `${product.name} | Nexus Import Hub`;
   const image = resolvePublicImage(product.imageUrl, origin);
+  logProductMetadataImage(product, image);
   const metadata = [
     `<title>${escapeHtml(title)}</title>`,
     '<meta property="og:type" content="product" />',
