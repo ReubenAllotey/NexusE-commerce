@@ -1600,6 +1600,7 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
     })),
     variationGroups,
     variationCombinations: normalizeEditorCombinationPayload(values.variationCombinations, variationGroups),
+    clearInactiveCombinations: Boolean(values.clearInactiveCombinations),
   };
 }
 
@@ -1885,6 +1886,13 @@ async function resolveUniqueProductSlug(product = {}) {
 
 export async function saveProductBundle(payload = {}) {
   const normalizedPayload = ensureProductBundleRows(payload);
+  const clearInactiveCombinations = Boolean(payload?.clearInactiveCombinations);
+  // Unchecked combinations are intentionally not for sale. Exclude them
+  // before validation and persistence so blank optional fields are harmless.
+  if (!clearInactiveCombinations) {
+    normalizedPayload.variationCombinations = normalizedPayload.variationCombinations
+      .filter((combination) => Boolean(combination?.isActive));
+  }
 
   try {
     const validation = validateEditorCombinationsBeforeSave(

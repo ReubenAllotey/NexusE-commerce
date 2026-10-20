@@ -187,7 +187,9 @@ function generateVariationCombinations(groups = [], existing = []) {
         ...previous,
         combinationKey,
         selectedOptions,
-        isActive: previous?.isActive ?? true,
+        // New combinations must be deliberately selected before they require
+        // pricing or become part of the save payload.
+        isActive: previous ? Boolean(previous.isActive) : false,
       }, result.length));
       return;
     }
@@ -1120,9 +1122,19 @@ function ProductEditorForm({
       return;
     }
 
+    const combinations = Array.isArray(formData.variationCombinations) ? formData.variationCombinations : [];
+    const hasSelectedCombination = combinations.some((combination) => combination.isActive);
+    const hadSavedCombination = Array.isArray(initialProduct?.variationCombinations)
+      && initialProduct.variationCombinations.some((combination) => combination.isActive ?? combination.is_active);
+    const clearInactiveCombinations = combinations.length > 0 && !hasSelectedCombination && hadSavedCombination;
+
+    if (clearInactiveCombinations && !window.confirm("No variation combinations are selected. Confirm that all existing combinations should be taken off sale?")) {
+      return;
+    }
+
     setIsSaving(true);
 
-    Promise.resolve(onSubmit(formData))
+    Promise.resolve(onSubmit({ ...formData, clearInactiveCombinations }))
       .then((result) => {
         if (result && result.ok === false) {
           setSubmitError(result.message || "Unable to save the product.");
@@ -1740,6 +1752,7 @@ function ProductEditorForm({
               <>
                 <div className="admin-product-form__variation-combination-toolbar">
                   <strong>{formData.variationCombinations.filter((item) => item.isActive).length} selected</strong>
+                  {formData.variationCombinations.every((item) => !item.isActive) ? <p className="admin-product-form__hint">No combinations selected. Select at least one combination to sell this product with combined variations.</p> : null}
                   <button type="button" className="admin-product-form__button admin-product-form__button--ghost" onClick={() => setFormData((current) => ({ ...current, variationCombinations: current.variationCombinations.map((item) => ({ ...item, isActive: true })) }))}>Select all</button>
                   <button type="button" className="admin-product-form__button admin-product-form__button--ghost" onClick={() => setFormData((current) => ({ ...current, variationCombinations: current.variationCombinations.map((item) => ({ ...item, isActive: false })) }))}>Deselect all</button>
                   <div className="admin-product-form__variation-bulk-editor">
@@ -1758,6 +1771,7 @@ function ProductEditorForm({
                       </label>
                       <strong>{combination.selectedOptions.map((option) => option.label || option.value).join(" / ")}</strong>
                       <span className={`admin-product-form__variation-status${combination.isActive ? " is-active" : ""}`}>{combination.isActive ? "Ready to sell" : "Not for sale"}</span>
+                      {combination.isActive ? <>
                       <label className="admin-product-form__variation-inline-field"><span>Price (GH₵)</span><input type="number" min="0" step="0.01" value={combination.price} onChange={(event) => updateVariationCombination(combination.combinationKey, "price", event.target.value)} /></label>
                       <label className="admin-product-form__variation-inline-field"><span>Compare-at</span><input type="number" min="0" step="0.01" value={combination.compareAt} onChange={(event) => updateVariationCombination(combination.combinationKey, "compareAt", event.target.value)} /></label>
                       <label className="admin-product-form__variation-inline-field"><span>SKU</span><input type="text" value={combination.sku} onChange={(event) => updateVariationCombination(combination.combinationKey, "sku", event.target.value)} /></label>
@@ -1768,6 +1782,7 @@ function ProductEditorForm({
                         <input id={`combination-image-${combination.id}`} className="admin-product-form__variation-file-input" type="file" accept="image/*" onChange={(event) => handleCombinationImageChange(combination.combinationKey, event)} />
                         {combination.imageUrl ? <button type="button" className="admin-product-form__button admin-product-form__button--ghost" onClick={() => updateVariationCombination(combination.combinationKey, "imageUrl", "")}>Remove image</button> : null}
                       </div>
+                      </> : <p className="admin-product-form__hint">Not selected for sale. Select this combination to add its price and product details.</p>}
                     </article>
                   ))}
                 </div>
