@@ -4624,8 +4624,10 @@ function escapeHtml(value) {
 function getPublicSiteOrigin(req) {
   const configuredOrigin = clean(
     process.env.PUBLIC_SITE_URL ||
+      process.env.PUBLIC_APP_URL ||
       process.env.APP_URL ||
       fileEnv.PUBLIC_SITE_URL ||
+      fileEnv.PUBLIC_APP_URL ||
       fileEnv.APP_URL,
   ).replace(/\/+$/, "");
 
@@ -4706,6 +4708,14 @@ function resolvePublicImage(imageValue, origin) {
   if (/^http:\/\//i.test(image)) {
     const secureUrl = image.replace(/^http:\/\//i, "https://");
     return { url: secureUrl, mimeType: getImageMimeType(secureUrl) };
+  }
+
+  // Admin product images may be stored as a relative Supabase Storage object
+  // path. Social crawlers need the public Supabase host, not the app origin.
+  if (/^\/?storage\/v1\/object\/public\//i.test(image) && normalizedSupabaseUrl) {
+    const storagePath = image.replace(/^\/+/, "");
+    const storageUrl = `${normalizedSupabaseUrl.replace(/\/+$/, "")}/${storagePath}`;
+    return { url: storageUrl, mimeType: getImageMimeType(storageUrl) };
   }
 
   const builtLegacyImage = findBuiltLegacyImage(image);
@@ -4799,6 +4809,7 @@ function buildProductMetadataHtml(html, product, origin) {
     `<meta name="twitter:title" content="${escapeHtml(product.name)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(product.description)}" />`,
     `<meta name="twitter:image" content="${escapeHtml(image.url)}" />`,
+    `<meta name="twitter:url" content="${escapeHtml(canonicalUrl)}" />`,
     `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
   ].join("\n");
   const titlePattern = /<title>[\s\S]*?<\/title>/i;
