@@ -15448,6 +15448,18 @@ body[data-theme="dark"] .admin-shipment-modal__stage-item {
   font-size: 0.92rem;
 }
 
+.admin-shipment-modal__readonly-value {
+  min-height: 2.8rem;
+  display: flex;
+  align-items: center;
+  padding: 0 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 0.7rem;
+  background: #f8fbff;
+  color: #13244c;
+  text-transform: capitalize;
+}
+
 .admin-shipment-modal__error {
   margin: 0;
   padding: 0.85rem 1rem;
@@ -15612,6 +15624,23 @@ body[data-theme="dark"] .admin-shipment-modal__stage-item {
   color: #6b7280;
 }
 
+button.admin-shipment-track__step {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.admin-shipment-track__step:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+button.admin-shipment-track__step:not(:disabled):hover .admin-shipment-track__node,
+button.admin-shipment-track__step:not(:disabled):focus-visible .admin-shipment-track__node {
+  box-shadow: 0 0 0 4px #ffffff, 0 0 0 7px rgba(2, 64, 205, 0.35);
+}
+
 .admin-shipment-track__step strong {
   display: block;
   font-size: 0.78rem;
@@ -15657,17 +15686,20 @@ body[data-theme="dark"] .admin-shipment-modal__stage-item {
 }
 
 .admin-shipment-track__step--active {
-  color: #16a34a;
+  color: #0240cd;
 }
 
 .admin-shipment-track__step--active .admin-shipment-track__node {
-  background: #16a34a;
+  background: #0240cd;
   color: #ffffff;
 }
 
-.admin-shipment-track__step--done:not(:last-child)::after,
-.admin-shipment-track__step--active:not(:last-child)::after {
+.admin-shipment-track__step--done:not(:last-child)::after {
   background: #16a34a;
+}
+
+.admin-shipment-track__step--active:not(:last-child)::after {
+  background: #0240cd;
 }
 
 .admin-shipment-track__step--pending {

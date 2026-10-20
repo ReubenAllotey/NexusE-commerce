@@ -10,7 +10,6 @@ import {
 import { loadAdminBatches } from "../../../shared/batchStorage";
 import ShipmentTrack from "../../../shared/ShipmentTrack";
 import {
-  getShipmentStepsForFreight,
   archiveShipmentTrack,
   loadAdminShipmentTracks,
   saveShipmentTrack,
@@ -35,25 +34,6 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
-function getStageOptions(freightType, currentStatus = "") {
-  const options = [
-    ...getShipmentStepsForFreight(freightType).map((step, index) => ({
-      value: `${index}:${step.status}`,
-      label: step.label,
-      step: index,
-      status: step.status,
-    })),
-  ];
-
-  // Keep historical delivered tracks editable without offering a new direct
-  // delivered transition outside the configurable stage workflow.
-  if (currentStatus === "delivered") {
-    options.push({ value: "4:delivered", label: "Delivered (historical)", step: 4, status: "delivered", disabled: true });
-  }
-
-  return options;
-}
-
 function SummaryCard({ title, value, note }) {
   return (
     <article className="admin-products-metric admin-shipment-metric">
@@ -64,7 +44,7 @@ function SummaryCard({ title, value, note }) {
   );
 }
 
-function TrackRow({ track, onEdit, onView, onManage, onDelete }) {
+function TrackRow({ track, onEdit, onView, onManage, onDelete, onStageSelect, saving }) {
   return (
     <article className="admin-shipment-card">
       <div className="admin-shipment-card__header">
@@ -75,7 +55,7 @@ function TrackRow({ track, onEdit, onView, onManage, onDelete }) {
         </div>
         <span className="admin-shipment-pill">{track.shippingMethodLabel}</span>
       </div>
-      <ShipmentTrack stepStates={track.stepStates} />
+      <ShipmentTrack stepStates={track.stepStates} interactive onStepSelect={(step, index) => onStageSelect(track, step, index)} saving={saving} />
       <div className="admin-shipment-card__progress" aria-label={`${track.progressPercent}% complete`}>
         <span style={{ width: `${track.progressPercent}%` }} />
       </div>
@@ -113,6 +93,7 @@ function ShipmentPage({ authUser = null }) {
   const [saving, setSaving] = useState(false);
   const [savingFee, setSavingFee] = useState(false);
   const [savingStages, setSavingStages] = useState(false);
+  const [savingTrackId, setSavingTrackId] = useState("");
   const { products, loading: productsLoading, refresh: refreshProducts } = useProducts();
 
   const pendingFeeProducts = useMemo(
@@ -283,6 +264,7 @@ function ShipmentPage({ authUser = null }) {
     }
     if (savingStages) return;
     setSavingStages(true);
+    setSavingTrackId(stageTrack.id);
     setError("");
     try {
       const result = await saveShipmentTrackStages(stageTrack.id, stageDraft.map((stage, position) => ({
@@ -320,6 +302,58 @@ function ShipmentPage({ authUser = null }) {
       setError(saveError?.message || "Unable to save shipment stages.");
     } finally {
       setSavingStages(false);
+      setSavingTrackId("");
+    }
+  };
+
+  const handleStageSelect = async (track, _selectedStep, selectedIndex) => {
+    if (savingStages) return;
+    const sourceStages = Array.isArray(track.stages) ? track.stages : [];
+    const selectedStage = sourceStages[selectedIndex];
+    if (!selectedStage) {
+      setError("This shipment has no configurable stages to update.");
+      return;
+    }
+
+    const stageKey = clean(selectedStage.key).toLowerCase();
+    const isDeliveryStage = ["delivered", "delivery_completed", "delivery-completed"].includes(stageKey);
+    const completionMessage = isDeliveryStage
+      ? `Confirm that ${selectedStage.label} has actually occurred. This will complete the delivery stage and mark the shipment delivered.`
+      : `Set ${selectedStage.label} as the current active stage? Earlier stages will be completed and later stages will remain pending.`;
+    if (!window.confirm(completionMessage)) return;
+
+    const completionDate = new Date().toISOString().slice(0, 10);
+    const nextStages = sourceStages.map((stage, index) => {
+      const isCompleted = isDeliveryStage ? index <= selectedIndex : index < selectedIndex;
+      return {
+        id: stage.id || null,
+        stage_key: clean(stage.key),
+        stage_name: clean(stage.label),
+        description: clean(stage.description),
+        position: index,
+        is_completed: isCompleted,
+        completed_at: isCompleted ? stage.completedAt || completionDate : null,
+      };
+    });
+
+    setSavingStages(true);
+    setSavingTrackId(track.id);
+    setError("");
+    try {
+      const result = await saveShipmentTrackStages(track.id, nextStages);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      const refreshed = await refresh();
+      if (!refreshed.ok) {
+        setError(`Stage saved, but the latest shipment data could not be loaded. ${refreshed.message}`.trim());
+      }
+    } catch (saveError) {
+      setError(saveError?.message || "Unable to update shipment progress.");
+    } finally {
+      setSavingStages(false);
+      setSavingTrackId("");
     }
   };
 
@@ -389,7 +423,6 @@ function ShipmentPage({ authUser = null }) {
   const airTracks = tracks.filter((track) => track.freightType === "air");
   const seaTracks = tracks.filter((track) => track.freightType === "sea");
   const completedTracks = tracks.filter((track) => track.currentStatus === "delivered");
-  const stageValue = `${trackDraft.currentStep}:${trackDraft.currentStatus}`;
 
   return (
     <main className="admin-products-page admin-shipment-page">
@@ -413,7 +446,7 @@ function ShipmentPage({ authUser = null }) {
 
         <section className="admin-products-panel admin-shipment-panel">
           <div className="admin-shipment-panel__heading"><div><p>Managed tracking</p><h2>Existing tracks</h2></div><span>{loading ? "Loading..." : `${tracks.length} track${tracks.length === 1 ? "" : "s"}`}</span></div>
-          {loading ? <div className="admin-products-empty"><h2>Loading shipment tracks...</h2><p>We are checking the managed shipment records.</p></div> : trackLoadError ? <div className="admin-products-empty admin-shipment-empty--error"><h2>Unable to load shipment tracks.</h2><p>{trackLoadError}</p><p>Apply the shipment tracking migration in Supabase, then try again.</p></div> : tracks.length > 0 ? <div className="admin-shipment-cards">{tracks.map((track) => <TrackRow key={track.id} track={track} onView={() => setSelectedTrack(track)} onEdit={() => openEdit(track)} onManage={() => openManageStages(track)} onDelete={() => handleDeleteTrack(track)} />)}</div> : <div className="admin-products-empty"><h2>No shipment tracks yet.</h2><p>Create an Air or Sea track for any managed batch, even before orders exist.</p></div>}
+          {loading ? <div className="admin-products-empty"><h2>Loading shipment tracks...</h2><p>We are checking the managed shipment records.</p></div> : trackLoadError ? <div className="admin-products-empty admin-shipment-empty--error"><h2>Unable to load shipment tracks.</h2><p>{trackLoadError}</p><p>Apply the shipment tracking migration in Supabase, then try again.</p></div> : tracks.length > 0 ? <div className="admin-shipment-cards">{tracks.map((track) => <TrackRow key={track.id} track={track} onView={() => setSelectedTrack(track)} onEdit={() => openEdit(track)} onManage={() => openManageStages(track)} onDelete={() => handleDeleteTrack(track)} onStageSelect={handleStageSelect} saving={savingStages && savingTrackId === track.id} />)}</div> : <div className="admin-products-empty"><h2>No shipment tracks yet.</h2><p>Create an Air or Sea track for any managed batch, even before orders exist.</p></div>}
         </section>
       </section>
 
@@ -429,7 +462,7 @@ function ShipmentPage({ authUser = null }) {
               </div>
               <div className="admin-shipment-modal__grid">
                 <label className="admin-shipment-modal__field"><span>Headline</span><input value={trackDraft.headline} onChange={(event) => handleTrackChange("headline", event.target.value)} placeholder="Shipment headline" /></label>
-                <label className="admin-shipment-modal__field"><span>Current Stage</span><select value={stageValue} onChange={(event) => { const [step, status] = event.target.value.split(":"); handleTrackChange("currentStep", Number(step)); handleTrackChange("currentStatus", status); }}>{getStageOptions(trackDraft.freightType, trackDraft.currentStatus).map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}</select><small className="admin-shipment-modal__hint">Delivery confirmation is handled through Manage Stages with a completed <code>delivered</code> stage.</small></label>
+                <div className="admin-shipment-modal__field"><span>Current Stage</span><strong className="admin-shipment-modal__readonly-value">{trackDraft.currentStatus === "delivered" ? "Delivered" : trackDraft.currentStatus.replaceAll("_", " ")}</strong><small className="admin-shipment-modal__hint">Use the clickable timeline or Manage Stages to update progress. Delivery requires a completed <code>delivered</code> stage.</small></div>
               </div>
               <div className="admin-shipment-modal__grid">
                 <label className="admin-shipment-modal__field"><span>Estimated Departure</span><input type="date" value={String(trackDraft.estimatedDeparture ?? "").slice(0, 10)} onChange={(event) => handleTrackChange("estimatedDeparture", event.target.value)} /></label>
