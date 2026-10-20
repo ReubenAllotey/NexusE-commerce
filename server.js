@@ -4690,8 +4690,33 @@ function findBuiltLegacyImage(imageValue) {
   };
 }
 
-function resolvePublicImage(imageValue, origin) {
+function parseDataImageUri(value) {
+  const image = clean(value);
+  const match = image.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=\s]+)$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  try {
+    const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+    return buffer.length > 0 ? { buffer, mimeType: match[1].toLowerCase() } : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolvePublicImage(imageValue, origin, productSlug = "") {
   const image = clean(imageValue);
+  const dataImage = parseDataImageUri(image);
+
+  if (dataImage && productSlug) {
+    return {
+      url: `${origin}/api/product-share-image/${encodeURIComponent(productSlug)}`,
+      mimeType: dataImage.mimeType,
+      proxy: true,
+    };
+  }
 
   if (!image) {
     return { url: `${origin}/nexus-pwa-512.png`, mimeType: "image/png" };
@@ -4738,7 +4763,7 @@ function isLikelyBrandImage(imageValue) {
 function isUsableProductImageCandidate(imageValue) {
   const image = clean(imageValue);
 
-  if (!image || /^data:|^blob:/i.test(image)) {
+  if (!image || /^blob:/i.test(image)) {
     return false;
   }
 
@@ -4791,7 +4816,7 @@ function extractImageValues(value, seen = new Set()) {
   return imageKeys.flatMap((key) => extractImageValues(value[key], seen));
 }
 
-function chooseProductImage(productRow, imageRows = []) {
+function chooseProductImage(productRow, imageRows = [], variationImageRows = []) {
   const primaryFields = [
     ["primary_image_url", productRow?.primary_image_url],
     ["primaryImageUrl", productRow?.primaryImageUrl],
@@ -4812,7 +4837,12 @@ function chooseProductImage(productRow, imageRows = []) {
     );
 
     if (productImage) {
-      return { value: productImage, source: `products.${field}`, fallbackUsed: false };
+      return {
+        value: productImage,
+        source: `products.${field}`,
+        fallbackUsed: false,
+        imageProxyRequired: Boolean(parseDataImageUri(productImage)),
+      };
     }
   }
 
@@ -4821,19 +4851,42 @@ function chooseProductImage(productRow, imageRows = []) {
     .filter((candidate) => isUsableProductImageCandidate(candidate) && !isLikelyBrandImage(candidate));
 
   if (galleryCandidates[0]) {
-    return { value: galleryCandidates[0], source: "product_images.image_url", fallbackUsed: false };
+    return {
+      value: galleryCandidates[0],
+      source: "product_images.image_url",
+      fallbackUsed: false,
+      imageProxyRequired: Boolean(parseDataImageUri(galleryCandidates[0])),
+    };
+  }
+
+  const variationCandidates = (Array.isArray(variationImageRows) ? variationImageRows : [])
+    .flatMap((row) => extractImageValues(row))
+    .filter((candidate) => isUsableProductImageCandidate(candidate) && !isLikelyBrandImage(candidate));
+
+  if (variationCandidates[0]) {
+    return {
+      value: variationCandidates[0],
+      source: "product_variation_combinations.image_url",
+      fallbackUsed: false,
+      imageProxyRequired: Boolean(parseDataImageUri(variationCandidates[0])),
+    };
   }
 
   return {
     value: "",
     source: "nexus-fallback",
     fallbackUsed: true,
+    imageProxyRequired: false,
     fallbackReason: "No valid non-brand product image was found in the main image fields or gallery.",
   };
 }
 
+function isProductMetadataDebugEnabled() {
+  return clean(process.env.DEBUG_PRODUCT_METADATA || fileEnv.DEBUG_PRODUCT_METADATA).toLowerCase() === "true";
+}
+
 function logProductMetadataImage(product, image) {
-  const debugEnabled = clean(process.env.DEBUG_PRODUCT_METADATA || fileEnv.DEBUG_PRODUCT_METADATA).toLowerCase() === "true";
+  const debugEnabled = isProductMetadataDebugEnabled();
 
   if (!debugEnabled) {
     return;
@@ -4846,6 +4899,9 @@ function logProductMetadataImage(product, image) {
     normalizedUrl: image.url,
     fallbackUsed: Boolean(product.imageFallbackUsed),
     fallbackReason: product.imageFallbackReason || null,
+    productImagesQuery: product.imageQueryStatus || null,
+    variationImagesQuery: product.variationImageQueryStatus || null,
+    proxyUsed: Boolean(image.proxy),
   }));
 }
 
@@ -4863,7 +4919,25 @@ async function loadPublicProductMetadata(slug) {
     .maybeSingle();
 
   if (productError) {
+    if (isProductMetadataDebugEnabled()) {
+      console.info("[product-metadata-query]", JSON.stringify({
+        slug,
+        query: "products",
+        ok: false,
+        error: productError.message || "Product query failed.",
+      }));
+    }
     throw productError;
+  }
+
+  if (isProductMetadataDebugEnabled()) {
+    console.info("[product-metadata-query]", JSON.stringify({
+      slug,
+      query: "products",
+      ok: Boolean(productRow),
+      productId: productRow?.id || null,
+      error: productRow ? null : "Product was not found or is not public.",
+    }));
   }
 
   if (!productRow) {
@@ -4871,6 +4945,9 @@ async function loadPublicProductMetadata(slug) {
   }
 
   let imageRows = [];
+  let variationImageRows = [];
+  let imageQueryStatus = "not-run";
+  let variationImageQueryStatus = "not-run";
 
   if (productRow.id) {
     const { data: fetchedImageRows, error: imageError } = await supabaseAdmin
@@ -4882,13 +4959,43 @@ async function loadPublicProductMetadata(slug) {
       .limit(20);
 
     if (imageError) {
-      throw imageError;
+      imageQueryStatus = `failed: ${imageError.message || "unknown error"}`;
+    } else {
+      imageQueryStatus = "succeeded";
+      imageRows = Array.isArray(fetchedImageRows) ? fetchedImageRows : [];
     }
 
-    imageRows = Array.isArray(fetchedImageRows) ? fetchedImageRows : [];
+    const { data: fetchedVariationImageRows, error: variationImageError } = await supabaseAdmin
+      .from("product_variation_combinations")
+      .select("image_url,display_order,created_at")
+      .eq("product_id", productRow.id)
+      .eq("is_active", true)
+      .order("display_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(20);
+
+    if (variationImageError) {
+      variationImageQueryStatus = `failed: ${variationImageError.message || "unknown error"}`;
+    } else {
+      variationImageQueryStatus = "succeeded";
+      variationImageRows = Array.isArray(fetchedVariationImageRows) ? fetchedVariationImageRows : [];
+    }
   }
 
-  const selectedImage = chooseProductImage(productRow, imageRows);
+  if (isProductMetadataDebugEnabled()) {
+    console.info("[product-metadata-query]", JSON.stringify({
+      slug,
+      productId: productRow.id,
+      query: "product_images",
+      status: imageQueryStatus,
+      rows: imageRows.length,
+      variationQuery: "product_variation_combinations",
+      variationStatus: variationImageQueryStatus,
+      variationRows: variationImageRows.length,
+    }));
+  }
+
+  const selectedImage = chooseProductImage(productRow, imageRows, variationImageRows);
 
   return {
     id: clean(productRow.id),
@@ -4900,6 +5007,9 @@ async function loadPublicProductMetadata(slug) {
     imageSource: selectedImage.source,
     imageFallbackUsed: selectedImage.fallbackUsed,
     imageFallbackReason: selectedImage.fallbackReason || "",
+    imageProxyRequired: Boolean(selectedImage.imageProxyRequired),
+    imageQueryStatus,
+    variationImageQueryStatus,
     slug: clean(productRow.slug) || slug,
   };
 }
@@ -4907,7 +5017,7 @@ async function loadPublicProductMetadata(slug) {
 function buildProductMetadataHtml(html, product, origin) {
   const canonicalUrl = `${origin}/products/${encodeURIComponent(product.slug)}`;
   const title = `${product.name} | Nexus Import Hub`;
-  const image = resolvePublicImage(product.imageUrl, origin);
+  const image = resolvePublicImage(product.imageUrl, origin, product.slug);
   logProductMetadataImage(product, image);
   const metadata = [
     `<title>${escapeHtml(title)}</title>`,
@@ -4971,6 +5081,65 @@ async function serveProductPage(req, res, slug) {
   }
 }
 
+function getProductShareImageSlugFromPath(pathname) {
+  const match = pathname.match(/^\/api\/product-share-image\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+async function serveProductShareImage(req, res, slug) {
+  if (!supabaseAdmin || !slug) {
+    sendText(res, 404, "Product image not found.");
+    return;
+  }
+
+  try {
+    const product = await loadPublicProductMetadata(slug);
+    const image = parseDataImageUri(product?.imageUrl);
+
+    if (!image) {
+      if (isProductMetadataDebugEnabled()) {
+        console.info("[product-share-image]", JSON.stringify({
+          slug,
+          productId: product?.id || null,
+          selectedSource: product?.imageSource || null,
+          fallbackUsed: Boolean(product?.imageFallbackUsed),
+          reason: "Selected product image is not a supported public data image.",
+        }));
+      }
+      sendText(res, 404, "Product image not found.");
+      return;
+    }
+
+    if (isProductMetadataDebugEnabled()) {
+      console.info("[product-share-image]", JSON.stringify({
+        slug,
+        productId: product.id,
+        selectedSource: product.imageSource,
+        resolvedMimeType: image.mimeType,
+        byteLength: image.buffer.length,
+        fallbackUsed: false,
+      }));
+    }
+
+    res.writeHead(200, {
+      "Content-Type": image.mimeType,
+      "Content-Length": image.buffer.length,
+      "Cache-Control": "public, max-age=3600, s-maxage=86400",
+      "X-Content-Type-Options": "nosniff",
+    });
+    res.end(image.buffer);
+  } catch (error) {
+    if (isProductMetadataDebugEnabled()) {
+      console.info("[product-share-image]", JSON.stringify({
+        slug,
+        fallbackUsed: true,
+        reason: error?.message || "Product image query failed.",
+      }));
+    }
+    sendText(res, 404, "Product image not found.");
+  }
+}
+
 function isWithinDirectory(filePath, directoryPath) {
   const relative = path.relative(directoryPath, filePath);
   return !!relative && !relative.startsWith("..") && !path.isAbsolute(relative);
@@ -5016,6 +5185,12 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "OPTIONS") {
     sendText(res, 204, "");
+    return;
+  }
+
+  const productShareImageSlug = getProductShareImageSlugFromPath(pathname);
+  if (productShareImageSlug && req.method === "GET") {
+    await serveProductShareImage(req, res, productShareImageSlug);
     return;
   }
 
