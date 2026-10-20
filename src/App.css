@@ -36955,3 +36955,37 @@ body[data-theme="dark"] .product-card--compact .product-card__status-text {
     font-size: clamp(0.64rem, 2.1vw, 0.78rem);
   }
 }
+
+/* Product-page action accents use the Nexus orange without changing other buttons. */
+.product-view .product-view__secondary-row .product-view__wishlist.is-active {
+  border-color: #f74f00;
+  background: rgba(247, 79, 0, 0.1);
+  color: #f74f00;
+  box-shadow: 0 0 0 1px rgba(247, 79, 0, 0.18), 0 10px 18px rgba(247, 79, 0, 0.1);
+}
+
+.product-view .product-view__secondary-row .product-view__wishlist.is-active svg {
+  color: #f74f00;
+}
+
+.product-view .product-view__support-actions .product-view__secondary-action:focus-visible {
+  border-color: #f74f00;
+  background: rgba(247, 79, 0, 0.08);
+  color: #f74f00;
+  outline: 2px solid rgba(247, 79, 0, 0.35);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .product-view .product-view__support-actions .product-view__secondary-action:hover {
+    border-color: #f74f00;
+    background: rgba(247, 79, 0, 0.08);
+    color: #f74f00;
+  }
+}
+
+body[data-theme="dark"] .product-view .product-view__secondary-row .product-view__wishlist.is-active {
+  border-color: #f74f00;
+  background: rgba(247, 79, 0, 0.16);
+  color: #f74f00;
+}
