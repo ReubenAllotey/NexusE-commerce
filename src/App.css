@@ -36989,3 +36989,9 @@ body[data-theme="dark"] .product-view .product-view__secondary-row .product-view
   background: rgba(247, 79, 0, 0.16);
   color: #f74f00;
 }
+
+/* Keep the requested dark-theme brand accents limited to these two labels. */
+body[data-theme="dark"] .home-page .hero-banner__eyebrow,
+body[data-theme="dark"] .shop-page .shop-summary {
+  color: #0240cd;
+}
