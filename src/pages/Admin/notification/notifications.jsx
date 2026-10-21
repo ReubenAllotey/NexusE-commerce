@@ -67,6 +67,9 @@ function AdminNotificationsPage({
 }) {
   const session = loadAdminSession() ?? authUser;
   const isActiveAdmin = isActiveAdminProfile(authUser ?? session);
+  const handleRefreshNotifications = async () => {
+    await onRefreshNotifications();
+  };
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [readFilter, setReadFilter] = useState("all");
@@ -220,7 +223,7 @@ function AdminNotificationsPage({
             <h1>Notifications</h1>
             <span>Monitor customer orders, payments, and shipment updates in one place.</span>
           </div>
-          <button type="button" className="admin-notifications-refresh" onClick={onRefreshNotifications} disabled={notificationsLoading}>
+          <button type="button" className="admin-notifications-refresh" onClick={handleRefreshNotifications} disabled={notificationsLoading}>
             <NotificationIcon name="refresh" size={16} />
             {notificationsLoading ? "Refreshing" : "Refresh"}
           </button>
@@ -354,7 +357,7 @@ function AdminNotificationsPage({
                           <NotificationIcon name={hasActiveFilters ? "search" : "bell"} size={30} />
                           <h2>{hasActiveFilters ? "No matching notifications" : "No notifications yet"}</h2>
                           <p>{hasActiveFilters ? "No matching notifications. Try adjusting your search or filters." : "Order, payment, and shipment updates will appear here when they are generated."}</p>
-                          <button type="button" className="admin-notifications-empty__refresh" onClick={hasActiveFilters ? () => { setSearchTerm(""); setCategoryFilter("all"); setReadFilter("all"); } : onRefreshNotifications}>{hasActiveFilters ? "Clear filters" : "Refresh"}</button>
+                          <button type="button" className="admin-notifications-empty__refresh" onClick={hasActiveFilters ? () => { setSearchTerm(""); setCategoryFilter("all"); setReadFilter("all"); } : handleRefreshNotifications}>{hasActiveFilters ? "Clear filters" : "Refresh"}</button>
                         </div>
                       </td>
                     </tr>
