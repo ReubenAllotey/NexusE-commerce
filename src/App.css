@@ -6974,9 +6974,9 @@ body[data-theme="dark"] .site-footer__inner {
 .addresses-footer__button,
 .address-card__button--primary,
 .address-modal__button--primary {
-  background: #0f172a;
+  background: #0240cd;
   color: #ffffff;
-  box-shadow: 0 14px 24px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 14px 24px rgba(2, 64, 205, 0.18);
 }
 
 .addresses-toolbar__button:hover,
@@ -7279,6 +7279,19 @@ body[data-theme="dark"] .site-footer__inner {
 .address-modal__field select:focus {
   border-color: #0267d2;
   box-shadow: 0 0 0 4px rgba(2, 103, 210, 0.12);
+}
+
+.address-modal__field input[aria-invalid="true"],
+.address-modal__field select[aria-invalid="true"] {
+  border-color: #b42318;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
+.address-modal__field-error {
+  color: #b42318;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .address-modal__check {

@@ -1,14 +1,33 @@
 import { useMemo, useState } from "react";
 import ProfileSectionShell from "./ProfileSectionShell";
 
-function createEmptyForm(authUser = null, fallbackLabel = "") {
+const GHANA_REGIONS = [
+  "Ahafo",
+  "Ashanti",
+  "Bono",
+  "Bono East",
+  "Central",
+  "Eastern",
+  "Greater Accra",
+  "North East",
+  "Northern",
+  "Oti",
+  "Savannah",
+  "Upper East",
+  "Upper West",
+  "Volta",
+  "Western",
+  "Western North",
+];
+
+function createEmptyForm(authUser = null) {
   return {
     id: "",
-    addressLabel: fallbackLabel,
+    addressLabel: "Delivery Location",
     fullName: authUser?.name ?? "",
-    phoneNumber: "",
+    phoneNumber: authUser?.phoneNumber ?? "",
     emailAddress: authUser?.email ?? "",
-    country: "",
+    country: "Ghana",
     region: "",
     city: "",
     streetAddress: "",
@@ -43,34 +62,18 @@ function AddressCard({
     <article className={`address-card${address.isDefault ? " is-default" : ""}`}>
       <div className="address-card__header">
         <div className="address-card__heading">
-          <h3>{address.addressLabel || "Address"}</h3>
+          <h3>{address.city || "Delivery Location"}</h3>
           {address.isDefault ? <span className="address-card__badge">Default</span> : null}
         </div>
 
-        <strong className="address-card__owner">{address.fullName}</strong>
       </div>
 
       <div className="address-card__body">
-        <p className="address-card__line">{address.streetAddress}</p>
-        {address.houseNumber ? (
-          <p className="address-card__line">{address.houseNumber}</p>
-        ) : null}
-        <p className="address-card__line">{formatLocation(address)}</p>
+        <p className="address-card__line">{address.city || "Delivery location not added"}</p>
         {address.region ? (
           <p className="address-card__line address-card__line--muted">{address.region}</p>
         ) : null}
-
-        <div className="address-card__contact">
-          <span>Phone:</span>
-          <strong>{address.phoneNumber}</strong>
-        </div>
-
-        {address.emailAddress ? (
-          <div className="address-card__contact">
-            <span>Email:</span>
-            <strong>{address.emailAddress}</strong>
-          </div>
-        ) : null}
+        <p className="address-card__line">{address.country || "Ghana"}</p>
 
         {address.landmark ? (
           <p className="address-card__line address-card__line--muted">
@@ -78,14 +81,8 @@ function AddressCard({
           </p>
         ) : null}
 
-        {address.postalCode ? (
-          <p className="address-card__line address-card__line--muted">
-            Postal Code: {address.postalCode}
-          </p>
-        ) : null}
-
         {address.isDefault ? (
-          <p className="address-card__default-note">Default Delivery Address</p>
+          <p className="address-card__default-note">Default Delivery Location</p>
         ) : null}
       </div>
 
@@ -113,7 +110,7 @@ function AddressCard({
         <button
           type="button"
           className="address-card__button address-card__button--danger"
-          onClick={() => onDelete(address.id, address.addressLabel)}
+          onClick={() => onDelete(address.id, address.city || "this delivery location")}
           disabled={isSaving || isDeleting || isSettingDefault}
         >
           {deleteLabel}
@@ -139,13 +136,14 @@ function Addresses({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingAddress, setEditingAddress] = useState(null);
   const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [statusMessage, setStatusMessage] = useState("");
   const [statusTone, setStatusTone] = useState("info");
   const [isSaving, setIsSaving] = useState(false);
   const [deletingAddressId, setDeletingAddressId] = useState("");
   const [defaultingAddressId, setDefaultingAddressId] = useState("");
   const [formData, setFormData] = useState(() =>
-    createEmptyForm(authUser, visibleAddresses.length === 0 ? "Home" : ""),
+    createEmptyForm(authUser),
   );
 
   function openCreateForm() {
@@ -155,24 +153,26 @@ function Addresses({
 
     setEditingAddress(null);
     setFormError("");
+    setFieldErrors({});
     setStatusMessage("");
     setStatusTone("info");
-    setFormData(createEmptyForm(authUser, visibleAddresses.length === 0 ? "Home" : ""));
+    setFormData(createEmptyForm(authUser));
     setIsFormOpen(true);
   }
 
   function openEditForm(address) {
     setEditingAddress(address);
     setFormError("");
+    setFieldErrors({});
     setStatusMessage("");
     setStatusTone("info");
     setFormData({
       id: address.id ?? "",
-      addressLabel: address.addressLabel ?? "",
+      addressLabel: address.addressLabel ?? "Delivery Location",
       fullName: address.fullName ?? authUser?.name ?? "",
       phoneNumber: address.phoneNumber ?? "",
       emailAddress: address.emailAddress ?? authUser?.email ?? "",
-      country: address.country ?? "",
+      country: address.country || "Ghana",
       region: address.region ?? "",
       city: address.city ?? "",
       streetAddress: address.streetAddress ?? "",
@@ -188,6 +188,7 @@ function Addresses({
     setIsFormOpen(false);
     setEditingAddress(null);
     setFormError("");
+    setFieldErrors({});
   }
 
   function handleFieldChange(event) {
@@ -197,6 +198,8 @@ function Addresses({
       ...current,
       [name]: type === "checkbox" ? checked : value,
     }));
+    setFieldErrors((current) => ({ ...current, [name]: "" }));
+    setFormError("");
   }
 
   async function handleSubmit(event) {
@@ -206,7 +209,6 @@ function Addresses({
       return;
     }
 
-    setIsSaving(true);
     setFormError("");
     setStatusMessage("");
 
@@ -225,6 +227,22 @@ function Addresses({
       postalCode: clean(formData.postalCode),
     };
 
+    const nextFieldErrors = {};
+    if (payload.country !== "Ghana") nextFieldErrors.country = "Country must be Ghana.";
+    if (!GHANA_REGIONS.includes(payload.region)) nextFieldErrors.region = "Please select a Ghana region.";
+    if (!payload.city) nextFieldErrors.city = "Please enter your delivery location.";
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      setFormError("Please review the highlighted fields before saving.");
+      window.requestAnimationFrame(() => {
+        document.getElementById(`profile-address-${Object.keys(nextFieldErrors)[0]}`)?.focus();
+      });
+      return;
+    }
+
+    setIsSaving(true);
+
     try {
       const result = await onSaveAddress(payload);
 
@@ -232,7 +250,7 @@ function Addresses({
         closeForm();
         setStatusTone("success");
         setStatusMessage(
-          editingAddress ? "Address updated successfully." : "Address added successfully.",
+          editingAddress ? "Delivery location updated successfully." : "Delivery location added successfully.",
         );
         return;
       }
@@ -320,16 +338,16 @@ function Addresses({
           </article>
 
           <article className="addresses-summary__card">
-            <span className="addresses-summary__label">Default Address</span>
+            <span className="addresses-summary__label">Default Delivery Location</span>
             <strong className="addresses-summary__value">
-              {isLoading ? "Loading..." : defaultAddress?.addressLabel || "None set"}
+              {isLoading ? "Loading..." : defaultAddress?.city || "None set"}
             </strong>
             <p className="addresses-summary__note">
               {isLoading
                 ? "Fetching saved addresses from Supabase."
                 : defaultAddress
                   ? formatLocation(defaultAddress) || defaultAddress.streetAddress
-                  : "Add or choose a default delivery address."}
+                  : "Add or choose a default delivery location."}
             </p>
           </article>
         </div>
@@ -345,13 +363,13 @@ function Addresses({
             onClick={openCreateForm}
             disabled={isLoading || isSaving || Boolean(deletingAddressId) || Boolean(defaultingAddressId)}
           >
-            Add New Address
+            <><span aria-hidden="true">+</span> Add New Delivery Location</>
           </button>
         </div>
 
         {isLoading ? (
           <section className="addresses-empty">
-            <h2>Loading Addresses</h2>
+            <h2>Loading Delivery Locations</h2>
             <p>We are fetching your saved delivery addresses from Supabase.</p>
           </section>
         ) : visibleAddresses.length > 0 ? (
@@ -359,7 +377,7 @@ function Addresses({
             <div className="addresses-panel__header">
               <div>
                 <p className="addresses-panel__eyebrow">Saved locations</p>
-                <h2>Delivery address book</h2>
+                <h2>Saved Delivery Locations</h2>
               </div>
               <span>
                 {visibleAddresses.length} saved address
@@ -384,10 +402,10 @@ function Addresses({
           </section>
         ) : (
           <section className="addresses-empty">
-            <h2>No Addresses Found</h2>
-            <p>Add a delivery address to receive your orders quickly and easily.</p>
+            <h2>No Delivery Locations Found</h2>
+            <p>Add a delivery location to receive your orders quickly and easily.</p>
             <button type="button" className="addresses-empty__button" onClick={openCreateForm}>
-              Add Address
+              + Add New Delivery Location
             </button>
           </section>
         )}
@@ -400,7 +418,7 @@ function Addresses({
               onClick={openCreateForm}
               disabled={isLoading || isSaving || Boolean(deletingAddressId) || Boolean(defaultingAddressId)}
             >
-              Add New Address
+              <><span aria-hidden="true">+</span> Add New Delivery Location</>
             </button>
           </div>
         ) : null}
@@ -418,9 +436,9 @@ function Addresses({
           <div className="address-modal__panel">
             <header className="address-modal__header">
               <div>
-                <p>{editingAddress ? "Edit Address" : "Add Address"}</p>
+                <p>{editingAddress ? "Delivery" : "Delivery"}</p>
                 <h2 id="address-form-title">
-                  {editingAddress ? "Update delivery address" : "Add a delivery address"}
+                  {editingAddress ? "Edit Delivery Location" : "Add Delivery Location"}
                 </h2>
               </div>
 
@@ -437,86 +455,44 @@ function Addresses({
 
             <form className="address-modal__form" onSubmit={handleSubmit}>
               <div className="address-modal__grid">
-                <label className="address-modal__field address-modal__field--full">
-                  <span>Address Label</span>
-                  <input
-                    type="text"
-                    name="addressLabel"
-                    value={formData.addressLabel}
-                    onChange={handleFieldChange}
-                    placeholder="Home, Office, etc."
-                    disabled={isSaving}
-                  />
-                </label>
-
-                <label className="address-modal__field address-modal__field--full">
-                  <span>Full Name</span>
-                  <input
-                    type="text"
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleFieldChange}
-                    required
-                    autoComplete="name"
-                    disabled={isSaving}
-                  />
-                </label>
-
                 <label className="address-modal__field">
-                  <span>Phone Number</span>
+                  <span>Country <em aria-hidden="true">*</em></span>
                   <input
-                    type="tel"
-                    name="phoneNumber"
-                    value={formData.phoneNumber}
-                    onChange={handleFieldChange}
-                    required
-                    autoComplete="tel"
-                    disabled={isSaving}
-                  />
-                </label>
-
-                <label className="address-modal__field">
-                  <span>Email Address (Optional)</span>
-                  <input
-                    type="email"
-                    name="emailAddress"
-                    value={formData.emailAddress}
-                    onChange={handleFieldChange}
-                    autoComplete="email"
-                    disabled={isSaving}
-                  />
-                </label>
-
-                <label className="address-modal__field">
-                  <span>Country</span>
-                  <input
+                    id="profile-address-country"
                     type="text"
                     name="country"
-                    value={formData.country}
-                    onChange={handleFieldChange}
+                    value="Ghana"
                     required
                     readOnly
                     autoComplete="country-name"
                     disabled={isSaving}
+                    aria-invalid={Boolean(fieldErrors.country)}
                   />
+                  {fieldErrors.country ? <small className="address-modal__field-error">{fieldErrors.country}</small> : null}
                 </label>
 
                 <label className="address-modal__field">
-                  <span>Region</span>
-                  <input
-                    type="text"
+                  <span>Region <em aria-hidden="true">*</em></span>
+                  <select
+                    id="profile-address-region"
                     name="region"
                     value={formData.region}
                     onChange={handleFieldChange}
                     required
                     autoComplete="address-level1"
                     disabled={isSaving}
-                  />
+                    aria-invalid={Boolean(fieldErrors.region)}
+                  >
+                    <option value="">Select your region</option>
+                    {GHANA_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                  </select>
+                  {fieldErrors.region ? <small className="address-modal__field-error">{fieldErrors.region}</small> : null}
                 </label>
 
-                <label className="address-modal__field">
-                  <span>Delivery Location</span>
+                <label className="address-modal__field address-modal__field--full">
+                  <span>Delivery Location / Town / Community <em aria-hidden="true">*</em></span>
                   <input
+                    id="profile-address-city"
                     type="text"
                     name="city"
                     value={formData.city}
@@ -524,7 +500,9 @@ function Addresses({
                     required
                     autoComplete="address-level2"
                     disabled={isSaving}
+                    aria-invalid={Boolean(fieldErrors.city)}
                   />
+                  {fieldErrors.city ? <small className="address-modal__field-error">{fieldErrors.city}</small> : null}
                 </label>
 
                 <label className="address-modal__field">
@@ -548,7 +526,7 @@ function Addresses({
                   onChange={handleFieldChange}
                   disabled={isSaving}
                 />
-                <span>Set as Default</span>
+                <span>Set as Default Delivery Location</span>
               </label>
 
               {formError ? <p className="address-modal__error">{formError}</p> : null}
@@ -567,7 +545,7 @@ function Addresses({
                   className="address-modal__button address-modal__button--primary"
                   disabled={isSaving}
                 >
-                  {isSaving ? "Saving..." : "Save Address"}
+                  {isSaving ? "Saving..." : "Save Delivery Location"}
                 </button>
               </div>
             </form>
