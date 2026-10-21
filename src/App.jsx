@@ -378,6 +378,7 @@ function AppShell({
   onEditCartItem,
   onClearCart,
   onCreateNotification,
+  onRefreshNotifications,
   onReplaceOrders,
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
@@ -600,7 +601,7 @@ function AppShell({
                 notificationsError={notificationsError}
                 authUser={authUser}
                 onCreateNotification={onCreateNotification}
-                onRefreshNotifications={handleRefreshNotifications}
+                onRefreshNotifications={onRefreshNotifications}
               />,
             )}
           />
@@ -1933,6 +1934,7 @@ function App() {
         onEditCartItem={handleEditCartItem}
         onClearCart={handleClearCart}
         onCreateNotification={handleCreateNotification}
+        onRefreshNotifications={handleRefreshNotifications}
         onReplaceOrders={setOrders}
         onMarkNotificationRead={handleMarkNotificationRead}
         onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
