@@ -600,7 +600,6 @@ function AppShell({
                 notificationsLoading={notificationsLoading}
                 notificationsError={notificationsError}
                 authUser={authUser}
-                onCreateNotification={onCreateNotification}
                 onRefreshNotifications={onRefreshNotifications}
               />,
             )}

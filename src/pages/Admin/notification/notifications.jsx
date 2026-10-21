@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { isActiveAdminProfile, loadAdminSession } from "../Auth/adminAuthStorage";
-import { supabase } from "../../../lib/supabaseClient";
+import { loadAdminSession } from "../Auth/adminAuthStorage";
 import {
   getNotificationCategory,
   getNotificationCategoryLabel,
@@ -21,10 +20,6 @@ const READ_FILTERS = [
   { key: "unread", label: "Unread" },
   { key: "read", label: "Read" },
 ];
-
-const EMAIL_QUEUE_TEST_CUSTOMER_ID = "c8659380-b662-4644-a977-b7157a50aac8";
-const EMAIL_QUEUE_TEST_EMAIL = "kpakporeuben@gmail.com";
-const EMAIL_QUEUE_TEST_SOURCE_KEY = "test-email-queue:20261021-reuben-001";
 
 function NotificationIcon({ name, size = 18 }) {
   const paths = {
@@ -62,18 +57,15 @@ function AdminNotificationsPage({
   notificationsLoading = false,
   notificationsError = "",
   authUser = null,
-  onCreateNotification = async () => ({ ok: false, message: "Notification creation is unavailable." }),
   onRefreshNotifications = async () => {},
 }) {
   const session = loadAdminSession() ?? authUser;
-  const isActiveAdmin = isActiveAdminProfile(authUser ?? session);
   const handleRefreshNotifications = async () => {
     await onRefreshNotifications();
   };
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [readFilter, setReadFilter] = useState("all");
-  const [queueTestState, setQueueTestState] = useState({ status: "idle", message: "", result: null });
 
   if (!session) {
     return <Navigate to="/admin/login" replace />;
@@ -132,87 +124,6 @@ function AdminNotificationsPage({
     (item) => getNotificationCategory(item) === "shipping",
   ).length;
   const hasActiveFilters = Boolean(searchTerm.trim()) || categoryFilter !== "all" || readFilter !== "all";
-
-  const runEmailQueueSmokeTest = async () => {
-    if (queueTestState.status === "running") {
-      return;
-    }
-
-    setQueueTestState({ status: "running", message: "Checking the approved test account...", result: null });
-
-    try {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, email, role, status")
-        .eq("id", EMAIL_QUEUE_TEST_CUSTOMER_ID)
-        .maybeSingle();
-
-      if (profileError) throw new Error(profileError.message || "Unable to verify the test customer.");
-      if (
-        !profile ||
-        profile.email?.toLowerCase() !== EMAIL_QUEUE_TEST_EMAIL ||
-        profile.role !== "customer" ||
-        profile.status !== "active"
-      ) {
-        throw new Error("The approved test customer is not an active customer with the expected email.");
-      }
-
-      const { data: existing, error: existingError } = await supabase
-        .from("notifications")
-        .select("id, user_id, source_key, title, message")
-        .eq("source_key", EMAIL_QUEUE_TEST_SOURCE_KEY)
-        .maybeSingle();
-
-      if (existingError) throw new Error(existingError.message || "Unable to check the test source key.");
-
-      let notification = existing;
-      let created = false;
-
-      if (!notification) {
-        const result = await onCreateNotification({
-          customer: { id: EMAIL_QUEUE_TEST_CUSTOMER_ID, email: EMAIL_QUEUE_TEST_EMAIL },
-          category: "orders",
-          title: "[TEST] Transactional email queue smoke test",
-          message: "TEST ONLY: This notification verifies email queue creation. No payment, order, or shipment was changed.",
-          sourceType: "order_status",
-          sourceKey: EMAIL_QUEUE_TEST_SOURCE_KEY,
-          actionUrl: "/profile/notifications",
-          actionLabel: "View test notification",
-          actionDescription: "Test notification only.",
-        });
-
-        if (!result?.ok || !result.notification) {
-          throw new Error(result?.message || "The test notification could not be created.");
-        }
-
-        notification = result.notification;
-        created = true;
-      }
-
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData?.session?.access_token) {
-        throw new Error("The active admin session could not be verified for queue inspection.");
-      }
-
-      const verificationResponse = await fetch(
-        `/api/admin/email-queue-smoke-test?sourceKey=${encodeURIComponent(EMAIL_QUEUE_TEST_SOURCE_KEY)}`,
-        { headers: { Authorization: `Bearer ${sessionData.session.access_token}` } },
-      );
-      const verification = await verificationResponse.json().catch(() => ({}));
-
-      if (!verificationResponse.ok || !verification.ok) {
-        throw new Error(verification.message || "The notification was created, but queue verification failed.");
-      }
-
-      setQueueTestState({
-        status: "success",
-        message: created ? "Test notification created and queue record verified." : "Existing test notification and queue record verified; nothing new was created.",
-        result: verification,
-      });
-    } catch (error) {
-      setQueueTestState({ status: "error", message: error?.message || "Smoke test failed.", result: null });
-    }
-  };
 
   return (
     <main className="admin-notifications-page">
@@ -368,15 +279,6 @@ function AdminNotificationsPage({
           </div>
         </section>
 
-        {import.meta.env.VITE_EMAIL_QUEUE_SMOKE_TEST_ENABLED === "true" && isActiveAdmin ? (
-          <section className="admin-notifications-developer-tools">
-            <div><p>Developer tools</p><h2>Email queue smoke test</h2><span>Creates no payment, order, or shipment data. The test remains disabled unless the server flag is enabled too.</span></div>
-            <button type="button" className="admin-notifications-dev-button" onClick={runEmailQueueSmokeTest} disabled={queueTestState.status === "running"}>
-              {queueTestState.status === "running" ? "Testing Email Queue..." : "Run Email Queue Smoke Test"}
-            </button>
-            {queueTestState.status !== "idle" ? <p className={`admin-notifications-test-result is-${queueTestState.status}`}>{queueTestState.message}{queueTestState.result ? ` Notification ID: ${queueTestState.result.notification?.id || "unknown"}. Queue status: ${queueTestState.result.queue?.status || "unknown"}.` : ""}</p> : null}
-          </section>
-        ) : null}
       </section>
     </main>
   );
