@@ -2340,6 +2340,27 @@ function getSmtpTransporter() {
   return smtpTransporter;
 }
 
+function sanitizeEmailDiagnostic(value) {
+  return clean(value)
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[redacted-email]")
+    .replace(/(password|passwd|secret|token|authorization|api[-_ ]?key)\s*[:=]\s*[^,; ]+/gi, "$1=[redacted]")
+    .slice(0, 280);
+}
+
+function logEmailProviderFailure(provider, error = {}) {
+  const details = {
+    provider,
+    code: sanitizeEmailDiagnostic(error?.code),
+    command: sanitizeEmailDiagnostic(error?.command),
+    response: sanitizeEmailDiagnostic(error?.response),
+    statusCode: Number.isFinite(Number(error?.statusCode)) ? Number(error.statusCode) : undefined,
+    message: sanitizeEmailDiagnostic(error?.message),
+  };
+
+  console.error(`${provider} transactional email failed:`, JSON.stringify(details));
+}
+
 async function sendTransactionalEmail({ to, from, subject, text, html }) {
   const recipient = clean(to);
   const configuredFrom = clean(from) || clean(process.env.SMTP_FROM) || clean(process.env.SMTP_USER);
@@ -2359,9 +2380,12 @@ async function sendTransactionalEmail({ to, from, subject, text, html }) {
         html: clean(html) || undefined,
       });
       return { ok: true, provider: "smtp", providerMessageId: result?.messageId || "" };
-    } catch {
+    } catch (error) {
+      logEmailProviderFailure("SMTP", error);
       // Try the optional fallback without exposing SMTP details to the client.
     }
+  } else {
+    console.error("SMTP transactional email skipped: SMTP_USER and/or SMTP_PASS is not configured.");
   }
 
   const resendKey = clean(process.env.RESEND_API_KEY);
@@ -2387,7 +2411,12 @@ async function sendTransactionalEmail({ to, from, subject, text, html }) {
         const body = await response.json().catch(() => ({}));
         return { ok: true, provider: "resend", providerMessageId: clean(body?.id) };
       }
-    } catch {
+      console.error("Resend transactional email failed:", JSON.stringify({
+        statusCode: response.status,
+        statusText: sanitizeEmailDiagnostic(response.statusText),
+      }));
+    } catch (error) {
+      logEmailProviderFailure("Resend", error);
       // Return a safe delivery failure below.
     }
   }
