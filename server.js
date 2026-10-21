@@ -2688,6 +2688,116 @@ async function handleAdminNotificationEmail(req, res) {
   });
 }
 
+async function handleAdminEmailQueueSmokeTest(req, res) {
+  if (!isTruthyEnv(process.env.EMAIL_QUEUE_SMOKE_TEST_ENABLED)) {
+    sendJson(res, 404, { ok: false, message: "The temporary email queue smoke test is disabled." });
+    return;
+  }
+
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can inspect the email queue smoke test." });
+    return;
+  }
+
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const sourceKey = clean(requestUrl.searchParams.get("sourceKey"));
+  const expectedSourceKey = "test-email-queue:20261021-reuben-001";
+  const expectedUserId = "c8659380-b662-4644-a977-b7157a50aac8";
+  const expectedEmail = "kpakporeuben@gmail.com";
+  const expectedTitle = "[TEST] Transactional email queue smoke test";
+  const expectedMessage = "TEST ONLY: This notification verifies email queue creation. No payment, order, or shipment was changed.";
+
+  if (sourceKey !== expectedSourceKey) {
+    sendJson(res, 400, { ok: false, message: "Only the approved smoke-test source key can be inspected." });
+    return;
+  }
+
+  const { data: notifications, error: notificationError } = await supabaseAdmin
+    .from("notifications")
+    .select("id, user_id, title, message, source_type, source_key")
+    .eq("user_id", expectedUserId)
+    .eq("source_key", expectedSourceKey);
+
+  if (notificationError) {
+    sendJson(res, 500, { ok: false, message: notificationError.message || "Unable to inspect the test notification." });
+    return;
+  }
+
+  if (!Array.isArray(notifications) || notifications.length !== 1) {
+    sendJson(res, 409, {
+      ok: false,
+      message: `Expected exactly one test notification, found ${notifications?.length || 0}.`,
+    });
+    return;
+  }
+
+  const notification = notifications[0];
+  if (
+    notification.source_type !== "order_status" ||
+    notification.title !== expectedTitle ||
+    notification.message !== expectedMessage
+  ) {
+    sendJson(res, 409, { ok: false, message: "The existing source key does not contain the approved smoke-test payload." });
+    return;
+  }
+  const { data: jobs, error: jobError } = await supabaseAdmin
+    .from("notification_email_deliveries")
+    .select("id, notification_id, recipient_user_id, recipient_email, status, attempts, sent_at, provider")
+    .eq("notification_id", notification.id);
+
+  if (jobError) {
+    sendJson(res, 500, { ok: false, message: jobError.message || "Unable to inspect the email queue job." });
+    return;
+  }
+
+  if (!Array.isArray(jobs) || jobs.length !== 1) {
+    sendJson(res, 409, {
+      ok: false,
+      message: `Expected exactly one queue job, found ${jobs?.length || 0}.`,
+      notification,
+    });
+    return;
+  }
+
+  const queue = jobs[0];
+  if (queue.recipient_user_id !== expectedUserId || queue.recipient_email?.toLowerCase() !== expectedEmail) {
+    sendJson(res, 409, { ok: false, message: "The queue recipient does not match the approved test account." });
+    return;
+  }
+  const safeResult = {
+    notification: {
+      id: notification.id,
+      userId: notification.user_id,
+      sourceType: notification.source_type,
+      sourceKey: notification.source_key,
+    },
+    queue: {
+      id: queue.id,
+      notificationId: queue.notification_id,
+      recipientUserId: queue.recipient_user_id,
+      recipientEmail: queue.recipient_email,
+      status: queue.status,
+      attempts: queue.attempts,
+      sentAt: queue.sent_at,
+      provider: queue.provider,
+    },
+    emailQueueEnabled: isEmailQueueProcessingEnabled(),
+  };
+
+  sendJson(res, queue.status === "pending" && !queue.sent_at && Number(queue.attempts) === 0 ? 200 : 409, {
+    ok: queue.status === "pending" && !queue.sent_at && Number(queue.attempts) === 0,
+    ...safeResult,
+    message: queue.status === "pending" ? "The test queue job is pending and has not been processed." : "The test queue job is not pending.",
+  });
+}
+
 async function handleAdminOrderPaymentNotice(req, res) {
   const authResult = await getAuthenticatedUser(req);
   if (!authResult.ok || !authResult.user) {
@@ -5246,6 +5356,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/notification-email" && req.method === "POST") {
     await handleAdminNotificationEmail(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/email-queue-smoke-test" && req.method === "GET") {
+    await handleAdminEmailQueueSmokeTest(req, res);
     return;
   }
 
