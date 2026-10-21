@@ -600,6 +600,7 @@ function AppShell({
                 notificationsError={notificationsError}
                 authUser={authUser}
                 onCreateNotification={onCreateNotification}
+                onRefreshNotifications={handleRefreshNotifications}
               />,
             )}
           />
@@ -1837,6 +1838,28 @@ function App() {
     }
 
     return result;
+  };
+
+  const handleRefreshNotifications = async () => {
+    if (!authUser) {
+      return;
+    }
+
+    setNotificationsLoading(true);
+    setNotificationsError("");
+
+    try {
+      const result = await loadNotifications({ authUser });
+      if (result.ok) {
+        setNotifications(result.notifications ?? []);
+      } else {
+        setNotificationsError(result.message || "Unable to load your notifications.");
+      }
+    } catch (error) {
+      setNotificationsError(error?.message || "Unable to load your notifications.");
+    } finally {
+      setNotificationsLoading(false);
+    }
   };
 
   const handleToggleWishlist = (itemName) => {
