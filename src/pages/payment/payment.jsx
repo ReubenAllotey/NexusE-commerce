@@ -396,6 +396,7 @@ function PaymentCheckout({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     const nextOwnerKey =
@@ -480,36 +481,35 @@ function PaymentCheckout({
   const mobileReady = clean(mobileNetwork) && clean(mobileNumber).length >= 9;
   const hasReadyStockItems = cartRows.some((row) => row.availabilityType === "ready_stock");
   const hasPendingShipping = cartRows.some((row) => row.hasPendingShipping || row.shippingFeeStatus === "pending");
-  const canSubmit = agreeToTerms && !isSubmitting && !processing && Boolean(customerName.trim()) && Boolean(customerPhone.trim()) && isReasonableEmail(customerEmail) && (paymentMethod === "card" || mobileReady);
+  const canSubmit = !isSubmitting && !processing;
 
   async function handleSubmit(event) {
     event.preventDefault();
 
-    if (!agreeToTerms) {
-      setError("Please confirm your order details and delivery address.");
-      return;
+    const nextFieldErrors = {};
+    if (!shippingAddress?.region) nextFieldErrors.shippingAddress = "Please select a delivery region.";
+    if (!shippingAddress?.city && !shippingAddress?.deliveryLocation) {
+      nextFieldErrors.shippingAddress = "Please select a delivery location.";
     }
-
-    if (!customerName.trim() || !customerPhone.trim()) {
-      setError("Please add your full name and phone number before continuing.");
-      return;
-    }
-
-    if (!customerEmail.trim()) {
-      setError("Email address is required.");
-      return;
-    }
-
-    if (!isReasonableEmail(customerEmail)) {
-      setError("Enter a valid email address.");
-      return;
-    }
-
+    if (!customerName.trim()) nextFieldErrors.customerName = "Full name is required.";
+    if (!customerPhone.trim()) nextFieldErrors.customerPhone = "Phone number is required.";
+    if (!customerEmail.trim()) nextFieldErrors.customerEmail = "Email address is required.";
+    else if (!isReasonableEmail(customerEmail)) nextFieldErrors.customerEmail = "Enter a valid email address.";
     if (paymentMethod === "mobile-money" && !mobileReady) {
-      setError("Please choose a mobile money network and enter your number.");
+      nextFieldErrors.mobileNumber = "Enter a valid mobile money number.";
+    }
+    if (!agreeToTerms) nextFieldErrors.agreeToTerms = "Please confirm your order details and delivery address.";
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      setError("Please review the highlighted fields before continuing.");
+      window.requestAnimationFrame(() => {
+        document.getElementById(`payment-${Object.keys(nextFieldErrors)[0]}`)?.focus();
+      });
       return;
     }
 
+    setFieldErrors({});
     if (isShippingBalancePayment && summaryTotal <= 0) {
       setError("No shipping balance is due for this order.");
       return;
@@ -807,7 +807,7 @@ function PaymentCheckout({
               </div>
 
               <>
-                <section className="checkout-info-card checkout-info-card--location">
+                <section id="payment-shippingAddress" className={`checkout-info-card checkout-info-card--location${fieldErrors.shippingAddress ? " has-error" : ""}`}>
                   <div className="checkout-info-card__heading">
                     <span className="checkout-info-card__icon" aria-hidden="true">⌖</span>
                     <div>
@@ -833,6 +833,7 @@ function PaymentCheckout({
                   >
                     Change
                   </Link>
+                  {fieldErrors.shippingAddress ? <p className="payment-field__error">{fieldErrors.shippingAddress}</p> : null}
                 </section>
 
                 <section className="checkout-info-card checkout-info-card--customer">
@@ -844,35 +845,53 @@ function PaymentCheckout({
                   </div>
                   <div className="payment-grid">
                     <label className="payment-field">
-                      <span>Full Name *</span>
+                        <span>Full Name <em aria-hidden="true">*</em></span>
                       <input
+                          id="payment-customerName"
                         type="text"
                         value={customerName}
-                        onChange={(event) => setCustomerName(event.target.value)}
+                          onChange={(event) => {
+                            setCustomerName(event.target.value);
+                            setFieldErrors((current) => ({ ...current, customerName: "" }));
+                          }}
+                          aria-invalid={Boolean(fieldErrors.customerName)}
                         autoComplete="name"
                         required
                       />
+                        {fieldErrors.customerName ? <small className="payment-field__error">{fieldErrors.customerName}</small> : null}
                     </label>
                     <label className="payment-field">
-                      <span>Phone / WhatsApp Number *</span>
+                        <span>Phone / WhatsApp Number <em aria-hidden="true">*</em></span>
                       <input
+                          id="payment-customerPhone"
                         type="tel"
                         value={customerPhone}
-                        onChange={(event) => setCustomerPhone(event.target.value)}
+                          onChange={(event) => {
+                            setCustomerPhone(event.target.value);
+                            setFieldErrors((current) => ({ ...current, customerPhone: "" }));
+                          }}
+                          aria-invalid={Boolean(fieldErrors.customerPhone)}
                         autoComplete="tel"
                         required
                       />
+                        {fieldErrors.customerPhone ? <small className="payment-field__error">{fieldErrors.customerPhone}</small> : null}
                     </label>
                     <label className="payment-field payment-field--full">
-                      <span>Email Address *</span>
+                      <span>Email Address <em aria-hidden="true">*</em></span>
                       <input
+                        id="payment-customerEmail"
                         type="email"
                         value={customerEmail}
-                        onChange={(event) => setCustomerEmail(event.target.value)}
+                        onChange={(event) => {
+                          setCustomerEmail(event.target.value);
+                          setFieldErrors((current) => ({ ...current, customerEmail: "" }));
+                        }}
+                        aria-invalid={Boolean(fieldErrors.customerEmail)}
                         autoComplete="email"
                         placeholder="e.g. customer@example.com"
                         required
                       />
+                      {fieldErrors.customerEmail ? <small className="payment-field__error">{fieldErrors.customerEmail}</small> : null}
                     </label>
                   </div>
                 </section>
@@ -1015,12 +1034,18 @@ function PaymentCheckout({
                       <label className="payment-field">
                         <span>Mobile Money Number</span>
                         <input
+                          id="payment-mobileNumber"
                           type="tel"
                           value={mobileNumber}
-                          onChange={(event) => setMobileNumber(event.target.value)}
+                          onChange={(event) => {
+                            setMobileNumber(event.target.value);
+                            setFieldErrors((current) => ({ ...current, mobileNumber: "" }));
+                          }}
+                          aria-invalid={Boolean(fieldErrors.mobileNumber)}
                           placeholder="024 XXX XXXX"
                           autoComplete="tel"
                         />
+                        {fieldErrors.mobileNumber ? <small className="payment-field__error">{fieldErrors.mobileNumber}</small> : null}
                       </label>
                     </div>
 
@@ -1038,12 +1063,18 @@ function PaymentCheckout({
 
                 <label className="payment-check">
                   <input
+                    id="payment-agreeToTerms"
                     type="checkbox"
                     checked={agreeToTerms}
-                    onChange={(event) => setAgreeToTerms(event.target.checked)}
+                    onChange={(event) => {
+                      setAgreeToTerms(event.target.checked);
+                      setFieldErrors((current) => ({ ...current, agreeToTerms: "" }));
+                    }}
+                    aria-invalid={Boolean(fieldErrors.agreeToTerms)}
                   />
                   <span>I confirm that my order details and delivery address are correct.</span>
                 </label>
+                {fieldErrors.agreeToTerms ? <p className="payment-field__error">{fieldErrors.agreeToTerms}</p> : null}
 
                 {error ? <p className="payment-error">{error}</p> : null}
 

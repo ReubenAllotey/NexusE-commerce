@@ -9772,6 +9772,39 @@ body[data-theme="dark"] .location-picker__selected {
   line-height: 1.45;
 }
 
+.shipping-form input[aria-invalid="true"],
+.shipping-form select[aria-invalid="true"],
+.shipping-form textarea[aria-invalid="true"] {
+  border-color: #b42318;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
+.shipping-form__submit {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.payment-field__error {
+  display: block;
+  margin-top: 0.35rem;
+  color: #b42318;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.payment-field input[aria-invalid="true"],
+.payment-field select[aria-invalid="true"],
+.payment-check input[aria-invalid="true"] {
+  border-color: #b42318;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
+.checkout-info-card.has-error {
+  border-color: #b42318;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
 .shipping-summary {
   position: sticky;
   top: 6rem;
