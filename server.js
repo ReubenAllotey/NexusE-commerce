@@ -1463,7 +1463,7 @@ async function drainPushDeliveryQueue() {
     return;
   }
 
-  const { data: pendingRows, error: pendingError } = await supabasePrivate.rpc("claim_push_delivery_jobs", {
+  const { data: pendingRows, error: pendingError } = await supabaseAdmin.rpc("claim_push_delivery_jobs", {
     p_limit: 25,
     p_lease_timeout: "2 minutes",
   });
