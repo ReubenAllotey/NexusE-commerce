@@ -2340,6 +2340,22 @@ function getSmtpTransporter() {
   return smtpTransporter;
 }
 
+function getSmtpDiagnosticSettings() {
+  const host = clean(process.env.SMTP_HOST) || "smtp.gmail.com";
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = isTruthyEnv(process.env.SMTP_SECURE);
+
+  return {
+    host,
+    port,
+    secure,
+    startTls: !secure && port === 587,
+    userConfigured: Boolean(clean(process.env.SMTP_USER)),
+    passwordConfigured: Boolean(clean(process.env.SMTP_PASS)),
+    fromConfigured: Boolean(clean(process.env.SMTP_FROM)),
+  };
+}
+
 function sanitizeEmailDiagnostic(value) {
   return clean(value)
     .replace(/[\r\n]+/g, " ")
@@ -2675,6 +2691,33 @@ async function requeueNotificationEmail(notificationId) {
 function isAuthorizedEmailWorkerRequest(req) {
   const configuredSecret = clean(process.env.EMAIL_QUEUE_WORKER_SECRET);
   return Boolean(configuredSecret) && req.headers.authorization === `Bearer ${configuredSecret}`;
+}
+
+async function handleSmtpDiagnostic(req, res) {
+  if (!isAuthorizedEmailWorkerRequest(req)) {
+    sendJson(res, 401, { ok: false, message: "Unauthorized SMTP diagnostic request." });
+    return;
+  }
+
+  const settings = getSmtpDiagnosticSettings();
+  const smtp = getSmtpTransporter();
+  if (!smtp) {
+    console.error("SMTP diagnostic unavailable:", JSON.stringify({
+      ...settings,
+      reason: "SMTP_USER and/or SMTP_PASS is not configured",
+    }));
+    sendJson(res, 503, { ok: false, message: "SMTP configuration is incomplete." });
+    return;
+  }
+
+  try {
+    await smtp.verify();
+    console.info("SMTP diagnostic passed:", JSON.stringify(settings));
+    sendJson(res, 200, { ok: true, message: "SMTP connectivity and authentication verified." });
+  } catch (error) {
+    logEmailProviderFailure("SMTP diagnostic", error);
+    sendJson(res, 502, { ok: false, message: "SMTP connectivity or authentication failed." });
+  }
 }
 
 async function handleAdminNotificationEmail(req, res) {
@@ -5294,6 +5337,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/notification-email" && req.method === "POST") {
     await handleAdminNotificationEmail(req, res);
+    return;
+  }
+
+  if (pathname === "/internal/email/smtp-diagnostic" && req.method === "POST") {
+    await handleSmtpDiagnostic(req, res);
     return;
   }
 
