@@ -2383,7 +2383,13 @@ async function sendTransactionalEmail({ to, subject, text, html }) {
   const senderEmail = clean(process.env.BREVO_SENDER_EMAIL);
   const senderName = clean(process.env.BREVO_SENDER_NAME) || "Nexus Import Hub";
 
-  if (!recipient || !senderEmail || !brevoApiKey || !clean(subject) || (!clean(text) && !clean(html))) {
+  if (
+    !isValidQueuedEmailAddress(recipient) ||
+    !isValidQueuedEmailAddress(senderEmail) ||
+    !brevoApiKey ||
+    !clean(subject) ||
+    (!clean(text) && !clean(html))
+  ) {
     return { ok: false, permanent: true, message: "Brevo email configuration or request data is incomplete." };
   }
 
