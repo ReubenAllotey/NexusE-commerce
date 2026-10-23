@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
 import webpush from "web-push";
 import { analyzeProduct } from "./server/services/aiProductService.js";
+import { buildOrderConfirmationEmail } from "./server/services/orderConfirmationEmail.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
@@ -2501,32 +2502,6 @@ async function sendOrderPaymentEmail({ recipient, customerName, orderNumber, out
   });
 }
 
-function formatOrderEmailVariation(item) {
-  const selectedOptions = normalizePayload(item?.selected_options);
-  if (selectedOptions && typeof selectedOptions === "object" && !Array.isArray(selectedOptions)) {
-    const values = Object.entries(selectedOptions)
-      .map(([name, value]) => `${clean(name)}: ${clean(value)}`)
-      .filter((entry) => !entry.endsWith(":"));
-    if (values.length > 0) return values.join(", ");
-  }
-
-  return [
-    clean(item?.selected_color) ? `Color: ${clean(item.selected_color)}` : "",
-    clean(item?.selected_size) ? `Size: ${clean(item.selected_size)}` : "",
-  ].filter(Boolean).join(", ");
-}
-
-function formatOrderEmailAddress(snapshot) {
-  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    return "Not provided";
-  }
-
-  return Object.entries(snapshot)
-    .map(([key, value]) => `${clean(key).replace(/[_-]+/g, " ")}: ${clean(value)}`)
-    .filter((entry) => !entry.endsWith(": "))
-    .join(", ") || "Not provided";
-}
-
 async function loadOrderConfirmationContext(notification) {
   const paymentId = clean(notification?.payment_id);
   const orderId = clean(notification?.order_id);
@@ -2570,40 +2545,6 @@ async function loadOrderConfirmationContext(notification) {
     orders: bundles.map((bundle) => bundle.order),
     items: bundles.flatMap((bundle) => bundle.items ?? []),
   };
-}
-
-function buildOrderConfirmationEmail(context, customerName) {
-  const { payment, order, orders, items } = context;
-  const orderNumber = clean(order.order_number) || clean(order.id);
-  const orderDate = payment.paid_at || order.created_at;
-  const subtotal = orders.reduce((sum, entry) => sum + (Number(entry.subtotal) || 0), 0);
-  const shippingTotal = orders.reduce((sum, entry) => sum + (Number(entry.shipping_total) || 0), 0);
-  const shippingPaidNow = orders.some((entry) => clean(entry.shipping_payment_mode).toLowerCase() === "pay_now");
-  const amountPaid = Number(payment.amount) || Number(payment.amount_minor) / 100 || 0;
-  const itemLines = items.map((item) => {
-    const variation = formatOrderEmailVariation(item);
-    const quantity = Number(item.quantity) || 0;
-    const unitPrice = Number(item.unit_price) || 0;
-    const lineTotal = Number(item.line_subtotal) || unitPrice * quantity;
-    return { name: clean(item.product_name) || "Product", variation, quantity, unitPrice, lineTotal };
-  });
-  const shippingLabel = shippingPaidNow ? formatGhanaCedis(shippingTotal) : "To be communicated separately";
-  const itemText = itemLines.length > 0
-    ? itemLines.map((item) => `${item.name}${item.variation ? ` (${item.variation})` : ""} x${item.quantity} - ${formatGhanaCedis(item.lineTotal)}`).join("\n")
-    : "No item details available.";
-  const safeItems = itemLines.length > 0
-    ? itemLines.map((item) => `<tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(item.name)}</strong>${item.variation ? `<br><small>${escapeHtml(item.variation)}</small>` : ""}</td><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:center">${item.quantity}</td><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(formatGhanaCedis(item.unitPrice))}</td><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(formatGhanaCedis(item.lineTotal))}</td></tr>`).join("")
-    : `<tr><td colspan="4">No item details available.</td></tr>`;
-  const shippingAddress = formatOrderEmailAddress(order.shipping_address_snapshot);
-  const appUrl = clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com";
-  const orderLink = clean(order.user_id)
-    ? `${appUrl}/profile/orders`
-    : `${appUrl}/payment?reference=${encodeURIComponent(clean(payment.provider_reference))}`;
-  const greeting = clean(customerName) || "Customer";
-  const subject = `Order confirmation - Nexus Order #${orderNumber}`;
-  const text = `Dear ${greeting},\n\nThank you for shopping with Nexus Import Hub.\n\nOrder: ${orderNumber}\nDate: ${orderDate || "Not available"}\n\n${itemText}\n\nSubtotal: ${formatGhanaCedis(subtotal)}\nShipping: ${shippingLabel}\nTotal paid: ${formatGhanaCedis(amountPaid)}\nPayment status: Successful\nPayment reference: ${clean(payment.provider_reference)}\nDelivery address: ${shippingAddress}\n\nView your order: ${orderLink}\n\nShop Beyond Borders. We Handle the Rest.`;
-  const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033;max-width:680px;margin:auto"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>Dear ${escapeHtml(greeting)},</p><p>Thank you for shopping with Nexus Import Hub. Your payment has been verified successfully.</p><p><strong>Order:</strong> ${escapeHtml(orderNumber)}<br><strong>Date:</strong> ${escapeHtml(String(orderDate || "Not available"))}<br><strong>Payment reference:</strong> ${escapeHtml(clean(payment.provider_reference))}</p><table style="width:100%;border-collapse:collapse"><thead><tr style="color:#0240CD"><th style="text-align:left">Product</th><th>Qty</th><th style="text-align:right">Unit price</th><th style="text-align:right">Total</th></tr></thead><tbody>${safeItems}</tbody></table><p><strong>Subtotal:</strong> ${escapeHtml(formatGhanaCedis(subtotal))}<br><strong>Shipping:</strong> ${escapeHtml(shippingLabel)}<br><strong>Total paid:</strong> ${escapeHtml(formatGhanaCedis(amountPaid))}<br><strong>Payment status:</strong> <span style="color:#15803d">Successful</span></p><p><strong>Delivery address:</strong> ${escapeHtml(shippingAddress)}</p><p><a href="${escapeHtml(orderLink)}" style="display:inline-block;background:#0240CD;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">View your order</a></p><p style="color:#64748b">Shop Beyond Borders. We Handle the Rest.</p></div>`;
-  return { subject, text, html };
 }
 
 async function ensureOrderConfirmationNotification(payment, order = null) {

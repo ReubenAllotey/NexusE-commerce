@@ -1,0 +1,22 @@
+Dear Test Customer,
+
+Your payment was verified successfully.
+
+Order: NX-TEST-001
+Order date: 23 Oct 2026
+Payment status: Successful
+Payment reference: TEST-PAYMENT-NX-001
+
+iPhone 13 (Storage: 128GB, Color: Midnight) x1 - GH₵3,500.00
+Wireless Earbuds x2 - GH₵300.00
+
+Subtotal: GH₵3,800.00
+Shipping: To be communicated separately
+Amount paid: GH₵3,800.00
+
+Delivery address: Country: Ghana · Region: Greater Accra · Delivery location: Test Community
+
+View your order: https://nexuse-commerce.onrender.com/profile/orders
+
+Support: https://nexuse-commerce.onrender.com/contact
+Shop Beyond Borders. We Handle the Rest.
