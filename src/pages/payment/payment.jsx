@@ -585,6 +585,7 @@ function PaymentCheckout({
             orderId: pendingOrder.id,
             orderNumber: pendingOrder.orderNumber,
             paymentReference,
+            guestAccessToken: clean(guestCheckout?.accessToken),
             paymentMethod,
             paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
             paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
@@ -1255,7 +1256,10 @@ function PaymentStatusPage({
     try {
       setVerificationError("");
       setVerificationState("loading");
-      const result = await verifyPaystackTransaction(reference, { accessToken: tokenResult.accessToken });
+      const result = await verifyPaystackTransaction(reference, {
+        accessToken: tokenResult.accessToken,
+        guestAccessToken: session?.guestAccessToken,
+      });
       const paystackData = result?.data ?? {};
       const normalizedStatus = clean(paystackData.status).toLowerCase();
       const serverOrder = result?.order ?? null;

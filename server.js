@@ -65,6 +65,42 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+const GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS = 30 * 60;
+
+function createGuestCheckoutAccessToken(reference, orderId) {
+  const secret = clean(process.env.GUEST_CHECKOUT_ACCESS_SECRET) || paystackSecret;
+  const payload = {
+    reference: clean(reference),
+    orderId: clean(orderId),
+    expiresAt: Math.floor(Date.now() / 1000) + GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyGuestCheckoutAccessToken(token, reference, orderId) {
+  const secret = clean(process.env.GUEST_CHECKOUT_ACCESS_SECRET) || paystackSecret;
+  const [encodedPayload, providedSignature] = clean(token).split(".");
+  if (!secret || !encodedPayload || !providedSignature) return false;
+
+  const expectedSignature = crypto.createHmac("sha256", secret).update(encodedPayload).digest("base64url");
+  const providedBuffer = Buffer.from(providedSignature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (providedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(providedBuffer, expectedBuffer)) {
+    return false;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    return payload?.reference === clean(reference)
+      && payload?.orderId === clean(orderId)
+      && Number(payload?.expiresAt) > Math.floor(Date.now() / 1000);
+  } catch {
+    return false;
+  }
+}
+
 function formatGhanaCedis(value) {
   const safeValue = Number(value) || 0;
   return new Intl.NumberFormat("en-GH", {
@@ -3944,6 +3980,7 @@ async function handleInitialize(req, res) {
         orderId: guestOrderRow.id,
         orderNumber: guestOrderNumber,
         paymentReference: reference,
+        accessToken: createGuestCheckoutAccessToken(reference, guestOrderRow.id),
         authorizationUrl: checkoutData.authorization_url ?? "",
         accessCode: checkoutData.access_code ?? "",
         amountDueNow: checkout.amountDueNow,
@@ -4165,6 +4202,15 @@ async function handleVerify(req, res, reference) {
     return;
   }
 
+  const paymentRow = await getPaymentByReference(cleanReference);
+  if (paymentRow && !clean(paymentRow.user_id)) {
+    const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
+    if (!verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow.order_id)) {
+      sendJson(res, 401, { ok: false, message: "This guest checkout session is no longer available. Please restart checkout." });
+      return;
+    }
+  }
+
   const upstreamResponse = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanReference)}`, {
     headers: {
       Authorization: `Bearer ${paystackSecret}`,
@@ -4184,9 +4230,16 @@ async function handleVerify(req, res, reference) {
   }
 
   const paystackData = upstreamData?.data ?? {};
-  const paymentRow = await getPaymentByReference(cleanReference);
   const metadata = normalizePayload(paystackData.metadata);
   const isGuestCheckout = Boolean(metadata.guestCheckout);
+
+  if (isGuestCheckout) {
+    const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
+    if (!verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow?.order_id || metadata.orderId)) {
+      sendJson(res, 401, { ok: false, message: "This guest checkout session is no longer available. Please restart checkout." });
+      return;
+    }
+  }
 
   const upstreamAmountMinor = Math.round(Number(paystackData.amount ?? 0));
   const upstreamCurrency = clean(paystackData.currency).toUpperCase() || "GHS";

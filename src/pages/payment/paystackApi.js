@@ -36,12 +36,11 @@ export function initializePaystackCheckout(payload, { accessToken = "" } = {}) {
   });
 }
 
-export function verifyPaystackTransaction(reference, { accessToken = "" } = {}) {
+export function verifyPaystackTransaction(reference, { accessToken = "", guestAccessToken = "" } = {}) {
   return requestJson(`/api/paystack/verify/${encodeURIComponent(String(reference ?? "").trim())}`, {
-    headers: accessToken
-      ? {
-          Authorization: `Bearer ${accessToken}`,
-        }
-      : undefined,
+    headers: {
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(guestAccessToken ? { "X-Guest-Checkout-Token": guestAccessToken } : {}),
+    },
   });
 }
