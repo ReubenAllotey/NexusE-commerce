@@ -2377,67 +2377,71 @@ function logEmailProviderFailure(provider, error = {}) {
   console.error(`${provider} transactional email failed:`, JSON.stringify(details));
 }
 
-async function sendTransactionalEmail({ to, from, subject, text, html }) {
+async function sendTransactionalEmail({ to, subject, text, html }) {
   const recipient = clean(to);
-  const configuredFrom = clean(from) || clean(process.env.SMTP_FROM) || clean(process.env.SMTP_USER);
+  const brevoApiKey = clean(process.env.BREVO_API_KEY);
+  const senderEmail = clean(process.env.BREVO_SENDER_EMAIL);
+  const senderName = clean(process.env.BREVO_SENDER_NAME) || "Nexus Import Hub";
 
-  if (!recipient || !configuredFrom || !clean(subject) || (!clean(text) && !clean(html))) {
-    return { ok: false, message: "The email request is incomplete." };
+  if (!recipient || !senderEmail || !brevoApiKey || !clean(subject) || (!clean(text) && !clean(html))) {
+    return { ok: false, permanent: true, message: "Brevo email configuration or request data is incomplete." };
   }
 
-  const smtp = getSmtpTransporter();
-  if (smtp) {
-    try {
-      const result = await smtp.sendMail({
-        from: configuredFrom,
-        to: recipient,
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "api-key": brevoApiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: { email: senderEmail, name: senderName },
+        to: [{ email: recipient }],
         subject: clean(subject),
-        text: clean(text),
-        html: clean(html) || undefined,
-      });
-      return { ok: true, provider: "smtp", providerMessageId: result?.messageId || "" };
-    } catch (error) {
-      logEmailProviderFailure("SMTP", error);
-      // Try the optional fallback without exposing SMTP details to the client.
+        textContent: clean(text) || undefined,
+        htmlContent: clean(html) || undefined,
+      }),
+      signal: controller.signal,
+    });
+
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      return {
+        ok: true,
+        provider: "brevo",
+        providerMessageId: clean(body?.messageId),
+      };
     }
-  } else {
-    console.error("SMTP transactional email skipped: SMTP_USER and/or SMTP_PASS is not configured.");
+
+    const statusCode = Number(response.status);
+    const providerCode = sanitizeEmailDiagnostic(body?.code || `HTTP_${statusCode}`);
+    const providerMessage = sanitizeEmailDiagnostic(body?.message || response.statusText);
+    logEmailProviderFailure("Brevo", {
+      code: providerCode,
+      statusCode,
+      message: providerMessage,
+    });
+
+    const permanent = statusCode >= 400 && statusCode < 500 && ![408, 409, 425, 429].includes(statusCode);
+    return {
+      ok: false,
+      permanent,
+      message: permanent ? "Brevo rejected the email request." : "Brevo email delivery is temporarily unavailable.",
+    };
+  } catch (error) {
+    const timedOut = error?.name === "AbortError";
+    logEmailProviderFailure("Brevo", {
+      code: timedOut ? "ETIMEDOUT" : error?.code,
+      message: timedOut ? "Brevo request timed out." : error?.message,
+    });
+    return { ok: false, message: timedOut ? "Brevo email delivery timed out." : "Brevo email delivery failed." };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const resendKey = clean(process.env.RESEND_API_KEY);
-  const resendFrom = clean(process.env.RESEND_FROM_EMAIL) || configuredFrom;
-  if (resendKey && resendFrom) {
-    try {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: resendFrom,
-          to: [recipient],
-          subject: clean(subject),
-          text: clean(text) || undefined,
-          html: clean(html) || undefined,
-        }),
-      });
-
-      if (response.ok) {
-        const body = await response.json().catch(() => ({}));
-        return { ok: true, provider: "resend", providerMessageId: clean(body?.id) };
-      }
-      console.error("Resend transactional email failed:", JSON.stringify({
-        statusCode: response.status,
-        statusText: sanitizeEmailDiagnostic(response.statusText),
-      }));
-    } catch (error) {
-      logEmailProviderFailure("Resend", error);
-      // Return a safe delivery failure below.
-    }
-  }
-
-  return { ok: false, message: "The email could not be delivered." };
 }
 
 async function sendOrderPaymentEmail({ recipient, customerName, orderNumber, outstanding, message }) {
