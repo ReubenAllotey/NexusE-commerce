@@ -2465,23 +2465,173 @@ async function sendOrderPaymentEmail({ recipient, customerName, orderNumber, out
   });
 }
 
+function formatOrderEmailVariation(item) {
+  const selectedOptions = normalizePayload(item?.selected_options);
+  if (selectedOptions && typeof selectedOptions === "object" && !Array.isArray(selectedOptions)) {
+    const values = Object.entries(selectedOptions)
+      .map(([name, value]) => `${clean(name)}: ${clean(value)}`)
+      .filter((entry) => !entry.endsWith(":"));
+    if (values.length > 0) return values.join(", ");
+  }
+
+  return [
+    clean(item?.selected_color) ? `Color: ${clean(item.selected_color)}` : "",
+    clean(item?.selected_size) ? `Size: ${clean(item.selected_size)}` : "",
+  ].filter(Boolean).join(", ");
+}
+
+function formatOrderEmailAddress(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return "Not provided";
+  }
+
+  return Object.entries(snapshot)
+    .map(([key, value]) => `${clean(key).replace(/[_-]+/g, " ")}: ${clean(value)}`)
+    .filter((entry) => !entry.endsWith(": "))
+    .join(", ") || "Not provided";
+}
+
+async function loadOrderConfirmationContext(notification) {
+  const paymentId = clean(notification?.payment_id);
+  const orderId = clean(notification?.order_id);
+  if (!paymentId || !orderId) return null;
+
+  const [{ data: payment, error: paymentError }, orderResult] = await Promise.all([
+    supabaseAdmin
+      .from("payments")
+      .select("id, order_id, payment_purpose, provider_reference, status, amount, currency, paid_at, created_at")
+      .eq("id", paymentId)
+      .maybeSingle(),
+    loadOrderBundle(orderId),
+  ]);
+
+  if (paymentError) throw paymentError;
+  if (!payment || !isSuccessfulPayment(payment) || getReceiptPaymentPurpose(payment) !== "order" || !orderResult.ok) {
+    return null;
+  }
+
+  const bundles = [orderResult];
+  const checkoutGroupId = clean(orderResult.order?.checkout_group_id);
+  if (checkoutGroupId) {
+    const { data: linkedOrders, error: linkedOrderError } = await supabaseAdmin
+      .from("orders")
+      .select("id")
+      .eq("checkout_group_id", checkoutGroupId)
+      .order("created_at", { ascending: true });
+    if (linkedOrderError) throw linkedOrderError;
+
+    const linkedBundles = await Promise.all(
+      (Array.isArray(linkedOrders) ? linkedOrders : [])
+        .filter((entry) => entry.id !== orderId)
+        .map((entry) => loadOrderBundle(entry.id)),
+    );
+    bundles.push(...linkedBundles.filter((bundle) => bundle.ok && bundle.order));
+  }
+
+  return {
+    payment,
+    order: orderResult.order,
+    orders: bundles.map((bundle) => bundle.order),
+    items: bundles.flatMap((bundle) => bundle.items ?? []),
+  };
+}
+
+function buildOrderConfirmationEmail(context, customerName) {
+  const { payment, order, orders, items } = context;
+  const orderNumber = clean(order.order_number) || clean(order.id);
+  const orderDate = payment.paid_at || order.created_at;
+  const subtotal = orders.reduce((sum, entry) => sum + (Number(entry.subtotal) || 0), 0);
+  const shippingTotal = orders.reduce((sum, entry) => sum + (Number(entry.shipping_total) || 0), 0);
+  const shippingPaidNow = orders.some((entry) => clean(entry.shipping_payment_mode).toLowerCase() === "pay_now");
+  const amountPaid = Number(payment.amount) || Number(payment.amount_minor) / 100 || 0;
+  const itemLines = items.map((item) => {
+    const variation = formatOrderEmailVariation(item);
+    const quantity = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unit_price) || 0;
+    const lineTotal = Number(item.line_subtotal) || unitPrice * quantity;
+    return { name: clean(item.product_name) || "Product", variation, quantity, unitPrice, lineTotal };
+  });
+  const shippingLabel = shippingPaidNow ? formatGhanaCedis(shippingTotal) : "To be communicated separately";
+  const itemText = itemLines.length > 0
+    ? itemLines.map((item) => `${item.name}${item.variation ? ` (${item.variation})` : ""} x${item.quantity} - ${formatGhanaCedis(item.lineTotal)}`).join("\n")
+    : "No item details available.";
+  const safeItems = itemLines.length > 0
+    ? itemLines.map((item) => `<tr><td style="padding:8px 0;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(item.name)}</strong>${item.variation ? `<br><small>${escapeHtml(item.variation)}</small>` : ""}</td><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:center">${item.quantity}</td><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(formatGhanaCedis(item.unitPrice))}</td><td style="padding:8px 0;border-bottom:1px solid #e5e7eb;text-align:right">${escapeHtml(formatGhanaCedis(item.lineTotal))}</td></tr>`).join("")
+    : `<tr><td colspan="4">No item details available.</td></tr>`;
+  const shippingAddress = formatOrderEmailAddress(order.shipping_address_snapshot);
+  const appUrl = clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com";
+  const orderLink = clean(order.user_id)
+    ? `${appUrl}/profile/orders`
+    : `${appUrl}/payment?reference=${encodeURIComponent(clean(payment.provider_reference))}`;
+  const greeting = clean(customerName) || "Customer";
+  const subject = `Order confirmation - Nexus Order #${orderNumber}`;
+  const text = `Dear ${greeting},\n\nThank you for shopping with Nexus Import Hub.\n\nOrder: ${orderNumber}\nDate: ${orderDate || "Not available"}\n\n${itemText}\n\nSubtotal: ${formatGhanaCedis(subtotal)}\nShipping: ${shippingLabel}\nTotal paid: ${formatGhanaCedis(amountPaid)}\nPayment status: Successful\nPayment reference: ${clean(payment.provider_reference)}\nDelivery address: ${shippingAddress}\n\nView your order: ${orderLink}\n\nShop Beyond Borders. We Handle the Rest.`;
+  const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033;max-width:680px;margin:auto"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>Dear ${escapeHtml(greeting)},</p><p>Thank you for shopping with Nexus Import Hub. Your payment has been verified successfully.</p><p><strong>Order:</strong> ${escapeHtml(orderNumber)}<br><strong>Date:</strong> ${escapeHtml(String(orderDate || "Not available"))}<br><strong>Payment reference:</strong> ${escapeHtml(clean(payment.provider_reference))}</p><table style="width:100%;border-collapse:collapse"><thead><tr style="color:#0240CD"><th style="text-align:left">Product</th><th>Qty</th><th style="text-align:right">Unit price</th><th style="text-align:right">Total</th></tr></thead><tbody>${safeItems}</tbody></table><p><strong>Subtotal:</strong> ${escapeHtml(formatGhanaCedis(subtotal))}<br><strong>Shipping:</strong> ${escapeHtml(shippingLabel)}<br><strong>Total paid:</strong> ${escapeHtml(formatGhanaCedis(amountPaid))}<br><strong>Payment status:</strong> <span style="color:#15803d">Successful</span></p><p><strong>Delivery address:</strong> ${escapeHtml(shippingAddress)}</p><p><a href="${escapeHtml(orderLink)}" style="display:inline-block;background:#0240CD;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px">View your order</a></p><p style="color:#64748b">Shop Beyond Borders. We Handle the Rest.</p></div>`;
+  return { subject, text, html };
+}
+
+async function ensureOrderConfirmationNotification(payment, order = null) {
+  if (!payment || !isSuccessfulPayment(payment) || getReceiptPaymentPurpose(payment) !== "order") {
+    return { ok: true, skipped: true };
+  }
+
+  const userId = clean(payment.user_id) || clean(order?.user_id) || "";
+  const guestEmail = clean(order?.customer_email || order?.customerEmail || order?.guest_email || order?.guestEmail);
+  if (!userId && !isValidQueuedEmailAddress(guestEmail)) {
+    console.warn("Order confirmation notification skipped: verified payment has no safe recipient.");
+    return { ok: false, skipped: true, message: "Verified payment has no customer notification recipient." };
+  }
+
+  const orderId = clean(payment.order_id) || clean(order?.id);
+  // Reuse the payment-success source key created by the existing payment
+  // notification trigger so verification retries cannot create a second email.
+  const sourceKey = `payment:${payment.id}:status:successful`;
+  const notification = {
+    user_id: userId || null,
+    recipient_email: userId ? null : guestEmail,
+    recipient_name: userId ? null : clean(order?.customer_name || order?.customerName) || "Customer",
+    category: "orders",
+    title: "Order confirmation",
+    message: `Your payment for order ${clean(order?.order_number) || orderId} was verified successfully.`,
+    order_id: orderId || null,
+    payment_id: payment.id,
+    action_url: "/profile/orders",
+    action_label: "View order",
+    action_description: "Open your order confirmation and details.",
+    source_type: "payment_status",
+    source_key: sourceKey,
+    is_read: false,
+    read_at: null,
+  };
+
+  const { error } = await supabaseAdmin
+    .from("notifications")
+    .insert(notification);
+  if (error && error.code !== "23505") {
+    console.error("Order confirmation notification queueing failed:", error.message);
+    return { ok: false, message: "The verified payment was saved, but its confirmation notification could not be queued." };
+  }
+
+  return { ok: true, duplicate: error?.code === "23505" };
+}
+
 async function sendNotificationEmailForRow(notification, delivery = {}) {
   const userId = clean(notification?.user_id);
-  if (!userId) {
-    return { ok: false, message: "The notification has no customer recipient." };
+  let profile = null;
+  if (userId) {
+    const { data, error } = await supabaseAdmin
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      return { ok: false, message: error.message || "Unable to load the customer email address." };
+    }
+    profile = data;
   }
 
-  const { data: profile, error } = await supabaseAdmin
-    .from("profiles")
-    .select("full_name, email")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) {
-    return { ok: false, message: error.message || "Unable to load the customer email address." };
-  }
-
-  const recipient = clean(delivery.recipientEmail) || clean(profile?.email);
+  const recipient = clean(delivery.recipientEmail) || clean(profile?.email) || clean(notification?.recipient_email);
   if (!recipient) {
     return { ok: false, message: "The customer has no registered email address." };
   }
@@ -2489,7 +2639,24 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
   const appUrl = clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com";
   const actionUrl = clean(notification.action_url);
   const absoluteActionUrl = actionUrl.startsWith("http") ? actionUrl : `${appUrl}${actionUrl || "/profile/notifications"}`;
-  const customerName = clean(profile?.full_name) || "Customer";
+  const customerName = clean(profile?.full_name) || clean(notification?.recipient_name) || "Customer";
+
+  const isSuccessfulPaymentNotification = clean(notification.source_type) === "payment_status"
+    && notification.payment_id
+    && /:status:successful$/.test(clean(notification.source_key));
+  if (isSuccessfulPaymentNotification) {
+    const confirmationContext = await loadOrderConfirmationContext(notification);
+    if (confirmationContext) {
+      const confirmation = buildOrderConfirmationEmail(confirmationContext, customerName);
+      return sendTransactionalEmail({
+        to: recipient,
+        subject: confirmation.subject,
+        text: confirmation.text,
+        html: confirmation.html,
+      });
+    }
+  }
+
   const subject = `${clean(notification.title) || "Nexus Import Hub notification"} - Nexus Import Hub`;
   const message = clean(notification.message) || "You have a new notification from Nexus Import Hub.";
   const safeMessage = escapeHtml(message).replace(/\n/g, "<br />");
@@ -4065,6 +4232,8 @@ async function handleVerify(req, res, reference) {
         return;
       }
 
+      await ensureOrderConfirmationNotification(completedPayment, orderResult.order);
+
       sendJson(res, 200, {
         ok: true,
         data: paystackData,
@@ -4149,11 +4318,24 @@ async function handleVerify(req, res, reference) {
     let guestAccount = null;
 
     try {
-      guestAccount = await createGuestAuthAccount(guestEmail, guestName);
+      try {
+        guestAccount = await createGuestAuthAccount(guestEmail, guestName);
+      } catch (accountError) {
+        // Payment and order confirmation must not depend on account creation.
+        // The guest remains unlinked until they complete a secure account flow.
+        console.error("Guest account setup deferred after verified payment:", accountError?.message || "Unknown account error");
+        guestAccount = {
+          created: false,
+          user: null,
+          profile: null,
+          eligible: false,
+          message: "Your payment was verified. We will send your order confirmation to your checkout email.",
+        };
+      }
       const guestOrderDetailsAvailable = await supportsGuestOrderDetails();
       const guestCustomerName = clean(guestAccount.profile?.full_name) || guestName;
       const guestCustomerEmail = clean(guestAccount.profile?.email) || guestEmail;
-      const shouldLinkToAccount = Boolean(guestAccount.created || guestAccount.eligible);
+      const shouldLinkToAccount = Boolean(guestAccount.created);
       const linkedUserId = shouldLinkToAccount ? clean(guestAccount.user?.id) : "";
       const guestOrderType = normalizeAvailabilityType(expectedCheckout.availabilityType || "ready_stock");
       const guestOrderStatus = guestOrderType === "preorder" ? "preorder_received" : "processing";
@@ -4207,6 +4389,8 @@ async function handleVerify(req, res, reference) {
         status: normalizedStatus,
         payload: paystackData,
       });
+
+      await ensureOrderConfirmationNotification(updatedPayment, orderBundle.order);
 
       sendJson(res, 200, {
         ok: true,
@@ -4362,6 +4546,7 @@ async function handleVerify(req, res, reference) {
       paymentRow.amount,
       !wasPaymentSuccessful,
     );
+    await ensureOrderConfirmationNotification(updatedPayment, orderBundle.order);
   } else {
     updatedPayment = await updatePaymentRow(paymentRow.id, {
       status: normalizedStatus,
@@ -4681,6 +4866,8 @@ async function handleWebhook(req, res) {
             paymentRow.amount,
             !wasPaymentSuccessful,
           );
+          const verifiedPayment = await getPaymentByReference(reference);
+          await ensureOrderConfirmationNotification(verifiedPayment);
         }
       }
     }
