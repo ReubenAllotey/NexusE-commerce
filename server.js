@@ -4866,7 +4866,26 @@ async function handleWebhook(req, res) {
             !wasPaymentSuccessful,
           );
           const verifiedPayment = await getPaymentByReference(reference);
-          await ensureOrderConfirmationNotification(verifiedPayment);
+          const orderResult = await loadOrderBundle(paymentRow.order_id);
+          if (!orderResult.ok) {
+            sendJson(res, 500, {
+              ok: false,
+              message: orderResult.message || "Unable to load the verified order for notification queueing.",
+            });
+            return;
+          }
+
+          const notificationResult = await ensureOrderConfirmationNotification(
+            verifiedPayment,
+            orderResult.order,
+          );
+          if (!notificationResult.ok) {
+            sendJson(res, 500, {
+              ok: false,
+              message: notificationResult.message || "Unable to queue the order confirmation notification.",
+            });
+            return;
+          }
         }
       }
     }
