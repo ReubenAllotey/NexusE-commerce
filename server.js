@@ -2628,15 +2628,20 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
     && /:status:successful$/.test(clean(notification.source_key));
   if (isSuccessfulPaymentNotification) {
     const confirmationContext = await loadOrderConfirmationContext(notification);
-    if (confirmationContext) {
-      const confirmation = buildOrderConfirmationEmail(confirmationContext, customerName);
-      return sendTransactionalEmail({
-        to: recipient,
-        subject: confirmation.subject,
-        text: confirmation.text,
-        html: confirmation.html,
-      });
+    if (!confirmationContext) {
+      return {
+        ok: false,
+        message: "Verified payment receipt details are unavailable; the email will be retried.",
+      };
     }
+
+    const confirmation = buildOrderConfirmationEmail(confirmationContext, customerName);
+    return sendTransactionalEmail({
+      to: recipient,
+      subject: confirmation.subject,
+      text: confirmation.text,
+      html: confirmation.html,
+    });
   }
 
   const subject = `${clean(notification.title) || "Nexus Import Hub notification"} - Nexus Import Hub`;
