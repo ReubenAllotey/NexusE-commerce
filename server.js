@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
 import webpush from "web-push";
+import { isPushQueueEnabled } from "./server/pushWorkerConfig.js";
 import { analyzeProduct } from "./server/services/aiProductService.js";
 import { buildOrderConfirmationEmail } from "./server/services/orderConfirmationEmail.js";
 
@@ -1496,7 +1497,7 @@ function safeNotificationUrl(value) {
 let pushWorkerRunning = false;
 
 async function drainPushDeliveryQueue() {
-  if (!webPushConfigured || !supabaseAdmin) {
+  if (!isPushQueueEnabled() || !webPushConfigured || !supabaseAdmin) {
     return;
   }
 
@@ -1561,6 +1562,10 @@ async function drainPushDeliveryQueue() {
 }
 
 async function runPushWorkerCycle() {
+  if (!isPushQueueEnabled()) {
+    return;
+  }
+
   if (pushWorkerRunning) {
     return;
   }
@@ -1574,7 +1579,7 @@ async function runPushWorkerCycle() {
 }
 
 function startPushDeliveryWorker() {
-  if (!webPushConfigured || !supabaseAdmin) {
+  if (!isPushQueueEnabled() || !webPushConfigured || !supabaseAdmin) {
     return;
   }
   const timer = setInterval(() => {
