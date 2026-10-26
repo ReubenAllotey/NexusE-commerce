@@ -36,6 +36,17 @@ export function initializePaystackCheckout(payload, { accessToken = "" } = {}) {
   });
 }
 
+export function loadOrderBalancePaymentContext(orderId, paymentToken) {
+  const normalizedOrderId = String(orderId ?? "").trim();
+  const normalizedToken = String(paymentToken ?? "").trim();
+
+  return requestJson(`/api/payments/order-balance?orderId=${encodeURIComponent(normalizedOrderId)}`, {
+    headers: normalizedToken
+      ? { "X-Payment-Reminder-Token": normalizedToken }
+      : undefined,
+  });
+}
+
 export function verifyPaystackTransaction(reference, { accessToken = "", guestAccessToken = "", paymentReminderToken = "" } = {}) {
   return requestJson(`/api/paystack/verify/${encodeURIComponent(String(reference ?? "").trim())}`, {
     headers: {

@@ -2315,7 +2315,7 @@ async function handleAdminShippingPaymentNotice(req, res) {
 async function loadAdminOrderPaymentNotice(orderId) {
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
-    .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, total, amount_due_now, payment_status, status")
+    .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, shipping_address_snapshot, total, amount_due_now, payment_status, status")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -2331,7 +2331,7 @@ async function loadAdminOrderPaymentNotice(orderId) {
     ? (() => {
         const query = supabaseAdmin
           .from("orders")
-          .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, total, amount_due_now, payment_status, status")
+          .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, shipping_address_snapshot, total, amount_due_now, payment_status, status")
           .eq("checkout_group_id", order.checkout_group_id);
         return order.user_id ? query.eq("user_id", order.user_id) : query.is("user_id", null);
       })()
@@ -2385,6 +2385,52 @@ async function loadAdminOrderPaymentNotice(orderId) {
       paymentStatus: outstanding > 0 ? "pending" : "paid",
     },
   };
+}
+
+async function handleOrderBalancePaymentContext(req, res) {
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const orderId = clean(requestUrl.searchParams.get("orderId"));
+  const paymentToken = clean(req.headers["x-payment-reminder-token"]);
+
+  if (!orderId || !verifyOrderPaymentReminderToken(paymentToken, orderId)) {
+    sendJson(res, 401, { ok: false, message: "This payment link is invalid or has expired." });
+    return;
+  }
+
+  let notice;
+  try {
+    notice = await loadAdminOrderPaymentNotice(orderId);
+  } catch (error) {
+    sendJson(res, 500, { ok: false, message: error.message || "Unable to load the order payment balance." });
+    return;
+  }
+
+  if (!notice.ok) {
+    sendJson(res, 404, { ok: false, message: notice.message });
+    return;
+  }
+
+  const orderStatus = clean(notice.order.status).toLowerCase();
+  const paymentStatus = clean(notice.order.payment_status).toLowerCase();
+  if (notice.accounting.outstanding <= 0 || ["cancelled", "canceled"].includes(orderStatus) || ["cancelled", "canceled"].includes(paymentStatus)) {
+    sendJson(res, 409, { ok: false, message: "This order has no eligible outstanding payment." });
+    return;
+  }
+
+  const shippingAddress = notice.order.shipping_address_snapshot;
+  sendJson(res, 200, {
+    ok: true,
+    order: {
+      id: notice.order.id,
+      orderNumber: notice.order.order_number,
+      customerName: notice.order.customer_name,
+      customerEmail: notice.order.customer_email || notice.order.guest_email || "",
+      shippingAddress: shippingAddress && typeof shippingAddress === "object" ? shippingAddress : null,
+    },
+    amountDueNow: notice.accounting.outstanding,
+    currency: "GHS",
+    paymentPurpose: "order-balance",
+  });
 }
 
 function isTruthyEnv(value) {
@@ -4139,21 +4185,18 @@ async function handleInitialize(req, res) {
 
     const amount = notice.accounting.outstanding;
     let paymentRow = await findOpenPayment(notice.order.id, amount, "order");
-    const providerReference = clean(paymentRow?.provider_reference) || buildPaymentReference(notice.order.order_number);
+    let providerReference = clean(paymentRow?.provider_reference) || buildPaymentReference(notice.order.order_number);
 
     if (paymentRow?.authorization_url && paymentRow?.access_code) {
-      sendJson(res, 200, {
-        ok: true,
-        data: {
-          reference: paymentRow.provider_reference,
-          authorization_url: paymentRow.authorization_url,
-          access_code: paymentRow.access_code,
-        },
-        payment: paymentRow,
-        order: { id: notice.order.id, orderNumber: notice.order.order_number },
-        amountDueNow: amount,
+      // A reminder click must start a fresh checkout rather than resume an
+      // authorization that may belong to an earlier checkout attempt.
+      providerReference = buildPaymentReference(`${notice.order.order_number}-reminder`);
+      paymentRow = await updatePaymentRow(paymentRow.id, {
+        provider_reference: providerReference,
+        authorization_url: null,
+        access_code: null,
+        status: "pending",
       });
-      return;
     }
 
     if (!paymentRow) {
@@ -6248,6 +6291,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/notification-email" && req.method === "POST") {
     await handleAdminNotificationEmail(req, res);
+    return;
+  }
+
+  if (pathname === "/api/payments/order-balance" && req.method === "GET") {
+    await handleOrderBalancePaymentContext(req, res);
     return;
   }
 

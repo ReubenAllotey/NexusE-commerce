@@ -47,14 +47,25 @@ const context = {
 };
 
 vm.runInNewContext(
-  ["createGuestCheckoutAccessToken", "verifyGuestCheckoutAccessToken", "createOrderPaymentReminderToken", "verifyOrderPaymentReminderToken"]
+  [
+    "createGuestCheckoutAccessToken",
+    "verifyGuestCheckoutAccessToken",
+    "createOrderPaymentReminderToken",
+    "verifyOrderPaymentReminderToken",
+    "getPublicAppUrl",
+    "buildOrderPaymentReminderUrl",
+  ]
     .map(extractFunction)
-    .join("\n") + "\nthis.api = { createOrderPaymentReminderToken, verifyOrderPaymentReminderToken };",
+    .join("\n") + "\nthis.api = { createOrderPaymentReminderToken, verifyOrderPaymentReminderToken, buildOrderPaymentReminderUrl };",
   context,
   { filename: "server.js payment reminder token harness" },
 );
 
-const { createOrderPaymentReminderToken, verifyOrderPaymentReminderToken } = context.api;
+const {
+  createOrderPaymentReminderToken,
+  verifyOrderPaymentReminderToken,
+  buildOrderPaymentReminderUrl,
+} = context.api;
 
 test("payment reminder tokens bind to the order and expire", () => {
   const token = createOrderPaymentReminderToken("order-fictional-001");
@@ -70,4 +81,19 @@ test("payment reminder tokens bind to the order and expire", () => {
   })).toString("base64url");
   const signature = crypto.createHmac("sha256", "fictional-reminder-secret").update(payload).digest("base64url");
   assert.equal(verifyOrderPaymentReminderToken(`${payload}.${signature}`, "order-fictional-001"), false);
+});
+
+test("backend Pay Now URLs target the existing payment route with an order-scoped token", () => {
+  const orderId = "order-fictional-001";
+  const paymentUrl = new URL(buildOrderPaymentReminderUrl(orderId));
+
+  assert.equal(paymentUrl.origin, "https://nexuse-commerce.onrender.com");
+  assert.equal(paymentUrl.pathname, "/payment");
+  assert.equal(paymentUrl.searchParams.get("purpose"), "order-balance");
+  assert.equal(paymentUrl.searchParams.get("orderId"), orderId);
+  assert.equal(paymentUrl.searchParams.get("token")?.length > 20, true);
+  assert.equal(
+    verifyOrderPaymentReminderToken(paymentUrl.searchParams.get("token"), orderId),
+    true,
+  );
 });

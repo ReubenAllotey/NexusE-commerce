@@ -26,7 +26,11 @@ import {
   normalizePaymentMethod,
   savePaymentSession,
 } from "./paymentStorage";
-import { initializePaystackCheckout, verifyPaystackTransaction } from "./paystackApi";
+import {
+  initializePaystackCheckout,
+  loadOrderBalancePaymentContext,
+  verifyPaystackTransaction,
+} from "./paystackApi";
 
 const MOBILE_NETWORKS = [
   { value: "mtn", label: "MTN Mobile Money" },
@@ -322,6 +326,9 @@ function PaymentCheckout({
     clean(authUser?.id),
   );
   const paymentIntent = useMemo(() => getPaymentIntent(location.search), [location.search]);
+  const [orderBalanceContext, setOrderBalanceContext] = useState(null);
+  const [orderBalanceLoading, setOrderBalanceLoading] = useState(false);
+  const [orderBalanceError, setOrderBalanceError] = useState("");
   const checkoutBatchNumber = useMemo(
     () => getCheckoutBatchNumber(paymentIntent, siteBanner),
     [paymentIntent, siteBanner],
@@ -334,12 +341,64 @@ function PaymentCheckout({
     () => loadPaymentSession(checkoutOwnerKey),
     [checkoutOwnerKey, location.pathname, location.search],
   );
+  useEffect(() => {
+    let active = true;
+
+    if (paymentIntent?.purpose !== "order-balance") {
+      setOrderBalanceContext(null);
+      setOrderBalanceLoading(false);
+      setOrderBalanceError("");
+      return () => {
+        active = false;
+      };
+    }
+
+    setOrderBalanceLoading(true);
+    setOrderBalanceError("");
+    setOrderBalanceContext(null);
+
+    if (!paymentIntent.orderId || !paymentIntent.token) {
+      setOrderBalanceLoading(false);
+      setOrderBalanceError("This payment link is invalid or has expired.");
+      return () => {
+        active = false;
+      };
+    }
+
+    void loadOrderBalancePaymentContext(paymentIntent.orderId, paymentIntent.token)
+      .then((result) => {
+        if (!active) return;
+        setOrderBalanceContext(result);
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setOrderBalanceError(requestError.message || "Unable to load this order payment.");
+      })
+      .finally(() => {
+        if (active) setOrderBalanceLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [paymentIntent?.orderId, paymentIntent?.purpose, paymentIntent?.token]);
+
+  const serverOrder = orderBalanceContext?.order
+    ? {
+        id: orderBalanceContext.order.id,
+        orderNumber: orderBalanceContext.order.orderNumber,
+        customerName: orderBalanceContext.order.customerName,
+        customerEmail: orderBalanceContext.order.customerEmail,
+        shippingAddress: orderBalanceContext.order.shippingAddress,
+      }
+    : null;
   const targetOrder = useMemo(() => {
     if (!paymentIntent) {
       return null;
     }
 
     return (
+      serverOrder ??
       orders.find((order) => order.id === paymentIntent.orderId) ??
       orders.find((order) => order.orderNumber === paymentIntent.orderNumber) ??
       orders.find(
@@ -348,7 +407,7 @@ function PaymentCheckout({
       ) ??
       null
     );
-  }, [orders, paymentIntent]);
+  }, [orders, paymentIntent, serverOrder]);
   const isShippingBalancePayment = paymentIntent?.purpose === "shipping-balance";
   const isOrderBalancePayment = paymentIntent?.purpose === "order-balance";
   const targetShippingAccounting = getShippingAccounting(targetOrder ?? {});
@@ -402,7 +461,11 @@ function PaymentCheckout({
   const shippingAddress = checkoutShippingAddress;
   const cartRows = checkoutCartRows;
   const totals = checkoutTotals;
-  const summaryTotal = isShippingBalancePayment ? displayedShippingBalance : totals.totalPrice ?? totals.total ?? 0;
+  const summaryTotal = isShippingBalancePayment
+    ? displayedShippingBalance
+    : isOrderBalancePayment
+      ? Number(orderBalanceContext?.amountDueNow) || 0
+      : totals.totalPrice ?? totals.total ?? 0;
   const summaryAmount = formatGhanaCedis(summaryTotal);
   const checkoutEmail = getCheckoutEmail(authUser, shippingAddress, paymentIntent, targetOrder);
   const checkoutCustomer = getCheckoutCustomer(authUser, shippingAddress, paymentIntent, targetOrder);
@@ -450,6 +513,32 @@ function PaymentCheckout({
             title="Loading orders"
             message="We are fetching your order history from Supabase before checkout."
           />
+        </div>
+      </main>
+    );
+  }
+
+  if (isOrderBalancePayment && orderBalanceLoading) {
+    return (
+      <main className="payment-page">
+        <div className="payment-shell">
+          <PaymentProcessing
+            title="Loading payment"
+            message="We are securely loading the outstanding balance for this order."
+          />
+        </div>
+      </main>
+    );
+  }
+
+  if (isOrderBalancePayment && (orderBalanceError || !orderBalanceContext)) {
+    return (
+      <main className="payment-page">
+        <div className="payment-shell">
+          <section className="shipping-empty">
+            <h1>Unable to load this payment</h1>
+            <p>{orderBalanceError || "This payment link is invalid or has expired."}</p>
+          </section>
         </div>
       </main>
     );
