@@ -5,6 +5,11 @@ import test from "node:test";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { buildOrderConfirmationEmail } from "./services/orderConfirmationEmail.js";
+import {
+  buildShippingPaymentConfirmationEmail,
+  buildShippingPaymentRequiredEmail,
+  buildShipmentUpdateEmail,
+} from "./services/shipmentNotificationEmail.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverSource = fs.readFileSync(path.join(projectRoot, "server.js"), "utf8");
@@ -78,6 +83,7 @@ function extractFunction(source, name) {
 const functionNames = [
   "loadOrderBundle",
   "loadOrderConfirmationContext",
+  "getServerShippingAccounting",
   "sendTransactionalEmail",
   "sendNotificationEmailForRow",
   "isEmailQueueProcessingEnabled",
@@ -86,6 +92,7 @@ const functionNames = [
   "isValidQueuedEmailAddress",
   "updateClaimedEmailJob",
   "drainNotificationEmailQueue",
+  "runNotificationEmailWorkerCycle",
 ];
 const deployedFunctions = functionNames.map((name) => {
   const extracted = extractFunction(serverSource, name);
@@ -204,14 +211,19 @@ function createSupabaseMock(state) {
     rpc(name, payload) {
       state.rpcCalls.push({ name, payload });
       if (name === "claim_notification_email_job" || name === "claim_notification_email_jobs") {
-        return Promise.resolve({ data: state.jobs, error: null });
+        return Promise.resolve({ data: state.jobs, error: state.claimError ?? null });
       }
       return Promise.resolve({ data: null, error: null });
     },
   };
 }
 
-function buildHarness(state, { emailQueueEnabled = "true", testDeliveryId = "" } = {}) {
+function buildHarness(state, {
+  emailQueueEnabled = "true",
+  testDeliveryId = "",
+  supabaseAvailable = true,
+  workerAlreadyRunning = false,
+} = {}) {
   const context = {
     AbortController,
     Buffer,
@@ -228,7 +240,8 @@ function buildHarness(state, { emailQueueEnabled = "true", testDeliveryId = "" }
       PUBLIC_APP_URL: "https://example.invalid",
     } },
     isTruthyEnv: (value) => ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase()),
-    supabaseAdmin: createSupabaseMock(state),
+    emailWorkerRunning: workerAlreadyRunning,
+    supabaseAdmin: supabaseAvailable ? createSupabaseMock(state) : null,
     fetch: async (...args) => {
       state.fetchCalls.push(args);
       return state.fetchResponse;
@@ -243,10 +256,13 @@ function buildHarness(state, { emailQueueEnabled = "true", testDeliveryId = "" }
     sanitizeEmailDiagnostic: (value) => String(value ?? "").replace(/[\r\n]/g, "").slice(0, 200),
     logEmailProviderFailure() {},
     buildOrderConfirmationEmail,
+    buildShippingPaymentConfirmationEmail,
+    buildShippingPaymentRequiredEmail,
+    buildShipmentUpdateEmail,
     setTimeout,
     clearTimeout,
   };
-  vm.runInNewContext(`${deployedFunctions}\nthis.api = { sendNotificationEmailForRow, drainNotificationEmailQueue };`, context, { filename: "server.js email worker harness" });
+  vm.runInNewContext(`${deployedFunctions}\nthis.api = { sendNotificationEmailForRow, drainNotificationEmailQueue, runNotificationEmailWorkerCycle };`, context, { filename: "server.js email worker harness" });
   return context.api;
 }
 
@@ -341,6 +357,56 @@ test("generic notifications keep the generic branded notification template", asy
   assert.doesNotMatch(state.fetchCalls[0][1].body, /Items purchased/);
 });
 
+test("shipping payment confirmation uses its dedicated branded template", async () => {
+  const state = createState({ payment: { payment_purpose: "shipping", amount: 75, provider_reference: "ship-pay-fictional" } });
+  const { sendNotificationEmailForRow } = buildHarness(state, { emailQueueEnabled: "false" });
+  const notification = paymentNotification(state, {
+    title: "Shipping payment confirmed",
+  });
+  const result = await sendNotificationEmailForRow(notification, { recipientEmail: state.orders[0].customer_email });
+
+  assert.equal(result.ok, true);
+  assert.match(state.fetchCalls[0][1].body, /Shipping payment confirmed/);
+  assert.match(state.fetchCalls[0][1].body, /ship-pay-fictional/);
+  assert.doesNotMatch(state.fetchCalls[0][1].body, /Items purchased/);
+});
+
+test("shipping payment reminder uses the persisted outstanding balance", async () => {
+  const state = createState({
+    orderItems: [{ order_id: "order-fictional-001", line_shipping: 125, shipping_paid_amount: 25, shipping_fee_status: "ready" }],
+  });
+  const { sendNotificationEmailForRow } = buildHarness(state, { emailQueueEnabled: "false" });
+  const result = await sendNotificationEmailForRow({
+    ...genericNotification(),
+    source_type: "payment_status",
+    source_key: "shipping-payment-request:order-fictional-001",
+    order_id: state.orders[0].id,
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(state.fetchCalls[0][1].body, /GH/);
+  assert.match(state.fetchCalls[0][1].body, /Shipping payment required/);
+});
+
+test("shipment events use the branded shipment update template", async () => {
+  const state = createState();
+  const { sendNotificationEmailForRow } = buildHarness(state, { emailQueueEnabled: "false" });
+  const result = await sendNotificationEmailForRow({
+    ...genericNotification(),
+    source_type: "shipment_event",
+    title: "Shipment arrived in Ghana",
+    message: "Your shipment has arrived at Ghana's airport.",
+    order_id: state.orders[0].id,
+    action_url: "/profile/shipments?batch=42&freight=air",
+    action_description: "Shipment Batch 42 Air freight tracking for order NX-EMAIL-TEST-001.",
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(state.fetchCalls[0][1].body, /Shipment arrived in Ghana/);
+  assert.match(state.fetchCalls[0][1].body, /Batch 42 Air freight/);
+  assert.match(state.fetchCalls[0][1].body, /NX-EMAIL-TEST-001/);
+});
+
 test("Brevo success records provider message ID and sent status", async () => {
   const state = createState({ jobs: [] });
   state.jobs.push(lockedJob(state));
@@ -406,6 +472,61 @@ test("test delivery allowlist claims only the intended delivery ID", async () =>
   assert.equal(state.rpcCalls[0].name, "claim_notification_email_job");
   assert.equal(state.rpcCalls[0].payload.p_delivery_id, "00000000-0000-4000-8000-000000000001");
   assert.equal(state.rpcCalls[0].payload.p_lease_timeout, "5 minutes");
+});
+
+test("worker reports a distinct disabled code without claiming a job", async () => {
+  const state = createState();
+  const { runNotificationEmailWorkerCycle } = buildHarness(state, { emailQueueEnabled: "false" });
+  const result = await runNotificationEmailWorkerCycle();
+
+  assert.deepEqual({ ...result }, { ok: false, code: "worker_disabled", skipped: true, processed: 0 });
+  assert.equal(state.rpcCalls.length, 0);
+});
+
+test("worker reports unavailable Supabase without claiming a job", async () => {
+  const state = createState();
+  const { runNotificationEmailWorkerCycle } = buildHarness(state, { supabaseAvailable: false });
+  const result = await runNotificationEmailWorkerCycle();
+
+  assert.deepEqual({ ...result }, { ok: false, code: "supabase_unavailable", skipped: true, processed: 0 });
+  assert.equal(state.rpcCalls.length, 0);
+});
+
+test("worker reports an already-running cycle without claiming a job", async () => {
+  const state = createState();
+  const { runNotificationEmailWorkerCycle } = buildHarness(state, { workerAlreadyRunning: true });
+  const result = await runNotificationEmailWorkerCycle();
+
+  assert.deepEqual({ ...result }, { ok: false, code: "worker_already_running", skipped: true, processed: 0 });
+  assert.equal(state.rpcCalls.length, 0);
+});
+
+test("worker reports an invalid allowlist delivery ID without claiming a job", async () => {
+  const state = createState();
+  const { runNotificationEmailWorkerCycle } = buildHarness(state, { testDeliveryId: "not-a-uuid" });
+  const result = await runNotificationEmailWorkerCycle();
+
+  assert.deepEqual({ ...result }, {
+    ok: false,
+    code: "invalid_delivery_id",
+    message: "The configured delivery ID is invalid; no email job was claimed.",
+    processed: 0,
+  });
+  assert.equal(state.rpcCalls.length, 0);
+});
+
+test("worker reports claim failure without exposing the database error", async () => {
+  const state = createState({ state: { claimError: { code: "PGRST202", message: "private database detail" } } });
+  const { runNotificationEmailWorkerCycle } = buildHarness(state);
+  const result = await runNotificationEmailWorkerCycle();
+
+  assert.deepEqual({ ...result }, {
+    ok: false,
+    code: "claim_failed",
+    message: "The email queue claim failed.",
+    processed: 0,
+  });
+  assert.doesNotMatch(JSON.stringify(result), /private database detail/);
 });
 
 test("worker harness performs no external network operations", async () => {

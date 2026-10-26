@@ -2863,7 +2863,7 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
 }
 
 function isEmailQueueProcessingEnabled() {
-  return isTruthyEnv(process.env.EMAIL_QUEUE_ENABLED) && Boolean(supabaseAdmin);
+  return isTruthyEnv(process.env.EMAIL_QUEUE_ENABLED);
 }
 
 async function isEmailQueueAvailable() {
@@ -2917,13 +2917,16 @@ async function updateClaimedEmailJob(job, values) {
 }
 
 async function drainNotificationEmailQueue() {
-  if (!isEmailQueueProcessingEnabled() || !supabaseAdmin) {
-    return { ok: false, skipped: true, processed: 0 };
+  if (!isEmailQueueProcessingEnabled()) {
+    return { ok: false, code: "worker_disabled", skipped: true, processed: 0 };
+  }
+  if (!supabaseAdmin) {
+    return { ok: false, code: "supabase_unavailable", skipped: true, processed: 0 };
   }
 
   const testDeliveryId = getEmailQueueTestDeliveryId();
   if (testDeliveryId === null) {
-    return { ok: false, message: "EMAIL_QUEUE_TEST_DELIVERY_ID is invalid; no email job was claimed.", processed: 0 };
+    return { ok: false, code: "invalid_delivery_id", message: "The configured delivery ID is invalid; no email job was claimed.", processed: 0 };
   }
 
   const claimFunction = testDeliveryId
@@ -2935,10 +2938,8 @@ async function drainNotificationEmailQueue() {
   const { data: jobs, error: claimError } = await supabaseAdmin.rpc(claimFunction, claimPayload);
 
   if (claimError) {
-    if (!/does not exist|relation/i.test(claimError.message || "")) {
-      console.error("Email queue lookup failed:", claimError.message);
-    }
-    return { ok: false, message: claimError.message, processed: 0 };
+    console.error("Email queue claim failed:", claimError.code || "unknown");
+    return { ok: false, code: "claim_failed", message: "The email queue claim failed.", processed: 0 };
   }
 
   let processed = 0;
@@ -3004,7 +3005,7 @@ let emailWorkerRunning = false;
 
 async function runNotificationEmailWorkerCycle() {
   if (emailWorkerRunning) {
-    return { ok: false, skipped: true, processed: 0 };
+    return { ok: false, code: "worker_already_running", skipped: true, processed: 0 };
   }
 
   emailWorkerRunning = true;
