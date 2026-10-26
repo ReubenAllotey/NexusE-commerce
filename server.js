@@ -10,6 +10,11 @@ import { isPushQueueEnabled } from "./server/pushWorkerConfig.js";
 import { analyzeProduct } from "./server/services/aiProductService.js";
 import { buildOrderConfirmationEmail } from "./server/services/orderConfirmationEmail.js";
 import {
+  buildShippingPaymentConfirmationEmail,
+  buildShippingPaymentRequiredEmail,
+  buildShipmentUpdateEmail,
+} from "./server/services/shipmentNotificationEmail.js";
+import {
   buildAccountSetupEmail,
   buildGuestAccountSetupNotification,
 } from "./server/services/accountSetupEmail.js";
@@ -2206,8 +2211,8 @@ async function handleAdminShippingPaymentNotice(req, res) {
     sendJson(res, 404, { ok: false, message: "Order not found." });
     return;
   }
-  if (!order.user_id) {
-    sendJson(res, 409, { ok: false, message: "Guest orders do not have an in-app notification recipient." });
+  if (!order.user_id && !isValidQueuedEmailAddress(order.customer_email)) {
+    sendJson(res, 409, { ok: false, message: "This guest order does not have an eligible customer email address." });
     return;
   }
 
@@ -2234,7 +2239,9 @@ async function handleAdminShippingPaymentNotice(req, res) {
 
   const sourceKey = `shipping-payment-request:${order.id}`;
   const notificationValues = {
-    user_id: order.user_id,
+    user_id: order.user_id || null,
+    recipient_email: order.user_id ? null : clean(order.customer_email).toLowerCase(),
+    recipient_name: order.customer_name || "Customer",
     category: "shipping",
     title: "Shipping Fee Payment Required",
     message: `Shipping payment of ${formatGhanaCedis(accounting.outstandingShipping)} is required for order ${order.order_number || order.id}.`,
@@ -2260,13 +2267,14 @@ async function handleAdminShippingPaymentNotice(req, res) {
     return;
   }
 
-  const existing = inserted ?? (await supabaseAdmin
+  const existingQuery = supabaseAdmin
     .from("notifications")
     .select("*")
-    .eq("user_id", order.user_id)
     .eq("source_type", "payment_status")
-    .eq("source_key", sourceKey)
-    .maybeSingle()).data;
+    .eq("source_key", sourceKey);
+  const existing = inserted ?? (await (order.user_id
+    ? existingQuery.eq("user_id", order.user_id)
+    : existingQuery.eq("recipient_email", clean(order.customer_email).toLowerCase())).maybeSingle()).data;
   const queueAvailable = await isEmailQueueAvailable();
   const email = inserted && !queueAvailable
     ? await sendNotificationEmailForRow(existing ?? notificationValues)
@@ -2601,6 +2609,47 @@ async function ensureOrderConfirmationNotification(payment, order = null) {
   return { ok: true, duplicate: error?.code === "23505" };
 }
 
+async function ensureShippingPaymentConfirmationNotification(payment, order = null) {
+  if (!payment || !isSuccessfulPayment(payment) || getReceiptPaymentPurpose(payment) !== "shipping") {
+    return { ok: true, skipped: true };
+  }
+
+  const paymentId = clean(payment.id);
+  const orderId = clean(payment.order_id) || clean(order?.id);
+  const userId = clean(payment.user_id) || clean(order?.user_id);
+  const recipientEmail = clean(order?.customer_email || order?.customerEmail || order?.guest_email || order?.guestEmail).toLowerCase();
+  if (!paymentId || !orderId || (!userId && !isValidQueuedEmailAddress(recipientEmail))) {
+    return { ok: false, message: "The verified shipping payment has no safe customer recipient." };
+  }
+
+  const orderNumber = clean(order?.order_number) || orderId;
+  const notification = {
+    user_id: userId || null,
+    recipient_email: userId ? null : recipientEmail,
+    recipient_name: clean(order?.customer_name || order?.customerName) || "Customer",
+    category: "shipping",
+    title: "Shipping payment confirmed",
+    message: `Your shipping payment of ${formatGhanaCedis(payment.amount)} for order ${orderNumber} was verified successfully.`,
+    order_id: orderId,
+    payment_id: paymentId,
+    action_url: "/profile/orders",
+    action_label: "View order",
+    action_description: "Open the order and shipping details.",
+    source_type: "payment_status",
+    source_key: `payment:${paymentId}:status:successful`,
+    is_read: false,
+    read_at: null,
+  };
+
+  const { error } = await supabaseAdmin.from("notifications").insert(notification);
+  if (error && error.code !== "23505") {
+    console.error("Shipping payment confirmation notification queueing failed:", error.message);
+    return { ok: false, message: "The shipping payment was saved, but its confirmation notification could not be queued." };
+  }
+
+  return { ok: true, duplicate: error?.code === "23505" };
+}
+
 async function ensureGuestAccountSetupNotification(order = null) {
   const orderId = clean(order?.id);
   const userId = clean(order?.user_id);
@@ -2668,6 +2717,31 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
     && notification.payment_id
     && /:status:successful$/.test(clean(notification.source_key));
   if (isSuccessfulPaymentNotification) {
+    const paymentLookup = await supabaseAdmin
+      .from("payments")
+      .select("id, order_id, payment_purpose, provider_reference, status, amount, currency, paid_at, created_at")
+      .eq("id", notification.payment_id)
+      .maybeSingle();
+    if (paymentLookup.error) throw paymentLookup.error;
+    if (paymentLookup.data && getReceiptPaymentPurpose(paymentLookup.data) === "shipping") {
+      const orderResult = await loadOrderBundle(notification.order_id);
+      if (!orderResult.ok || !paymentLookup.data || !isSuccessfulPayment(paymentLookup.data)) {
+        return { ok: false, message: "Verified shipping payment details are unavailable; the email will be retried." };
+      }
+      const confirmation = buildShippingPaymentConfirmationEmail({
+        customerName,
+        orderNumber: orderResult.order?.order_number || notification.order_id,
+        amount: paymentLookup.data.amount,
+        paymentReference: paymentLookup.data.provider_reference,
+        appUrl,
+      });
+      return sendTransactionalEmail({
+        to: recipient,
+        subject: confirmation.subject,
+        text: confirmation.text,
+        html: confirmation.html,
+      });
+    }
     const confirmationContext = await loadOrderConfirmationContext(notification);
     if (!confirmationContext) {
       return {
@@ -2723,6 +2797,55 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
       subject: setupEmail.subject,
       text: setupEmail.text,
       html: setupEmail.html,
+    });
+  }
+
+  if (clean(notification.source_type) === "payment_status"
+    && clean(notification.source_key).startsWith("shipping-payment-request:")) {
+    const orderResult = notification.order_id ? await loadOrderBundle(notification.order_id) : null;
+    if (!orderResult?.ok) {
+      return { ok: false, message: "Shipping payment details are unavailable; the email will be retried." };
+    }
+    const accounting = getServerShippingAccounting(orderResult.items);
+    if (accounting.outstandingShipping <= 0) {
+      return { ok: false, permanent: true, message: "The shipping balance is no longer outstanding." };
+    }
+    const shippingReminder = buildShippingPaymentRequiredEmail({
+      customerName,
+      orderNumber: orderResult.order?.order_number || notification.order_id,
+      outstanding: accounting.outstandingShipping,
+      appUrl,
+      actionUrl: absoluteActionUrl,
+    });
+    return sendTransactionalEmail({
+      to: recipient,
+      subject: shippingReminder.subject,
+      text: shippingReminder.text,
+      html: shippingReminder.html,
+    });
+  }
+
+  if (clean(notification.source_type) === "shipment_event") {
+    const orderResult = notification.order_id ? await loadOrderBundle(notification.order_id) : null;
+    const trackingDescription = clean(notification.action_description);
+    const trackingReference = trackingDescription.replace(
+      /^Shipment\s+(.+?)\s+freight tracking.*$/i,
+      "$1 freight",
+    ) || trackingDescription;
+    const shipmentEmail = buildShipmentUpdateEmail({
+      customerName,
+      orderNumber: orderResult?.ok ? orderResult.order?.order_number : notification.order_id,
+      trackingReference: trackingReference || "shipment",
+      statusLabel: notification.title,
+      message: notification.message,
+      actionUrl: notification.action_url ? absoluteActionUrl : "",
+      appUrl,
+    });
+    return sendTransactionalEmail({
+      to: recipient,
+      subject: shipmentEmail.subject,
+      text: shipmentEmail.text,
+      html: shipmentEmail.html,
     });
   }
 
@@ -4616,8 +4739,15 @@ async function handleVerify(req, res, reference) {
       const refreshedPayment = await getPaymentByReference(cleanReference);
       updatedPayment = refreshedPayment ?? paymentRow;
       const orderResult = await loadOrderBundle(paymentRow.order_id);
-      if (orderResult.ok) {
-        orderBundle = mapOrderBundle(orderResult.order, orderResult.items);
+      if (!orderResult.ok) {
+        sendJson(res, 500, { ok: false, message: orderResult.message || "Unable to load the verified shipping order." });
+        return;
+      }
+      orderBundle = mapOrderBundle(orderResult.order, orderResult.items);
+      const notificationResult = await ensureShippingPaymentConfirmationNotification(updatedPayment, orderResult.order);
+      if (!notificationResult.ok) {
+        sendJson(res, 500, { ok: false, message: notificationResult.message });
+        return;
       }
 
       sendJson(res, 200, {
@@ -4957,6 +5087,17 @@ async function handleWebhook(req, res) {
           });
           if (shippingFinalizeError) {
             sendJson(res, 500, { ok: false, message: shippingFinalizeError.message || "Shipping payment finalization failed." });
+            return;
+          }
+          const refreshedPayment = await getPaymentByReference(reference);
+          const orderResult = await loadOrderBundle(paymentRow.order_id);
+          if (!orderResult.ok) {
+            sendJson(res, 500, { ok: false, message: orderResult.message || "Unable to load the verified shipping order." });
+            return;
+          }
+          const notificationResult = await ensureShippingPaymentConfirmationNotification(refreshedPayment ?? paymentRow, orderResult.order);
+          if (!notificationResult.ok) {
+            sendJson(res, 500, { ok: false, message: notificationResult.message });
             return;
           }
         } else {
