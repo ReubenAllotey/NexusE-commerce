@@ -285,6 +285,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     () => orders.find((order) => order.id === paymentNoticeOrderId) ?? null,
     [orders, paymentNoticeOrderId],
   );
+  const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder);
   const {
     shipmentsByOrderId,
     loading: shipmentsLoading,
@@ -292,7 +293,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   } = useShipmentBatches({ orders });
 
   useEffect(() => {
-    if (!activeViewOrder) {
+    if (!hasOpenModal) {
       return undefined;
     }
 
@@ -301,7 +302,10 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
-        setOpenOrderId(null);
+        if (activeViewOrder) setOpenOrderId(null);
+        if (activeStatusOrder) setStatusModalOrderId(null);
+        if (activeShippingOrder) setShippingPaymentOrderId(null);
+        if (activePaymentNoticeOrder) setPaymentNoticeOrderId(null);
       }
     };
 
@@ -311,7 +315,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeViewOrder]);
+  }, [activeViewOrder, activeStatusOrder, activeShippingOrder, activePaymentNoticeOrder, hasOpenModal]);
 
   const summary = useMemo(() => {
     const totalOrders = orders.length;
@@ -1134,7 +1138,10 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                 onClick={handleSendPaymentNotice}
                 disabled={paymentNoticeLoading || paymentNoticeSaving || !paymentNoticeData?.accounting?.outstanding || (Boolean(paymentNoticeSuccess) && !paymentNoticeEmailFailed)}
               >
-                {paymentNoticeSaving ? "Sending..." : paymentNoticeEmailFailed ? "Retry Email" : paymentNoticeSuccess ? "Notice sent" : "Send Payment Notice"}
+                <svg className="admin-orders-modal__button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m4 4 16 8-16 8 3-8-3-8Zm3.5 8h8.25" />
+                </svg>
+                <span>{paymentNoticeSaving ? "Sending..." : paymentNoticeEmailFailed ? "Retry Email" : paymentNoticeSuccess ? "Notice sent" : "Send Payment Notice"}</span>
               </button>
             </footer>
           </div>
