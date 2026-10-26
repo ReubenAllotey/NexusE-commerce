@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -84,6 +85,7 @@ const functionNames = [
   "loadOrderBundle",
   "loadOrderConfirmationContext",
   "getServerShippingAccounting",
+  "buildOrderPaymentReminderEmail",
   "sendTransactionalEmail",
   "sendNotificationEmailForRow",
   "isEmailQueueProcessingEnabled",
@@ -227,6 +229,7 @@ function buildHarness(state, {
   const context = {
     AbortController,
     Buffer,
+    crypto,
     Date,
     Intl,
     URL,
@@ -262,7 +265,7 @@ function buildHarness(state, {
     setTimeout,
     clearTimeout,
   };
-  vm.runInNewContext(`${deployedFunctions}\nthis.api = { sendNotificationEmailForRow, drainNotificationEmailQueue, runNotificationEmailWorkerCycle };`, context, { filename: "server.js email worker harness" });
+  vm.runInNewContext(`${deployedFunctions}\nthis.api = { sendNotificationEmailForRow, buildOrderPaymentReminderEmail, drainNotificationEmailQueue, runNotificationEmailWorkerCycle };`, context, { filename: "server.js email worker harness" });
   return context.api;
 }
 
@@ -355,6 +358,23 @@ test("generic notifications keep the generic branded notification template", asy
   assert.equal(result.ok, true);
   assert.match(state.fetchCalls[0][1].body, /Your fictional order is being processed/);
   assert.doesNotMatch(state.fetchCalls[0][1].body, /Items purchased/);
+});
+
+test("order payment reminders use Pay Now and preserve the secure payment link", () => {
+  const state = createState();
+  const { buildOrderPaymentReminderEmail } = buildHarness(state, { emailQueueEnabled: "false" });
+  const email = buildOrderPaymentReminderEmail({
+    customerName: "Test Customer",
+    orderNumber: "NX-EMAIL-TEST-001",
+    outstanding: 150,
+    message: "Your order has an outstanding balance.",
+    paymentLink: "https://example.invalid/payment?purpose=order-balance&token=fictional-token",
+  });
+
+  assert.match(email.html, />Pay Now</);
+  assert.doesNotMatch(email.html, /View Order|View your orders/);
+  assert.match(email.html, /purpose=order-balance/);
+  assert.match(email.text, /Pay Now|payment\?purpose=order-balance/);
 });
 
 test("shipping payment confirmation uses its dedicated branded template", async () => {

@@ -74,7 +74,11 @@ const deployedFunctions = [
   "loadOrderBundle",
   "getPaymentByReference",
   "ensureOrderConfirmationNotification",
+  "ensureShippingPaymentConfirmationNotification",
   "ensureGuestAccountSetupNotification",
+  "parsePaystackMetadata",
+  "normalizePaystackPaymentPurpose",
+  "validatePaystackSuccessfulTransaction",
   "handleWebhook",
 ].map((name) => extractFunction(serverSource, name)).join("\n");
 
@@ -93,7 +97,12 @@ function makeQuery(table, state) {
     maybeSingle: async () => {
       if (table === "payments") {
         const reference = state.filters.find(([column]) => column === "provider_reference")?.[1];
-        return { data: state.payments.find((payment) => payment.provider_reference === reference) ?? null, error: null };
+        return {
+          data: state.paymentLookupOverride
+            ?? state.payments.find((payment) => payment.provider_reference === reference)
+            ?? null,
+          error: null,
+        };
       }
       if (table === "orders") {
         const id = state.filters.find(([column]) => column === "id")?.[1];
@@ -226,8 +235,12 @@ function buildWebhookModule(state) {
       return normalized === "success" || normalized === "successful" || normalized === "charge.success" ? "successful" : normalized;
     },
     isSuccessfulPayment: (payment) => String(payment?.status ?? "").toLowerCase() === "successful",
-    getReceiptPaymentPurpose: (payment) => payment?.payment_purpose || "order",
+    getReceiptPaymentPurpose: (payment) => {
+      const purpose = String(payment?.payment_purpose ?? "").trim().toLowerCase();
+      return purpose === "shipping" || purpose === "order" ? purpose : "";
+    },
     isValidQueuedEmailAddress: (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim()),
+    formatGhanaCedis: (value) => `GH₵${(Number(value) || 0).toFixed(2)}`,
     readRequestBody: async (request) => request.body,
     recordPaymentEvent: async (paymentId, payload) => state.paymentEvents.push({ paymentId, payload }),
     updatePaymentRow: async (paymentId, values) => {
@@ -266,8 +279,18 @@ async function invokeWebhook(webhook, state, event = {}) {
   return response;
 }
 
-function successfulEvent(reference) {
-  return { event: "charge.success", data: { reference, status: "success", amount: 380000, currency: "GHS" } };
+function successfulEvent(reference, overrides = {}) {
+  return {
+    event: "charge.success",
+    data: {
+      reference,
+      status: "success",
+      amount: 380000,
+      currency: "GHS",
+      metadata: { paymentPurpose: "order" },
+      ...overrides,
+    },
+  };
 }
 
 test("guest successful payment queues one notification from persisted order email", async () => {
@@ -280,6 +303,60 @@ test("guest successful payment queues one notification from persisted order emai
   assert.equal(state.notifications[0].user_id, null);
   assert.equal(state.notifications[0].order_id, "order-fictional-001");
   assert.equal(state.notifications[0].payment_id, "payment-fictional-001");
+});
+
+test("JSON-string Paystack metadata remains compatible with successful order payments", async () => {
+  const state = createHarnessState();
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { metadata: JSON.stringify({ paymentPurpose: "order" }) }),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(state.notifications.length, 1);
+});
+
+test("missing metadata uses the recognized persisted payment purpose for legacy payments", async () => {
+  const state = createHarnessState();
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { metadata: null }),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(state.notifications.length, 1);
+});
+
+test("missing metadata with an unknown persisted purpose is rejected", async () => {
+  const state = createHarnessState({ payment: { payment_purpose: "" } });
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { metadata: null }),
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(state.payments[0].status, "pending");
+  assert.equal(state.paymentEvents.length, 0);
+  assert.equal(state.paymentUpdates.length, 0);
+  assert.equal(state.notifications.length, 0);
+});
+
+test("malformed Paystack metadata is rejected before payment writes", async () => {
+  const state = createHarnessState();
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { metadata: "not-json" }),
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(state.payments[0].status, "pending");
+  assert.equal(state.paymentEvents.length, 0);
+  assert.equal(state.paymentUpdates.length, 0);
+  assert.equal(state.notifications.length, 0);
 });
 
 test("guest payment without a valid email is retryable and does not create a notification", async () => {
@@ -312,6 +389,71 @@ test("notification insertion failure returns 500 without reversing payment", asy
   assert.equal(state.notifications.length, 0);
 });
 
+test("incorrect successful amount is rejected before payment writes", async () => {
+  const state = createHarnessState();
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { amount: 379999 }),
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(state.payments[0].status, "pending");
+  assert.equal(state.paymentEvents.length, 0);
+  assert.equal(state.paymentUpdates.length, 0);
+  assert.equal(state.orderSyncs.length, 0);
+  assert.equal(state.notifications.length, 0);
+});
+
+test("incorrect successful currency is rejected before payment writes", async () => {
+  const state = createHarnessState();
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { currency: "USD" }),
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(state.payments[0].status, "pending");
+  assert.equal(state.paymentEvents.length, 0);
+  assert.equal(state.paymentUpdates.length, 0);
+  assert.equal(state.notifications.length, 0);
+});
+
+test("successful reference mismatch is rejected before payment writes", async () => {
+  const state = createHarnessState();
+  state.paymentLookupOverride = {
+    ...state.payments[0],
+    provider_reference: "ref-persisted-other",
+  };
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { reference: "ref-other-payment" }),
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(state.payments[0].status, "pending");
+  assert.equal(state.paymentEvents.length, 0);
+  assert.equal(state.paymentUpdates.length, 0);
+  assert.equal(state.notifications.length, 0);
+});
+
+test("successful payment-purpose mismatch is rejected before payment writes", async () => {
+  const state = createHarnessState();
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001", { metadata: { paymentPurpose: "shipping-balance" } }),
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(state.payments[0].status, "pending");
+  assert.equal(state.paymentEvents.length, 0);
+  assert.equal(state.paymentUpdates.length, 0);
+  assert.equal(state.notifications.length, 0);
+});
+
 test("registered customer payment keeps user ownership and queues one notification", async () => {
   const state = createHarnessState({ payment: { user_id: "user-fictional-001" }, order: { user_id: "user-fictional-001" } });
   const response = await invokeWebhook(buildWebhookModule(state), state, successfulEvent("ref-fictional-001"));
@@ -323,12 +465,29 @@ test("registered customer payment keeps user ownership and queues one notificati
 });
 
 test("shipping payment finalizes shipping and does not create an order confirmation", async () => {
-  const state = createHarnessState({ payment: { payment_purpose: "shipping" } });
-  const response = await invokeWebhook(buildWebhookModule(state), state, successfulEvent("ref-fictional-001"));
+  const state = createHarnessState({ payment: { payment_purpose: "shipping", status: "successful" } });
+  const webhook = buildWebhookModule(state);
+  const response = await invokeWebhook(
+    webhook,
+    state,
+    successfulEvent("ref-fictional-001", { metadata: { paymentPurpose: "shipping-balance" } }),
+  );
 
   assert.equal(response.statusCode, 200);
-  assert.equal(state.notifications.length, 0);
+  assert.equal(state.notifications.length, 1);
+  assert.equal(state.notifications[0].source_type, "payment_status");
+  assert.equal(state.notifications[0].payment_id, "payment-fictional-001");
+  assert.equal(state.notifications[0].category, "shipping");
   assert.equal(state.rpcCalls[0].name, "finalize_shipping_payment");
+  assert.equal(
+    (await invokeWebhook(
+      webhook,
+      state,
+      successfulEvent("ref-fictional-001", { metadata: { paymentPurpose: "shipping-balance" } }),
+    )).statusCode,
+    200,
+  );
+  assert.equal(state.notifications.length, 1);
 });
 
 test("harness makes no external network calls", async () => {

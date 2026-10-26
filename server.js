@@ -113,6 +113,24 @@ function verifyGuestCheckoutAccessToken(token, reference, orderId) {
   }
 }
 
+function createOrderPaymentReminderToken(orderId) {
+  return createGuestCheckoutAccessToken("payment-reminder", orderId);
+}
+
+function verifyOrderPaymentReminderToken(token, orderId) {
+  return verifyGuestCheckoutAccessToken(token, "payment-reminder", orderId);
+}
+
+function getPublicAppUrl() {
+  return (clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com").replace(/\/+$/, "");
+}
+
+function buildOrderPaymentReminderUrl(orderId) {
+  const normalizedOrderId = clean(orderId);
+  const token = createOrderPaymentReminderToken(normalizedOrderId);
+  return `${getPublicAppUrl()}/payment?purpose=order-balance&orderId=${encodeURIComponent(normalizedOrderId)}&token=${encodeURIComponent(token)}`;
+}
+
 function formatGhanaCedis(value) {
   const safeValue = Number(value) || 0;
   return new Intl.NumberFormat("en-GH", {
@@ -2310,11 +2328,13 @@ async function loadAdminOrderPaymentNotice(orderId) {
   }
 
   const orderQuery = order.checkout_group_id
-    ? supabaseAdmin
-        .from("orders")
-        .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, total, amount_due_now, payment_status, status")
-        .eq("checkout_group_id", order.checkout_group_id)
-        .eq("user_id", order.user_id)
+    ? (() => {
+        const query = supabaseAdmin
+          .from("orders")
+          .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, total, amount_due_now, payment_status, status")
+          .eq("checkout_group_id", order.checkout_group_id);
+        return order.user_id ? query.eq("user_id", order.user_id) : query.is("user_id", null);
+      })()
     : { data: [order], error: null };
   const linkedOrdersResult = await orderQuery;
 
@@ -2505,18 +2525,24 @@ async function sendTransactionalEmail({ to, subject, text, html }) {
   }
 }
 
-async function sendOrderPaymentEmail({ recipient, customerName, orderNumber, outstanding, message }) {
+function buildOrderPaymentReminderEmail({ customerName, orderNumber, outstanding, message, paymentLink }) {
   const subject = `Payment Reminder - Nexus Order #${orderNumber}`;
   const safeMessage = escapeHtml(message).replace(/\n/g, "<br />");
-  const appUrl = clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com";
-  const paymentLink = `${appUrl}/profile/orders`;
-  const footer = `\n\nOutstanding balance: ${formatGhanaCedis(outstanding)}\nView your orders and payment details: ${paymentLink}`;
+  const footer = `\n\nOutstanding balance: ${formatGhanaCedis(outstanding)}\nComplete your payment: ${paymentLink}`;
+
+  return {
+    subject,
+    text: `${message}${footer}`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>${safeMessage}</p><p style="color:#64748b">Outstanding balance: <strong>${escapeHtml(formatGhanaCedis(outstanding))}</strong></p><p><a href="${escapeHtml(paymentLink)}" style="display:inline-block;background:#0240CD;color:#fff;padding:11px 18px;text-decoration:none;border-radius:6px;font-weight:700">Pay Now</a></p></div>`,
+  };
+}
+
+async function sendOrderPaymentEmail({ recipient, customerName, orderNumber, outstanding, message, paymentLink }) {
+  const reminder = buildOrderPaymentReminderEmail({ customerName, orderNumber, outstanding, message, paymentLink });
 
   return sendTransactionalEmail({
     to: recipient,
-    subject,
-    text: `${message}${footer}`,
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>${safeMessage}</p><p style="color:#64748b">Outstanding balance: <strong>${escapeHtml(formatGhanaCedis(outstanding))}</strong></p><p><a href="${escapeHtml(paymentLink)}" style="color:#0240CD;font-weight:700">View your orders and payment details</a></p></div>`,
+    ...reminder,
   });
 }
 
@@ -2823,6 +2849,30 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
       subject: shippingReminder.subject,
       text: shippingReminder.text,
       html: shippingReminder.html,
+    });
+  }
+
+  if (clean(notification.source_type) === "payment_status"
+    && clean(notification.source_key).startsWith("order-payment-request:")) {
+    const orderResult = notification.order_id ? await loadAdminOrderPaymentNotice(notification.order_id) : null;
+    if (!orderResult?.ok) {
+      return { ok: false, message: "Order payment details are unavailable; the email will be retried." };
+    }
+    if (orderResult.accounting.outstanding <= 0) {
+      return { ok: false, permanent: true, message: "The order payment is no longer outstanding." };
+    }
+    const orderReminder = buildOrderPaymentReminderEmail({
+      customerName,
+      orderNumber: orderResult.order.order_number || notification.order_id,
+      outstanding: orderResult.accounting.outstanding,
+      message: notification.message,
+      paymentLink: buildOrderPaymentReminderUrl(orderResult.order.id),
+    });
+    return sendTransactionalEmail({
+      to: recipient,
+      subject: orderReminder.subject,
+      text: orderReminder.text,
+      html: orderReminder.html,
     });
   }
 
@@ -3235,6 +3285,7 @@ async function handleAdminOrderPaymentNotice(req, res) {
             orderNumber: retryOrderNumber,
             outstanding: accounting.outstanding,
             message: retryMessage,
+            paymentLink: buildOrderPaymentReminderUrl(order.id),
           });
       sendJson(res, 200, {
         ok: true,
@@ -3253,6 +3304,7 @@ async function handleAdminOrderPaymentNotice(req, res) {
   }
 
   const orderNumber = order.order_number || order.id;
+  const paymentLink = buildOrderPaymentReminderUrl(order.id);
   const defaultMessage = `Dear ${order.customer_name || "Customer"},\n\nYour order ${orderNumber} with Nexus Import Hub has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}.\n\nKindly complete your payment so we can continue processing your order.\n\nYou can view your order and payment details by logging into your Nexus Import Hub account.\n\nThank you for shopping with Nexus Import Hub.`;
   const message = clean(body?.message) || defaultMessage;
   const notificationValues = {
@@ -3266,8 +3318,8 @@ async function handleAdminOrderPaymentNotice(req, res) {
     payment_id: null,
     source_type: "payment_status",
     source_key: accounting.sourceKey,
-    action_url: `/profile/orders`,
-    action_label: "View Order",
+    action_url: paymentLink,
+    action_label: "Pay Now",
     action_description: "Review the outstanding payment for this order.",
     is_read: false,
     read_at: null,
@@ -3291,6 +3343,7 @@ async function handleAdminOrderPaymentNotice(req, res) {
         orderNumber,
         outstanding: accounting.outstanding,
         message,
+        paymentLink,
       });
   sendJson(res, 200, {
     ok: true,
@@ -3900,7 +3953,9 @@ async function handleInitialize(req, res) {
 
   const body = normalizePayload(await readRequestBody(req));
   const isGuestCheckout = Boolean(body.guestCheckout);
-  const paymentPurpose = clean(body.paymentPurpose).toLowerCase() === "shipping-balance"
+  const requestedPaymentPurpose = clean(body.paymentPurpose).toLowerCase();
+  const isOrderBalancePayment = requestedPaymentPurpose === "order-balance";
+  const paymentPurpose = requestedPaymentPurpose === "shipping-balance"
     ? "shipping-balance"
     : "order";
   const paymentMethod = clean(body.paymentMethod) || "mobile-money";
@@ -3910,6 +3965,122 @@ async function handleInitialize(req, res) {
     ? "pay_later"
     : "pay_now";
   const callbackUrl = clean(body.callbackUrl) || "http://localhost:5173/payment/success";
+
+  if (isOrderBalancePayment) {
+    const orderId = clean(body.orderId);
+    if (!orderId || !verifyOrderPaymentReminderToken(body.paymentToken, orderId)) {
+      sendJson(res, 401, { ok: false, message: "This payment link is invalid or has expired." });
+      return;
+    }
+
+    let notice;
+    try {
+      notice = await loadAdminOrderPaymentNotice(orderId);
+    } catch (error) {
+      sendJson(res, 500, { ok: false, message: error.message || "Unable to load the order payment balance." });
+      return;
+    }
+
+    if (!notice.ok) {
+      sendJson(res, 404, { ok: false, message: notice.message });
+      return;
+    }
+    const orderStatus = clean(notice.order.status).toLowerCase();
+    const paymentStatus = clean(notice.order.payment_status).toLowerCase();
+    if (notice.accounting.outstanding <= 0 || ["cancelled", "canceled"].includes(orderStatus) || ["cancelled", "canceled"].includes(paymentStatus)) {
+      sendJson(res, 409, { ok: false, message: "This order has no eligible outstanding payment." });
+      return;
+    }
+
+    const amount = notice.accounting.outstanding;
+    let paymentRow = await findOpenPayment(notice.order.id, amount, "order");
+    const providerReference = clean(paymentRow?.provider_reference) || buildPaymentReference(notice.order.order_number);
+
+    if (paymentRow?.authorization_url && paymentRow?.access_code) {
+      sendJson(res, 200, {
+        ok: true,
+        data: {
+          reference: paymentRow.provider_reference,
+          authorization_url: paymentRow.authorization_url,
+          access_code: paymentRow.access_code,
+        },
+        payment: paymentRow,
+        order: { id: notice.order.id, orderNumber: notice.order.order_number },
+        amountDueNow: amount,
+      });
+      return;
+    }
+
+    if (!paymentRow) {
+      paymentRow = await createPendingPaymentRecord({
+        orderId: notice.order.id,
+        userId: notice.order.user_id || null,
+        providerReference,
+        amount,
+        paymentMethod,
+        paymentNetwork,
+        paymentPhoneNumber,
+        paymentPurpose: "order",
+      });
+    }
+
+    const requestBody = {
+      email: clean(notice.order.customer_email),
+      amount: Math.round(amount * 100),
+      currency: "GHS",
+      callback_url: callbackUrl,
+      reference: providerReference,
+      channels: paymentMethod === "mobile-money" ? ["mobile_money"] : ["card"],
+      metadata: {
+        orderId: notice.order.id,
+        orderNumber: notice.order.order_number,
+        paymentPurpose: "order-balance",
+        paymentReminder: true,
+      },
+    };
+
+    const upstreamResponse = await fetch("https://api.paystack.co/transaction/initialize", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${paystackSecret}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+    const upstreamData = await upstreamResponse.json().catch(() => ({}));
+
+    if (!upstreamResponse.ok || upstreamData?.status === false) {
+      try {
+        await updatePaymentRow(paymentRow.id, { status: "failed" });
+      } catch {
+        // Keep the pending payment record available for inspection.
+      }
+      sendJson(res, upstreamResponse.status || 502, {
+        ok: false,
+        message: upstreamData?.message || "Unable to initialize Paystack checkout.",
+      });
+      return;
+    }
+
+    const checkoutData = upstreamData?.data ?? {};
+    const reference = clean(checkoutData.reference) || providerReference;
+    const updatedPayment = await updatePaymentRow(paymentRow.id, {
+      provider_reference: reference,
+      authorization_url: checkoutData.authorization_url ?? null,
+      access_code: checkoutData.access_code ?? null,
+      status: "pending",
+    });
+
+    sendJson(res, 200, {
+      ok: true,
+      data: checkoutData,
+      payment: updatedPayment,
+      order: { id: notice.order.id, orderNumber: notice.order.order_number },
+      amountDueNow: amount,
+    });
+    return;
+  }
 
   if (isGuestCheckout) {
     const guestEmail = clean(body.guestCheckoutEmail).toLowerCase();
@@ -4367,7 +4538,9 @@ async function handleVerify(req, res, reference) {
   const paymentRow = await getPaymentByReference(cleanReference);
   if (paymentRow && !clean(paymentRow.user_id)) {
     const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
-    if (!verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow.order_id)) {
+    const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
+    if (!verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow.order_id)
+      && !verifyOrderPaymentReminderToken(paymentReminderToken, paymentRow.order_id)) {
       sendJson(res, 401, { ok: false, message: "This guest checkout session is no longer available. Please restart checkout." });
       return;
     }
@@ -4392,8 +4565,18 @@ async function handleVerify(req, res, reference) {
   }
 
   const paystackData = upstreamData?.data ?? {};
-  const metadata = normalizePayload(paystackData.metadata);
+  const metadata = parsePaystackMetadata(paystackData.metadata).value;
   const isGuestCheckout = Boolean(metadata.guestCheckout);
+  const isPaymentReminder = Boolean(metadata.paymentReminder)
+    || clean(metadata.paymentPurpose).toLowerCase() === "order-balance";
+
+  if (isPaymentReminder) {
+    const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
+    if (!paymentRow?.order_id || !verifyOrderPaymentReminderToken(paymentReminderToken, paymentRow.order_id)) {
+      sendJson(res, 401, { ok: false, message: "This payment link is invalid or has expired." });
+      return;
+    }
+  }
 
   if (isGuestCheckout) {
     const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
@@ -4407,6 +4590,19 @@ async function handleVerify(req, res, reference) {
   const upstreamCurrency = clean(paystackData.currency).toUpperCase() || "GHS";
   const verifiedAmount = upstreamAmountMinor / 100;
   const normalizedStatus = normalizePaymentStatus(paystackData.status ?? paystackData.gateway_response ?? paystackData.channel);
+
+  if (normalizedStatus === "successful") {
+    const validation = validatePaystackSuccessfulTransaction(
+      paymentRow,
+      paystackData,
+      cleanReference,
+      getReceiptPaymentPurpose(paymentRow),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, { ok: false, message: validation.message });
+      return;
+    }
+  }
 
   if (isGuestCheckout) {
     if (!supabaseAdmin) {
@@ -4661,14 +4857,18 @@ async function handleVerify(req, res, reference) {
     return;
   }
 
-  const authResult = await getAuthenticatedUser(req);
+  const authResult = isPaymentReminder
+    ? { ok: true, user: { id: clean(paymentRow?.user_id) } }
+    : await getAuthenticatedUser(req);
 
   if (!authResult.ok) {
     sendJson(res, 401, { ok: false, message: authResult.message });
     return;
   }
 
-  const profileResult = await loadProfile(authResult.user.id);
+  const profileResult = isPaymentReminder
+    ? { ok: true, profile: null }
+    : await loadProfile(authResult.user.id);
 
   if (!profileResult.ok) {
     sendJson(res, 403, { ok: false, message: profileResult.message });
@@ -4683,7 +4883,7 @@ async function handleVerify(req, res, reference) {
     return;
   }
 
-  if (paymentRow.user_id !== authResult.user.id && profileResult.profile.role !== "admin") {
+  if (!isPaymentReminder && paymentRow.user_id !== authResult.user.id && profileResult.profile.role !== "admin") {
     sendJson(res, 403, {
       ok: false,
       message: "You do not have permission to verify this payment.",
@@ -4810,7 +5010,89 @@ function isSuccessfulPayment(payment) {
 }
 
 function getReceiptPaymentPurpose(payment) {
-  return clean(payment?.payment_purpose).toLowerCase() === "shipping" ? "shipping" : "order";
+  const purpose = clean(payment?.payment_purpose).toLowerCase();
+  if (purpose === "shipping") return "shipping";
+  if (purpose === "order") return "order";
+  return "";
+}
+
+function normalizePaystackPaymentPurpose(value) {
+  const purpose = clean(value).toLowerCase();
+  if (["shipping", "shipping-balance"].includes(purpose)) return "shipping";
+  if (["order", "order-balance"].includes(purpose)) return "order";
+  return "";
+}
+
+function parsePaystackMetadata(value) {
+  if (value == null || value === "") {
+    return { ok: true, value: {} };
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return { ok: true, value };
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? { ok: true, value: parsed }
+        : { ok: false, value: {} };
+    } catch {
+      return { ok: false, value: {} };
+    }
+  }
+
+  return { ok: false, value: {} };
+}
+
+function validatePaystackSuccessfulTransaction(paymentRow, paystackData, requestedReference, expectedPurpose) {
+  if (!paymentRow) {
+    return { ok: false, message: "The persisted payment record could not be found." };
+  }
+
+  const persistedReference = clean(paymentRow.provider_reference);
+  const upstreamReference = clean(paystackData?.reference || paystackData?.reference_code);
+  if (!persistedReference || clean(requestedReference) !== persistedReference || upstreamReference !== persistedReference) {
+    return { ok: false, message: "The verified payment reference did not match the persisted payment." };
+  }
+
+  const hasPersistedMinorAmount = paymentRow.amount_minor !== null
+    && paymentRow.amount_minor !== undefined
+    && clean(paymentRow.amount_minor) !== "";
+  const expectedAmountMinor = hasPersistedMinorAmount && Number.isFinite(Number(paymentRow.amount_minor))
+    ? Math.round(Number(paymentRow.amount_minor))
+    : Math.round((Number(paymentRow.amount) || 0) * 100);
+  const actualAmountMinor = Number(paystackData?.amount);
+  if (!Number.isSafeInteger(actualAmountMinor) || actualAmountMinor !== expectedAmountMinor) {
+    return { ok: false, message: "The verified payment amount did not match the persisted payment." };
+  }
+
+  const persistedCurrency = clean(paymentRow.currency).toUpperCase();
+  const upstreamCurrency = clean(paystackData?.currency).toUpperCase();
+  if (!persistedCurrency || upstreamCurrency !== persistedCurrency) {
+    return { ok: false, message: "The verified payment currency did not match the persisted payment." };
+  }
+
+  const persistedPurpose = normalizePaystackPaymentPurpose(expectedPurpose);
+  const metadataResult = parsePaystackMetadata(paystackData?.metadata);
+  if (!metadataResult.ok) {
+    return { ok: false, message: "The Paystack payment metadata was invalid." };
+  }
+
+  const upstreamPurposeValue = metadataResult.value.paymentPurpose ?? metadataResult.value.payment_purpose;
+  const hasUpstreamPurpose = clean(upstreamPurposeValue) !== "";
+  const upstreamPurpose = normalizePaystackPaymentPurpose(upstreamPurposeValue);
+  if (!persistedPurpose || (hasUpstreamPurpose && upstreamPurpose !== persistedPurpose)) {
+    return { ok: false, message: "The verified payment purpose did not match the persisted payment." };
+  }
+
+  const status = normalizePaymentStatus(paystackData?.status ?? paystackData?.gateway_response ?? paystackData?.channel);
+  if (status !== "successful") {
+    return { ok: false, message: "The Paystack transaction was not verified as successful." };
+  }
+
+  return { ok: true };
 }
 
 function mapReceiptListItem(payment, order, coveredOrders = []) {
@@ -5058,17 +5340,30 @@ async function handleWebhook(req, res) {
     const paymentRow = await getPaymentByReference(reference);
 
     if (paymentRow) {
+      const normalizedStatus = normalizePaymentStatus(event?.data?.status ?? event.event);
+      const wasPaymentSuccessful = normalizePaymentStatus(paymentRow.status) === "successful";
+      const paymentPurpose = getReceiptPaymentPurpose(paymentRow);
+      const isShippingPayment = paymentPurpose === "shipping";
+
+      if (normalizedStatus === "successful") {
+        const validation = validatePaystackSuccessfulTransaction(
+          paymentRow,
+          event?.data ?? {},
+          reference,
+          paymentPurpose,
+        );
+        if (!validation.ok) {
+          sendJson(res, 400, { ok: false, message: validation.message });
+          return;
+        }
+      }
+
       await recordPaymentEvent(paymentRow.id, {
         provider_event_type: event.event ?? "webhook",
         provider_reference: reference,
-        status: normalizePaymentStatus(event?.data?.status ?? event.event),
+        status: normalizedStatus,
         payload: event,
       });
-
-      const normalizedStatus = normalizePaymentStatus(event?.data?.status ?? event.event);
-      const wasPaymentSuccessful = normalizePaymentStatus(paymentRow.status) === "successful";
-
-      const isShippingPayment = paymentRow.payment_purpose === "shipping";
 
       if (paymentRow.status !== normalizedStatus && !(isShippingPayment && normalizedStatus === "successful")) {
         const paymentUpdate = {

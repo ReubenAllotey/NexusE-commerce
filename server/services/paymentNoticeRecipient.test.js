@@ -8,6 +8,10 @@ const serverSource = fs.readFileSync(
   fileURLToPath(new URL("../../server.js", import.meta.url)),
   "utf8",
 );
+const paymentPageSource = fs.readFileSync(
+  fileURLToPath(new URL("../../src/pages/payment/payment.jsx", import.meta.url)),
+  "utf8",
+);
 
 test("guest orders use the persisted customer email", () => {
   assert.deepEqual(
@@ -32,4 +36,20 @@ test("payment reminders retain source-key duplicate protection", () => {
   assert.match(serverSource, /source_key: accounting\.sourceKey/);
   assert.match(serverSource, /\.eq\("source_key", accounting\.sourceKey\)/);
   assert.match(serverSource, /A payment notice has already been sent for this outstanding balance/);
+});
+
+test("payment reminders use an expiring order-bound Pay Now link", () => {
+  assert.match(serverSource, /createOrderPaymentReminderToken\(orderId\)/);
+  assert.match(serverSource, /purpose=order-balance/);
+  assert.match(paymentPageSource, /paymentToken: paymentIntent\.token/);
+  assert.match(serverSource, /action_label: "Pay Now"/);
+  assert.match(serverSource, /verifyOrderPaymentReminderToken\(body\.paymentToken, orderId\)/);
+});
+
+test("payment reminders cannot authorize shipping or arbitrary order payments", () => {
+  assert.match(serverSource, /orderId: notice\.order\.id/);
+  assert.match(serverSource, /paymentPurpose: "order-balance"/);
+  assert.match(serverSource, /paymentReminder: true/);
+  assert.match(serverSource, /paymentPurpose: "order"/);
+  assert.match(serverSource, /getReceiptPaymentPurpose\(payment\) !== "order"/);
 });

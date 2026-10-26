@@ -132,7 +132,7 @@ function getPaymentIntent(search = "") {
   const params = new URLSearchParams(search);
   const purpose = clean(params.get("purpose") ?? params.get("paymentPurpose")).toLowerCase();
 
-  if (purpose !== "shipping-balance") {
+  if (purpose !== "shipping-balance" && purpose !== "order-balance") {
     return null;
   }
 
@@ -142,6 +142,7 @@ function getPaymentIntent(search = "") {
     purpose,
     orderId: clean(params.get("orderId")),
     orderNumber: clean(params.get("orderNumber")),
+    token: clean(params.get("token")),
     productName: clean(params.get("productName")),
     shippingFee: clean(params.get("shippingFee")),
     amount: Number.isFinite(amount) && amount > 0 ? amount : 0,
@@ -349,17 +350,20 @@ function PaymentCheckout({
     );
   }, [orders, paymentIntent]);
   const isShippingBalancePayment = paymentIntent?.purpose === "shipping-balance";
+  const isOrderBalancePayment = paymentIntent?.purpose === "order-balance";
   const targetShippingAccounting = getShippingAccounting(targetOrder ?? {});
   const displayedShippingBalance = targetShippingAccounting.outstandingShipping > 0
     ? targetShippingAccounting.outstandingShipping
     : paymentIntent?.amount ?? 0;
   const checkoutShippingAddress = isShippingBalancePayment ? targetOrder?.shippingAddress ?? null : snapshot.shippingAddress;
-  const checkoutCartRows = isShippingBalancePayment ? [] : snapshot.cartRows;
-  const checkoutTotals = isShippingBalancePayment
+  const checkoutCartRows = isShippingBalancePayment || isOrderBalancePayment ? [] : snapshot.cartRows;
+  const checkoutTotals = isShippingBalancePayment || isOrderBalancePayment
     ? {
         subtotal: 0,
-        shippingTotal: displayedShippingBalance,
-        totalPrice: displayedShippingBalance,
+        shippingTotal: isShippingBalancePayment ? displayedShippingBalance : paymentIntent?.amount ?? 0,
+        totalPrice: isShippingBalancePayment ? displayedShippingBalance : paymentIntent?.amount ?? 0,
+        amountPayableNow: isShippingBalancePayment ? displayedShippingBalance : paymentIntent?.amount ?? 0,
+        knownCommercialTotal: isShippingBalancePayment ? displayedShippingBalance : paymentIntent?.amount ?? 0,
       }
     : snapshot.totals;
   const shippingPaymentPreference = snapshot.shippingPaymentPreference;
@@ -427,10 +431,10 @@ function PaymentCheckout({
   ]);
 
   useEffect(() => {
-    if (!isShippingBalancePayment && (!shippingAddress || cartRows.length === 0)) {
+    if (!isShippingBalancePayment && !isOrderBalancePayment && (!shippingAddress || cartRows.length === 0)) {
       navigate("/shipping-address", { replace: true });
     }
-  }, [cartRows.length, isShippingBalancePayment, navigate, shippingAddress]);
+  }, [cartRows.length, isOrderBalancePayment, isShippingBalancePayment, navigate, shippingAddress]);
 
   useEffect(() => {
     if (session?.paymentMethod) {
@@ -473,8 +477,8 @@ function PaymentCheckout({
     event.preventDefault();
 
     const nextFieldErrors = {};
-    if (!shippingAddress?.region) nextFieldErrors.shippingAddress = "Please select a delivery region.";
-    if (!shippingAddress?.city && !shippingAddress?.deliveryLocation) {
+    if (!isShippingBalancePayment && !isOrderBalancePayment && !shippingAddress?.region) nextFieldErrors.shippingAddress = "Please select a delivery region.";
+    if (!isShippingBalancePayment && !isOrderBalancePayment && !shippingAddress?.city && !shippingAddress?.deliveryLocation) {
       nextFieldErrors.shippingAddress = "Please select a delivery location.";
     }
     if (!customerName.trim()) nextFieldErrors.customerName = "Full name is required.";
@@ -512,6 +516,52 @@ function PaymentCheckout({
       const checkoutCustomerName = customerName.trim();
       const checkoutCustomerEmail = customerEmail.trim().toLowerCase();
       const checkoutCustomerPhone = customerPhone.trim();
+
+      if (isOrderBalancePayment) {
+        const initResponse = await initializePaystackCheckout(
+          {
+            orderId: paymentIntent.orderId,
+            paymentPurpose: "order-balance",
+            paymentToken: paymentIntent.token,
+            paymentMethod,
+            paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
+            paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
+            callbackUrl: getCallbackUrl(),
+          },
+          { accessToken: "" },
+        );
+        const paystackData = initResponse?.data ?? {};
+        const paymentReference = clean(paystackData.reference);
+        const authorizationUrl = clean(paystackData.authorization_url);
+        const accessCode = clean(paystackData.access_code);
+        if (!paymentReference || !authorizationUrl) {
+          throw new Error("Paystack did not return a valid checkout link.");
+        }
+
+        savePaymentSession({
+          id: session?.id ?? `session-${Date.now()}`,
+          orderId: paymentIntent.orderId,
+          orderNumber: paymentIntent.orderNumber,
+          paymentReference,
+          paymentReminderToken: paymentIntent.token,
+          paymentMethod,
+          paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
+          paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
+          paymentPurpose: "order-balance",
+          status: "initiated",
+          paystackAccessCode: accessCode,
+          paystackAuthorizationUrl: authorizationUrl,
+          customerName: checkoutCustomer.name,
+          customerEmail: checkoutEmail,
+          amount: Number(initResponse?.amountDueNow) || checkoutTotals.totalPrice,
+          amountInPesewas: Math.round((Number(initResponse?.amountDueNow) || checkoutTotals.totalPrice) * 100),
+          createdAt: session?.createdAt ?? new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }, checkoutOwnerKey);
+
+        window.location.assign(authorizationUrl);
+        return;
+      }
 
       if (!authUser) {
         const initResponse = await initializePaystackCheckout(
@@ -794,7 +844,7 @@ function PaymentCheckout({
               </div>
 
               <>
-                <section id="payment-shippingAddress" className={`checkout-info-card checkout-info-card--location${fieldErrors.shippingAddress ? " has-error" : ""}`}>
+                {!isOrderBalancePayment ? <section id="payment-shippingAddress" className={`checkout-info-card checkout-info-card--location${fieldErrors.shippingAddress ? " has-error" : ""}`}>
                   <div className="checkout-info-card__heading">
                     <span className="checkout-info-card__icon" aria-hidden="true">⌖</span>
                     <div>
@@ -821,7 +871,20 @@ function PaymentCheckout({
                     Change
                   </Link>
                   {fieldErrors.shippingAddress ? <p className="payment-field__error">{fieldErrors.shippingAddress}</p> : null}
-                </section>
+                </section> : (
+                  <section className="checkout-info-card checkout-info-card--location">
+                    <div className="checkout-info-card__heading">
+                      <div>
+                        <p className="payment-panel__eyebrow">Outstanding order payment</p>
+                        <h2>{paymentIntent?.orderNumber || "Secure payment link"}</h2>
+                      </div>
+                    </div>
+                    <div className="checkout-info-card__details">
+                      <strong>Amount due: {formatGhanaCedis(summaryTotal)}</strong>
+                      <span>Payment amount will be checked against the order on the server.</span>
+                    </div>
+                  </section>
+                )}
 
                 <section className="checkout-info-card checkout-info-card--customer">
                   <div className="payment-panel__header">
@@ -896,6 +959,19 @@ function PaymentCheckout({
                       </div>
                     </div>
                   </section>
+            ) : isOrderBalancePayment ? (
+              <section className="payment-summary payment-summary--topup">
+                <div className="payment-summary__header">
+                  <p>Order payment</p>
+                  <strong>{paymentIntent?.orderNumber || "Outstanding balance"}</strong>
+                </div>
+                <div className="payment-summary__rows">
+                  <div className="payment-summary__row">
+                    <span>Outstanding balance</span>
+                    <strong>{formatGhanaCedis(summaryTotal)}</strong>
+                  </div>
+                </div>
+              </section>
             ) : (
               <PaymentSummary shippingAddress={shippingAddress} cartRows={cartRows} totals={totals} />
             )}
@@ -1244,6 +1320,7 @@ function PaymentStatusPage({
       const result = await verifyPaystackTransaction(reference, {
         accessToken: tokenResult.accessToken,
         guestAccessToken: session?.guestAccessToken,
+        paymentReminderToken: session?.paymentReminderToken,
       });
       const paystackData = result?.data ?? {};
       const normalizedStatus = clean(paystackData.status).toLowerCase();
