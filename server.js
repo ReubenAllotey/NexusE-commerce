@@ -9,6 +9,7 @@ import webpush from "web-push";
 import { isPushQueueEnabled } from "./server/pushWorkerConfig.js";
 import { analyzeProduct } from "./server/services/aiProductService.js";
 import { buildOrderConfirmationEmail } from "./server/services/orderConfirmationEmail.js";
+import { resolvePaymentNoticeRecipient } from "./server/services/paymentNoticeRecipient.js";
 import {
   buildShippingPaymentConfirmationEmail,
   buildShippingPaymentRequiredEmail,
@@ -3183,7 +3184,9 @@ async function handleAdminOrderPaymentNotice(req, res) {
   }
 
   const { order, accounting } = notice;
-  if (!order.user_id || !clean(order.customer_email)) {
+  const paymentNoticeRecipient = resolvePaymentNoticeRecipient(order);
+  const persistedCustomerEmail = paymentNoticeRecipient.email;
+  if (!paymentNoticeRecipient.eligible) {
     sendJson(res, 409, { ok: false, message: "This order does not have an eligible customer recipient." });
     return;
   }
@@ -3210,9 +3213,9 @@ async function handleAdminOrderPaymentNotice(req, res) {
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("notifications")
     .select("*")
-    .eq("user_id", order.user_id)
     .eq("source_type", "payment_status")
     .eq("source_key", accounting.sourceKey)
+    .eq(order.user_id ? "user_id" : "recipient_email", order.user_id ? order.user_id : persistedCustomerEmail)
     .maybeSingle();
   if (existingError) {
     sendJson(res, 500, { ok: false, message: existingError.message || "Unable to check previous notices." });
@@ -3226,7 +3229,7 @@ async function handleAdminOrderPaymentNotice(req, res) {
       const retryEmail = queueAvailable
         ? await requeueNotificationEmail(existing.id)
         : await sendOrderPaymentEmail({
-            recipient: order.customer_email,
+            recipient: persistedCustomerEmail,
             customerName: order.customer_name || "Customer",
             orderNumber: retryOrderNumber,
             outstanding: accounting.outstanding,
@@ -3252,7 +3255,9 @@ async function handleAdminOrderPaymentNotice(req, res) {
   const defaultMessage = `Dear ${order.customer_name || "Customer"},\n\nYour order ${orderNumber} with Nexus Import Hub has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}.\n\nKindly complete your payment so we can continue processing your order.\n\nYou can view your order and payment details by logging into your Nexus Import Hub account.\n\nThank you for shopping with Nexus Import Hub.`;
   const message = clean(body?.message) || defaultMessage;
   const notificationValues = {
-    user_id: order.user_id,
+    user_id: order.user_id || null,
+    recipient_email: order.user_id ? null : persistedCustomerEmail,
+    recipient_name: order.customer_name || "Customer",
     category: "orders",
     title: "Payment Required for Your Order",
     message: `Your order #${orderNumber} has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}. Please complete your payment to continue processing your order.`,
@@ -3280,7 +3285,7 @@ async function handleAdminOrderPaymentNotice(req, res) {
   const email = queueAvailable
     ? { ok: true, queued: true, message: "Email queued for delivery." }
     : await sendOrderPaymentEmail({
-        recipient: order.customer_email,
+        recipient: persistedCustomerEmail,
         customerName: order.customer_name || "Customer",
         orderNumber,
         outstanding: accounting.outstanding,
