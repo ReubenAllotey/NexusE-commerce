@@ -13733,6 +13733,7 @@ body[data-theme="dark"] .location-picker__selected {
 .admin-orders-modal__panel {
   position: relative;
   width: min(42rem, 100%);
+  box-sizing: border-box;
   max-height: 90dvh;
   min-height: 0;
   display: flex;

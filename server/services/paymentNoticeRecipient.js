@@ -8,7 +8,7 @@ function isValidEmail(value) {
 
 export function resolvePaymentNoticeRecipient(order) {
   const userId = clean(order?.user_id);
-  const email = clean(order?.customer_email).toLowerCase();
+  const email = clean(order?.customer_email || order?.guest_email).toLowerCase();
 
   return {
     eligible: isValidEmail(email),

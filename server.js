@@ -2315,7 +2315,7 @@ async function handleAdminShippingPaymentNotice(req, res) {
 async function loadAdminOrderPaymentNotice(orderId) {
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
-    .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, total, amount_due_now, payment_status, status")
+    .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, total, amount_due_now, payment_status, status")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -2331,7 +2331,7 @@ async function loadAdminOrderPaymentNotice(orderId) {
     ? (() => {
         const query = supabaseAdmin
           .from("orders")
-          .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, total, amount_due_now, payment_status, status")
+          .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, total, amount_due_now, payment_status, status")
           .eq("checkout_group_id", order.checkout_group_id);
         return order.user_id ? query.eq("user_id", order.user_id) : query.is("user_id", null);
       })()
@@ -2342,9 +2342,13 @@ async function loadAdminOrderPaymentNotice(orderId) {
     throw new Error(linkedOrdersResult.error.message || "Unable to load linked checkout orders.");
   }
 
-  const linkedOrders = Array.isArray(linkedOrdersResult.data) && linkedOrdersResult.data.length > 0
-    ? linkedOrdersResult.data
-    : [order];
+  const normalizedGuestEmail = clean(order.customer_email || order.guest_email).toLowerCase();
+  const scopedLinkedOrders = (Array.isArray(linkedOrdersResult.data) ? linkedOrdersResult.data : [])
+    .filter((linkedOrder) => order.user_id
+      ? linkedOrder.user_id === order.user_id
+      : !linkedOrder.user_id
+        && clean(linkedOrder.customer_email || linkedOrder.guest_email).toLowerCase() === normalizedGuestEmail);
+  const linkedOrders = scopedLinkedOrders.length > 0 ? scopedLinkedOrders : [order];
   const orderIds = linkedOrders.map((linkedOrder) => linkedOrder.id).filter(Boolean);
   const { data: payments, error: paymentError } = await supabaseAdmin
     .from("payments")
@@ -3067,13 +3071,17 @@ async function runNotificationEmailWorkerCycle() {
 }
 
 async function requeueNotificationEmail(notificationId) {
+  if (!isEmailQueueProcessingEnabled()) {
+    return { ok: false, code: "queue_disabled", message: "The email queue is disabled; no email was sent." };
+  }
+
   if (!(await isEmailQueueAvailable())) {
-    return { ok: false, message: "The email queue is not enabled." };
+    return { ok: false, code: "queue_unavailable", message: "The email queue is unavailable; no email was sent." };
   }
 
   const { data: existing, error: lookupError } = await supabaseAdmin
     .from("notification_email_deliveries")
-    .select("id, status")
+    .select("id, status, attempts, max_attempts, last_attempt_at, updated_at, next_attempt_at")
     .eq("notification_id", notificationId)
     .maybeSingle();
   if (lookupError || !existing) {
@@ -3083,14 +3091,32 @@ async function requeueNotificationEmail(notificationId) {
     return { ok: false, message: "Only failed notification emails can be retried." };
   }
 
+  if (Number(existing.attempts) >= Number(existing.max_attempts)) {
+    return { ok: false, code: "retry_limit_reached", message: "This email has reached its retry limit." };
+  }
+
+  const lastAttemptAt = existing.last_attempt_at || existing.updated_at;
+  const lastAttemptMs = Date.parse(lastAttemptAt || "");
+  if (!Number.isFinite(lastAttemptMs)) {
+    return { ok: false, code: "retry_timestamp_missing", message: "The previous delivery attempt time is unavailable; no email was sent." };
+  }
+
+  const retryAvailableAt = new Date(lastAttemptMs + (5 * 60 * 1000));
+  if (Date.now() < retryAvailableAt.getTime()) {
+    return {
+      ok: false,
+      code: "retry_cooldown",
+      retryAt: retryAvailableAt.toISOString(),
+      message: `Retry cooldown is active until ${retryAvailableAt.toISOString()}.`,
+    };
+  }
+
   const now = new Date().toISOString();
   const { data, error } = await supabaseAdmin
     .from("notification_email_deliveries")
     .update({
       status: "pending",
-      attempts: 0,
       next_attempt_at: now,
-      last_attempt_at: null,
       sent_at: null,
       locked_at: null,
       lock_token: null,
@@ -3099,6 +3125,7 @@ async function requeueNotificationEmail(notificationId) {
     })
     .eq("id", existing.id)
     .eq("status", "failed")
+    .lt("last_attempt_at", new Date(Date.now() - (5 * 60 * 1000)).toISOString())
     .select("id, status, attempts")
     .maybeSingle();
 
@@ -3106,7 +3133,79 @@ async function requeueNotificationEmail(notificationId) {
     return { ok: false, message: error?.message || "No email queue job exists for this notification." };
   }
 
-  return { ok: true, queued: true, message: "Email queued for retry." };
+  return { ok: true, queued: true, status: "queued", message: "Email queued for retry.", retryAt: now };
+}
+
+async function loadPaymentNoticeDelivery(notificationId) {
+  if (!notificationId) return { data: null, error: null };
+
+  return supabaseAdmin
+    .from("notification_email_deliveries")
+    .select("id, status, attempts, max_attempts, last_attempt_at, next_attempt_at, sent_at, updated_at")
+    .eq("notification_id", notificationId)
+    .maybeSingle();
+}
+
+async function loadPaymentNoticeHistory(order) {
+  const scope = clean(order?.checkout_group_id) || clean(order?.id);
+  if (!scope) return { data: [], error: null };
+
+  const legacySourceKey = `order-payment-request:${scope}`;
+  const reminderSourcePrefix = `${legacySourceKey}:reminder:`;
+  const { data: notifications, error } = await supabaseAdmin
+    .from("notifications")
+    .select("*")
+    .eq("source_type", "payment_status")
+    .or(`source_key.eq.${legacySourceKey},source_key.like.${reminderSourcePrefix}%`)
+    .order("created_at", { ascending: false })
+    .limit(25);
+
+  if (error) return { data: [], error };
+
+  const rows = Array.isArray(notifications) ? notifications : [];
+  const ids = rows.map((notification) => notification.id).filter(Boolean);
+  if (ids.length === 0) return { data: [], error: null };
+
+  const deliveryResult = await supabaseAdmin
+    .from("notification_email_deliveries")
+    .select("id, notification_id, status, attempts, max_attempts, last_attempt_at, next_attempt_at, sent_at, updated_at")
+    .in("notification_id", ids);
+  if (deliveryResult.error) return { data: [], error: deliveryResult.error };
+
+  const deliveries = new Map((deliveryResult.data ?? []).map((delivery) => [delivery.notification_id, delivery]));
+  return {
+    data: rows.map((notification) => ({
+      notification,
+      delivery: deliveries.get(notification.id) ?? null,
+      email: getPaymentNoticeEmailState(deliveries.get(notification.id) ?? null),
+    })),
+    error: null,
+  };
+}
+
+function getPaymentNoticeEmailState(delivery) {
+  if (!delivery) return { status: "not_queued", retryAvailable: false };
+  if (delivery.status === "sent") return { status: "sent", retryAvailable: false, sentAt: delivery.sent_at };
+  if (delivery.status === "pending" || delivery.status === "processing") {
+    return { status: "queued", retryAvailable: false, nextAttemptAt: delivery.next_attempt_at };
+  }
+  if (delivery.status === "failed") {
+    const lastAttemptMs = Date.parse(delivery.last_attempt_at || delivery.updated_at || "");
+    const retryAt = Number.isFinite(lastAttemptMs)
+      ? new Date(lastAttemptMs + (5 * 60 * 1000)).toISOString()
+      : null;
+    const retryAvailable = Number(delivery.attempts) < Number(delivery.max_attempts)
+      && Boolean(retryAt)
+      && Date.now() >= Date.parse(retryAt);
+    return {
+      status: "failed",
+      retryAvailable,
+      retryAt,
+      attempts: delivery.attempts,
+      maxAttempts: delivery.max_attempts,
+    };
+  }
+  return { status: delivery.status || "unknown", retryAvailable: false };
 }
 
 function isAuthorizedEmailWorkerRequest(req) {
@@ -3242,6 +3341,25 @@ async function handleAdminOrderPaymentNotice(req, res) {
     return;
   }
 
+  const historyResult = await loadPaymentNoticeHistory(order);
+  if (historyResult.error) {
+    sendJson(res, 500, { ok: false, message: historyResult.error.message || "Unable to check previous payment reminders." });
+    return;
+  }
+
+  const reminderHistory = historyResult.data;
+  const latestReminder = reminderHistory[0] || null;
+  const existing = latestReminder?.notification || null;
+  const existingDelivery = latestReminder?.delivery || null;
+  const emailState = latestReminder?.email || getPaymentNoticeEmailState(null);
+  const latestReminderAt = Date.parse(existing?.created_at || "");
+  const cooldownUntil = Number.isFinite(latestReminderAt)
+    ? new Date(latestReminderAt + (24 * 60 * 60 * 1000)).toISOString()
+    : null;
+  const isCancelled = ["cancelled", "canceled"].includes(clean(order.status).toLowerCase())
+    || ["cancelled", "canceled"].includes(clean(order.payment_status).toLowerCase());
+  const cooldownActive = Boolean(cooldownUntil) && Date.now() < Date.parse(cooldownUntil);
+
   if (req.method === "GET") {
     sendJson(res, 200, {
       ok: true,
@@ -3249,57 +3367,63 @@ async function handleAdminOrderPaymentNotice(req, res) {
         id: order.id,
         orderNumber: order.order_number || order.id,
         customerName: order.customer_name || "Customer",
-        customerEmail: order.customer_email,
+        customerEmail: order.customer_email || order.guest_email,
+        status: order.status,
+        paymentStatus: order.payment_status,
       },
       accounting,
+      isCancelled,
+      notification: existing,
+      email: emailState,
+      reminders: reminderHistory.map(({ notification, email }) => ({
+        id: notification.id,
+        createdAt: notification.created_at,
+        recipientEmail: notification.recipient_email,
+        status: email.status,
+        attempts: email.attempts ?? 0,
+        sentAt: email.sentAt || null,
+        retryAvailable: email.retryAvailable,
+      })),
+      cooldownUntil,
+      cooldownActive,
+      canSend: accounting.outstanding > 0 && !isCancelled && !cooldownActive,
+      canOverride: accounting.outstanding > 0 && !isCancelled && cooldownActive,
     });
     return;
   }
 
   if (accounting.outstanding <= 0) {
-    sendJson(res, 409, { ok: false, message: "This order has no outstanding order payment.", accounting });
+    sendJson(res, 409, { ok: false, message: "This order has no outstanding order payment.", accounting, isCancelled });
     return;
   }
 
-  const { data: existing, error: existingError } = await supabaseAdmin
-    .from("notifications")
-    .select("*")
-    .eq("source_type", "payment_status")
-    .eq("source_key", accounting.sourceKey)
-    .eq(order.user_id ? "user_id" : "recipient_email", order.user_id ? order.user_id : persistedCustomerEmail)
-    .maybeSingle();
-  if (existingError) {
-    sendJson(res, 500, { ok: false, message: existingError.message || "Unable to check previous notices." });
+  if (isCancelled) {
+    sendJson(res, 409, { ok: false, message: "This order is cancelled and cannot receive a payment reminder.", accounting });
     return;
   }
-  if (existing) {
-    if (body?.retryEmail) {
-      const retryOrderNumber = order.order_number || order.id;
-      const retryMessage = clean(body?.message) || `Dear ${order.customer_name || "Customer"},\n\nYour order ${retryOrderNumber} with Nexus Import Hub has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}.\n\nKindly complete your payment so we can continue processing your order.`;
-      const queueAvailable = await isEmailQueueAvailable();
-      const retryEmail = queueAvailable
-        ? await requeueNotificationEmail(existing.id)
-        : await sendOrderPaymentEmail({
-            recipient: persistedCustomerEmail,
-            customerName: order.customer_name || "Customer",
-            orderNumber: retryOrderNumber,
-            outstanding: accounting.outstanding,
-            message: retryMessage,
-            paymentLink: buildOrderPaymentReminderUrl(order.id),
-          });
-      sendJson(res, 200, {
-        ok: true,
-        notification: existing,
-        accounting,
-        email: retryEmail,
-        message: retryEmail.ok
-          ? retryEmail.queued ? "The payment reminder email was queued for retry." : "The payment reminder email was sent successfully."
-          : "The in-app notification was already sent, but email delivery failed again.",
-      });
+
+  if (body?.retryEmail) {
+    if (!existing) {
+      sendJson(res, 409, { ok: false, message: "There is no failed reminder available for retry." });
       return;
     }
 
-    sendJson(res, 409, { ok: false, message: "A payment notice has already been sent for this outstanding balance.", notification: existing, accounting });
+    const retryEmail = await requeueNotificationEmail(existing.id);
+    if (retryEmail.ok) {
+      console.info("Payment reminder email retry queued", JSON.stringify({
+        adminId: authResult.user.id,
+        notificationId: existing.id,
+        deliveryId: existingDelivery?.id || null,
+        retriedAt: retryEmail.retryAt,
+      }));
+    }
+    sendJson(res, retryEmail.ok ? 200 : retryEmail.code === "retry_cooldown" ? 429 : 409, {
+      ok: retryEmail.ok,
+      notification: existing,
+      accounting,
+      email: retryEmail,
+      message: retryEmail.ok ? "The payment reminder email was queued for retry." : retryEmail.message,
+    });
     return;
   }
 
@@ -3307,52 +3431,73 @@ async function handleAdminOrderPaymentNotice(req, res) {
   const paymentLink = buildOrderPaymentReminderUrl(order.id);
   const defaultMessage = `Dear ${order.customer_name || "Customer"},\n\nYour order ${orderNumber} with Nexus Import Hub has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}.\n\nKindly complete your payment so we can continue processing your order.\n\nYou can view your order and payment details by logging into your Nexus Import Hub account.\n\nThank you for shopping with Nexus Import Hub.`;
   const message = clean(body?.message) || defaultMessage;
-  const notificationValues = {
-    user_id: order.user_id || null,
-    recipient_email: order.user_id ? null : persistedCustomerEmail,
-    recipient_name: order.customer_name || "Customer",
-    category: "orders",
-    title: "Payment Required for Your Order",
-    message: `Your order #${orderNumber} has an outstanding payment of ${formatGhanaCedis(accounting.outstanding)}. Please complete your payment to continue processing your order.`,
-    order_id: order.id,
-    payment_id: null,
-    source_type: "payment_status",
-    source_key: accounting.sourceKey,
-    action_url: paymentLink,
-    action_label: "Pay Now",
-    action_description: "Review the outstanding payment for this order.",
-    is_read: false,
-    read_at: null,
-  };
-  const { data: notification, error: notificationError } = await supabaseAdmin
-    .from("notifications")
-    .insert(notificationValues)
-    .select("*")
-    .single();
-  if (notificationError) {
-    sendJson(res, 500, { ok: false, message: notificationError.message || "Unable to create the customer notification." });
+  const override = Boolean(body?.overrideCooldown);
+  const overrideReason = clean(body?.overrideReason);
+  const { data: createdReminder, error: reminderError } = await supabaseAdmin.rpc("create_admin_payment_reminder", {
+    p_order_id: order.id,
+    p_admin_id: authResult.user.id,
+    p_message: message,
+    p_override: override,
+    p_override_reason: overrideReason || null,
+    p_action_url: paymentLink,
+  });
+  if (reminderError) {
+    sendJson(res, 409, { ok: false, message: reminderError.message || "Unable to create the payment reminder." });
     return;
   }
 
-  const queueAvailable = await isEmailQueueAvailable();
-  const email = queueAvailable
-    ? { ok: true, queued: true, message: "Email queued for delivery." }
-    : await sendOrderPaymentEmail({
-        recipient: persistedCustomerEmail,
-        customerName: order.customer_name || "Customer",
-        orderNumber,
-        outstanding: accounting.outstanding,
-        message,
-        paymentLink,
-      });
+  const created = Array.isArray(createdReminder) ? createdReminder[0] : createdReminder;
+  if (created?.result_code === "queued") {
+    sendJson(res, 409, {
+      ok: false,
+      code: "reminder_queued",
+      message: "A payment reminder is already queued for this order.",
+      accounting,
+      notificationId: created.notification_id,
+    });
+    return;
+  }
+  if (created?.result_code === "cooldown") {
+    sendJson(res, 429, {
+      ok: false,
+      code: "reminder_cooldown",
+      message: `A payment reminder was already sent recently. The next reminder is available after ${created.cooldown_until}.`,
+      accounting,
+      cooldownUntil: created.cooldown_until,
+    });
+    return;
+  }
+  if (!created?.notification_id) {
+    sendJson(res, 409, { ok: false, message: "The payment reminder was not created." });
+    return;
+  }
+
+  const { data: notification, error: notificationError } = await supabaseAdmin
+    .from("notifications")
+    .select("*")
+    .eq("id", created.notification_id)
+    .single();
+  if (notificationError || !notification) {
+    sendJson(res, 500, { ok: false, message: notificationError?.message || "The payment reminder was created but could not be reloaded." });
+    return;
+  }
+  const deliveryResult = await loadPaymentNoticeDelivery(notification.id);
+  const email = deliveryResult.error
+    ? { ok: false, status: "unknown", message: deliveryResult.error.message || "Unable to load the email delivery status." }
+    : getPaymentNoticeEmailState(deliveryResult.data);
   sendJson(res, 200, {
     ok: true,
     notification,
     accounting,
     email,
-    message: email.ok
-      ? email.queued ? "Payment notice saved and email queued for delivery." : "Payment notice sent successfully via email and customer notifications."
-      : "In-app notification sent, but email delivery failed.",
+    reminder: {
+      id: notification.id,
+      createdAt: notification.created_at,
+      overrideRecorded: Boolean(created.override_recorded),
+    },
+    message: email.status === "queued"
+      ? "Payment reminder saved and email queued for delivery."
+      : "Payment reminder saved; email delivery status is being processed.",
   });
 }
 
