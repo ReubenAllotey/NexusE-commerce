@@ -74,6 +74,7 @@ const deployedFunctions = [
   "loadOrderBundle",
   "getPaymentByReference",
   "ensureOrderConfirmationNotification",
+  "ensureGuestAccountSetupNotification",
   "handleWebhook",
 ].map((name) => extractFunction(serverSource, name)).join("\n");
 
@@ -128,6 +129,14 @@ function makeQuery(table, state) {
 
 function createSupabaseMock(state) {
   return {
+    auth: {
+      admin: {
+        getUserById: async (userId) => ({
+          data: { user: { id: userId, user_metadata: { account_type: "customer" } } },
+          error: null,
+        }),
+      },
+    },
     from(table) {
       const queryState = { filters: [] };
       const query = makeQuery(table, { ...state, filters: queryState.filters });
@@ -196,6 +205,22 @@ function buildWebhookModule(state) {
     supabaseAdmin: createSupabaseMock(state),
     paystackSecret: WEBHOOK_SECRET,
     clean: (value) => (value == null ? "" : String(value).trim()),
+    loadProfileById: async (userId) => ({
+      id: userId,
+      role: "customer",
+      status: "active",
+      account_type: "customer",
+      email: "registered.customer@example.invalid",
+    }),
+    buildGuestAccountSetupNotification: (order) => ({
+      user_id: order.user_id,
+      category: "orders",
+      title: "Set up your Nexus Import Hub account",
+      message: "Your order was confirmed.",
+      order_id: order.id,
+      source_type: "account_setup",
+      source_key: `account-setup:${order.id}`,
+    }),
     normalizePaymentStatus: (value) => {
       const normalized = String(value ?? "").trim().toLowerCase();
       return normalized === "success" || normalized === "successful" || normalized === "charge.success" ? "successful" : normalized;

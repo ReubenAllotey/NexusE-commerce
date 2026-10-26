@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 import { createOrderFromCart } from "../Profile/ordersStorage";
@@ -42,20 +42,6 @@ function clean(value) {
 
 function isReasonableEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(value));
-}
-
-function resolveAppUrl() {
-  const configuredUrl = clean(import.meta.env.VITE_APP_URL);
-
-  if (configuredUrl) {
-    return configuredUrl;
-  }
-
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
-  }
-
-  return "";
 }
 
 async function getAccessToken() {
@@ -1138,7 +1124,6 @@ function PaymentStatusPage({
   onUpdateOrder = () => {},
   onClearCart = () => {},
 }) {
-  const guestResetRequestRef = useRef("");
   const navigate = useNavigate();
   const location = useLocation();
   const session = useMemo(() => loadPaymentSession(authUser?.id), [authUser?.id, location.pathname, location.search]);
@@ -1280,30 +1265,12 @@ function PaymentStatusPage({
         }
 
         if (guestAccountCreated || existingGuestAccount) {
-          let setupEmailSent = false;
-
-          if (guestAccountCreated && guestEmailFromServer && guestResetRequestRef.current !== guestEmailFromServer) {
-            guestResetRequestRef.current = guestEmailFromServer;
-            const redirectTo = `${resolveAppUrl().replace(/\/$/, "")}/account/set-password`;
-            const { error: resetError } = await supabase.auth.resetPasswordForEmail(guestEmailFromServer, {
-              redirectTo,
-            });
-
-            setupEmailSent = !resetError;
-
-            if (resetError) {
-              setGuestMessage(
-                "Your order was successful, but we could not send the password setup email yet. Please use Forgot Password or contact support.",
-              );
-            }
-          }
-
           setGuestCredentials({
             email: guestEmailFromServer,
             name: clean(serverOrder?.customerName || activeOrder?.customerName || session?.customerName || ""),
           });
-          if (guestAccountCreated && setupEmailSent) {
-            setGuestMessage("Your order was successful. We sent a secure password setup email to your inbox.");
+          if (guestAccountCreated) {
+            setGuestMessage("Your order was successful. A secure password setup email will be sent to your inbox.");
           } else if (!guestAccountCreated) {
             setGuestMessage(
               guestInstructions || "An account already exists for this email. Sign in or use Forgot Password to track your order.",

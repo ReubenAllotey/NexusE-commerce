@@ -9,6 +9,10 @@ import webpush from "web-push";
 import { isPushQueueEnabled } from "./server/pushWorkerConfig.js";
 import { analyzeProduct } from "./server/services/aiProductService.js";
 import { buildOrderConfirmationEmail } from "./server/services/orderConfirmationEmail.js";
+import {
+  buildAccountSetupEmail,
+  buildGuestAccountSetupNotification,
+} from "./server/services/accountSetupEmail.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
@@ -2597,6 +2601,43 @@ async function ensureOrderConfirmationNotification(payment, order = null) {
   return { ok: true, duplicate: error?.code === "23505" };
 }
 
+async function ensureGuestAccountSetupNotification(order = null) {
+  const orderId = clean(order?.id);
+  const userId = clean(order?.user_id);
+  if (!orderId || !userId) return { ok: true, skipped: true };
+
+  const profile = await loadProfileById(userId);
+  const { data: authResult, error: authError } = await supabaseAdmin.auth.admin.getUserById(userId);
+  if (authError) throw authError;
+  const metadata = authResult?.user?.user_metadata ?? {};
+  const isGuestAccount = profile?.account_type === "guest"
+    || metadata.account_type === "guest"
+    || metadata.must_change_password === true;
+  if (!isGuestAccount) return { ok: true, skipped: true };
+
+  const authEmail = clean(authResult?.user?.email).toLowerCase();
+  const profileEmail = clean(profile?.email).toLowerCase();
+  if (!isValidQueuedEmailAddress(authEmail) || !profileEmail || profileEmail !== authEmail) {
+    return { ok: false, message: "The guest account email is not ready for setup delivery; the email will be retried." };
+  }
+
+  if (!profile) {
+    return { ok: false, message: "The guest account profile is not ready; the setup email will be retried." };
+  }
+  if (profile.role !== "customer" || profile.status !== "active") {
+    return { ok: false, message: "The guest account is not ready for setup email delivery; the email will be retried." };
+  }
+
+  const { error } = await supabaseAdmin.from("notifications").insert(buildGuestAccountSetupNotification(order));
+
+  if (error && error.code !== "23505") {
+    console.error("Guest account setup notification queueing failed:", error.message);
+    return { ok: false, message: "The payment was saved, but the account setup email could not be queued." };
+  }
+
+  return { ok: true, duplicate: error?.code === "23505" };
+}
+
 async function sendNotificationEmailForRow(notification, delivery = {}) {
   const userId = clean(notification?.user_id);
   let profile = null;
@@ -2641,6 +2682,47 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
       subject: confirmation.subject,
       text: confirmation.text,
       html: confirmation.html,
+    });
+  }
+
+  if (clean(notification.source_type) === "account_setup") {
+    if (!userId || !profile?.email) {
+      return { ok: false, message: "The guest account email address is unavailable; the email will be retried." };
+    }
+
+    const { data: authResult, error: authError } = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (authError) {
+      return { ok: false, message: "The guest account could not be verified; the email will be retried." };
+    }
+
+    const authEmail = clean(authResult?.user?.email).toLowerCase();
+    const profileEmail = clean(profile.email).toLowerCase();
+    const queuedEmail = clean(delivery.recipientEmail).toLowerCase();
+    if (!isValidQueuedEmailAddress(authEmail) || profileEmail !== authEmail || (queuedEmail && queuedEmail !== authEmail)) {
+      return { ok: false, message: "The guest account recipient could not be verified; the email will be retried." };
+    }
+
+    const redirectTo = `${appUrl.replace(/\/+$/, "")}/account/set-password`;
+    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+      type: "recovery",
+      email: authEmail,
+      options: { redirectTo },
+    });
+
+    if (linkError || !linkData?.properties?.action_link) {
+      return { ok: false, message: "Unable to create the secure account setup link; the email will be retried." };
+    }
+
+    const setupEmail = buildAccountSetupEmail({
+      customerName,
+      actionLink: linkData.properties.action_link,
+      appUrl,
+    });
+    return sendTransactionalEmail({
+      to: authEmail,
+      subject: setupEmail.subject,
+      text: setupEmail.text,
+      html: setupEmail.html,
     });
   }
 
@@ -4237,6 +4319,14 @@ async function handleVerify(req, res, reference) {
       }
 
       await ensureOrderConfirmationNotification(completedPayment, orderResult.order);
+      const accountSetupResult = await ensureGuestAccountSetupNotification(orderResult.order);
+      if (!accountSetupResult.ok) {
+        sendJson(res, 500, {
+          ok: false,
+          message: accountSetupResult.message || "Unable to queue the guest account setup email.",
+        });
+        return;
+      }
 
       sendJson(res, 200, {
         ok: true,
@@ -4320,6 +4410,7 @@ async function handleVerify(req, res, reference) {
     }
 
     let guestAccount = null;
+    let guestPaymentPersisted = false;
 
     try {
       try {
@@ -4386,6 +4477,7 @@ async function handleVerify(req, res, reference) {
       };
 
       const updatedPayment = await updatePaymentRow(paymentRow.id, paymentUpdateValues);
+      guestPaymentPersisted = true;
 
       await recordPaymentEvent(updatedPayment.id, {
         provider_event_type: "verify",
@@ -4395,6 +4487,10 @@ async function handleVerify(req, res, reference) {
       });
 
       await ensureOrderConfirmationNotification(updatedPayment, orderBundle.order);
+      const accountSetupResult = await ensureGuestAccountSetupNotification(orderBundle.order);
+      if (!accountSetupResult.ok) {
+        throw new Error(accountSetupResult.message || "Unable to queue the guest account setup email.");
+      }
 
       sendJson(res, 200, {
         ok: true,
@@ -4411,7 +4507,7 @@ async function handleVerify(req, res, reference) {
           : "Sign in or reset your password to claim this order.",
       });
     } catch (error) {
-      if (guestAccount?.created && guestAccount?.user?.id) {
+      if (!guestPaymentPersisted && guestAccount?.created && guestAccount?.user?.id) {
         try {
           await supabaseAdmin.auth.admin.deleteUser(guestAccount.user.id);
         } catch {
@@ -4888,6 +4984,14 @@ async function handleWebhook(req, res) {
             sendJson(res, 500, {
               ok: false,
               message: notificationResult.message || "Unable to queue the order confirmation notification.",
+            });
+            return;
+          }
+          const accountSetupResult = await ensureGuestAccountSetupNotification(orderResult.order);
+          if (!accountSetupResult.ok) {
+            sendJson(res, 500, {
+              ok: false,
+              message: accountSetupResult.message || "Unable to queue the guest account setup email.",
             });
             return;
           }
