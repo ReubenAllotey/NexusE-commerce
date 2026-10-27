@@ -124,12 +124,19 @@ function getInitialCheckout(locationState, cartItems, ownerUserId = "") {
   };
 }
 
-function getCallbackUrl() {
+function getCallbackUrl(paymentIntent = null) {
   if (typeof window === "undefined") {
     return "/payment/success";
   }
 
-  return `${window.location.origin}/payment/success`;
+  const callbackUrl = new URL("/payment/success", window.location.origin);
+  if (paymentIntent?.purpose === "order-balance" && paymentIntent.orderId && paymentIntent.token) {
+    callbackUrl.searchParams.set("purpose", "order-balance");
+    callbackUrl.searchParams.set("orderId", paymentIntent.orderId);
+    callbackUrl.searchParams.set("token", paymentIntent.token);
+  }
+
+  return callbackUrl.toString();
 }
 
 function getPaymentIntent(search = "") {
@@ -615,7 +622,7 @@ function PaymentCheckout({
             paymentMethod,
             paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
             paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
-            callbackUrl: getCallbackUrl(),
+            callbackUrl: getCallbackUrl(paymentIntent),
           },
           { accessToken: "" },
         );
@@ -632,7 +639,6 @@ function PaymentCheckout({
           orderId: paymentIntent.orderId,
           orderNumber: paymentIntent.orderNumber,
           paymentReference,
-          paymentReminderToken: paymentIntent.token,
           paymentMethod,
           paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
           paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
@@ -1296,7 +1302,11 @@ function PaymentStatusPage({
   const session = useMemo(() => loadPaymentSession(authUser?.id), [authUser?.id, location.pathname, location.search]);
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const reference = clean(query.get("reference") ?? query.get("trxref") ?? session?.paymentReference);
-  const paymentPurpose = session?.paymentPurpose ?? "order";
+  const callbackPurpose = clean(query.get("purpose") ?? query.get("paymentPurpose")).toLowerCase();
+  const callbackPaymentToken = clean(query.get("token") ?? query.get("paymentToken"));
+  const paymentPurpose = callbackPurpose === "shipping-balance" || callbackPurpose === "order-balance"
+    ? callbackPurpose
+    : session?.paymentPurpose ?? "order";
   const checkoutOwnerKey =
     clean(session?.ownerUserId) ||
     clean(authUser?.id) ||
@@ -1411,7 +1421,7 @@ function PaymentStatusPage({
       const result = await verifyPaystackTransaction(reference, {
         accessToken: tokenResult.accessToken,
         guestAccessToken: session?.guestAccessToken,
-        paymentReminderToken: session?.paymentReminderToken,
+        paymentReminderToken: callbackPaymentToken || session?.paymentReminderToken,
       });
       const paystackData = result?.data ?? {};
       const normalizedStatus = clean(paystackData.status).toLowerCase();
@@ -1533,6 +1543,21 @@ function PaymentStatusPage({
     }
   }
 
+  function removePaymentTokenFromUrl() {
+    if (typeof window === "undefined" || !callbackPaymentToken) {
+      return;
+    }
+
+    const sanitizedUrl = new URL(window.location.href);
+    sanitizedUrl.searchParams.delete("token");
+    sanitizedUrl.searchParams.delete("paymentToken");
+    window.history.replaceState(
+      window.history.state,
+      document.title,
+      `${sanitizedUrl.pathname}${sanitizedUrl.search}${sanitizedUrl.hash}`,
+    );
+  }
+
   useEffect(() => {
     if (!reference || variant === "failed") {
       return undefined;
@@ -1554,6 +1579,9 @@ function PaymentStatusPage({
       return undefined;
     }
 
+    // Keep the signed token in memory for this verification only, not in the
+    // address bar, browser history, referrers, or subsequent session state.
+    removePaymentTokenFromUrl();
     void verifyPayment();
     return undefined;
   }, [reference, session?.status, variant, verificationState]);

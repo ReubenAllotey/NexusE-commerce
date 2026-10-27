@@ -3743,9 +3743,56 @@ async function syncCheckoutPaymentStatus(orderId, status, settledAmount = 0, all
   if (orderError) throw orderError;
 
   const normalizedStatus = clean(status).toLowerCase() === "successful" ? "paid" : clean(status).toLowerCase();
+  const orderIds = (Array.isArray(orderRows) ? orderRows : []).map((order) => order.id).filter(Boolean);
+  const { data: orderPayments, error: orderPaymentsError } = orderIds.length > 0
+    ? await supabaseAdmin
+        .from("payments")
+        .select("order_id, payment_purpose, status, amount")
+        .in("order_id", orderIds)
+    : { data: [], error: null };
+
+  if (orderPaymentsError) throw orderPaymentsError;
+
   const nextOrders = [];
 
   for (const order of Array.isArray(orderRows) ? orderRows : []) {
+    const currentStatus = clean(order.status).toLowerCase();
+    const orderAmountDue = Math.max(Number(order.amount_due_now ?? order.total) || 0, 0);
+    const verifiedOrderPayments = (Array.isArray(orderPayments) ? orderPayments : []).reduce((sum, payment) => {
+      if (payment.order_id !== order.id
+        || clean(payment.payment_purpose).toLowerCase() !== "order"
+        || normalizePaymentStatus(payment.status) !== "successful") {
+        return sum;
+      }
+
+      return sum + Math.max(Number(payment.amount) || 0, 0);
+    }, 0);
+    const orderPaymentStatus = normalizedStatus === "paid"
+      && orderAmountDue > verifiedOrderPayments + 0.000001
+      ? "pending"
+      : normalizedStatus;
+    const nextOrderStatus = orderPaymentStatus === "paid"
+      ? normalizeAvailabilityType(order.order_type || "ready_stock") === "preorder"
+        ? currentStatus || "preorder_received"
+        : !["processing", "delivered", "cancelled", "canceled"].includes(currentStatus) ? "processing" : order.status
+      : order.status;
+
+    // Persist the core order payment state before ancillary shipping allocation.
+    // If item reconciliation is interrupted, a verified payment cannot leave
+    // the order stuck in pending_payment; a later webhook/callback can safely
+    // finish the shipping fields without creating another payment or order.
+    if (normalizedStatus === "paid") {
+      const { error: coreUpdateError } = await supabaseAdmin
+        .from("orders")
+        .update({
+          payment_status: orderPaymentStatus,
+          status: nextOrderStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order.id);
+      if (coreUpdateError) throw coreUpdateError;
+    }
+
     const { data: items, error: itemError } = await supabaseAdmin
       .from("order_items")
       .select("id, line_shipping, shipping_fee_status, shipping_paid_amount")
@@ -3807,17 +3854,10 @@ async function syncCheckoutPaymentStatus(orderId, status, settledAmount = 0, all
     const shippingPaymentStatus = hasPendingShipping
       ? knownShippingDue > 0 && order.shipping_payment_mode === "pay_later" ? "outstanding" : "pending"
       : knownShippingDue > 0 ? "outstanding" : knownShipping > 0 ? "paid" : "not_due";
-    const currentStatus = clean(order.status).toLowerCase();
-    const nextOrderStatus = normalizedStatus === "paid"
-      ? normalizeAvailabilityType(order.order_type || "ready_stock") === "preorder"
-        ? currentStatus || "preorder_received"
-        : !["processing", "delivered", "cancelled", "canceled"].includes(currentStatus) ? "processing" : order.status
-      : order.status;
-
     const { data: updatedOrder, error: updateError } = await supabaseAdmin
       .from("orders")
       .update({
-        payment_status: normalizedStatus || "paid",
+        payment_status: orderPaymentStatus || "paid",
         shipping_payment_status: shippingPaymentStatus,
         status: nextOrderStatus,
         updated_at: new Date().toISOString(),
@@ -4754,12 +4794,16 @@ async function handleVerify(req, res, reference) {
 
   const paystackData = upstreamData?.data ?? {};
   const metadata = parsePaystackMetadata(paystackData.metadata).value;
+  const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
   const isGuestCheckout = Boolean(metadata.guestCheckout);
   const isPaymentReminder = Boolean(metadata.paymentReminder)
-    || clean(metadata.paymentPurpose).toLowerCase() === "order-balance";
+    || clean(metadata.paymentPurpose).toLowerCase() === "order-balance"
+    || Boolean(
+      paymentRow?.order_id &&
+      verifyOrderPaymentReminderToken(paymentReminderToken, paymentRow.order_id),
+    );
 
   if (isPaymentReminder) {
-    const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
     if (!paymentRow?.order_id || !verifyOrderPaymentReminderToken(paymentReminderToken, paymentRow.order_id)) {
       sendJson(res, 401, { ok: false, message: "This payment link is invalid or has expired." });
       return;

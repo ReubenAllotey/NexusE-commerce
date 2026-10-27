@@ -34,6 +34,13 @@ test("payment page hydrates empty-cart reminder links from the backend", () => {
   assert.match(paymentSource, /loadOrderBalancePaymentContext\(paymentIntent\.orderId, paymentIntent\.token\)/);
   assert.match(paymentSource, /Number\(orderBalanceContext\?\.amountDueNow\) \|\| 0/);
   assert.match(paymentSource, /paymentIntent\?\.purpose !== "order-balance"/);
+  assert.match(paymentSource, /getCallbackUrl\(paymentIntent\)/);
+  assert.match(paymentSource, /callbackUrl\.searchParams\.set\("token", paymentIntent\.token\)/);
+  assert.match(paymentSource, /callbackPaymentToken = clean\(query\.get\("token"\)/);
+  assert.match(paymentSource, /paymentReminderToken: callbackPaymentToken \|\| session\?\.paymentReminderToken/);
+  assert.match(paymentSource, /searchParams\.delete\("token"\)/);
+  assert.match(paymentSource, /window\.history\.replaceState/);
+  assert.doesNotMatch(paymentSource, /paymentReminderToken: paymentIntent\.token/);
   assert.match(
     paymentSource,
     /!isShippingBalancePayment && !isOrderBalancePayment && \(!shippingAddress \|\| cartRows\.length === 0\)/,
@@ -49,4 +56,34 @@ test("order-balance initialization remains separate from shipping payments", () 
   assert.match(serverSource, /paymentPurpose: "order"/);
   assert.match(serverSource, /paymentPurpose === "shipping-balance"/);
   assert.match(paymentSource, /paymentToken: paymentIntent\.token/);
+});
+
+test("reminder verification remains token-bound even if Paystack metadata is incomplete", () => {
+  assert.match(serverSource, /const paymentReminderToken = clean\(req\.headers\["x-payment-reminder-token"\]\)/);
+  assert.match(
+    serverSource,
+    /verifyOrderPaymentReminderToken\(paymentReminderToken, paymentRow\.order_id\)/,
+  );
+  assert.match(paymentSource, /paymentReminderToken: callbackPaymentToken \|\| session\?\.paymentReminderToken/);
+});
+
+test("verified order finalization persists core order status before shipping reconciliation", () => {
+  const syncStart = serverSource.indexOf("async function syncCheckoutPaymentStatus(");
+  const loopStart = serverSource.indexOf("for (const order of", syncStart);
+  const itemLookup = serverSource.indexOf('.from("order_items")', loopStart);
+  const coreOrderUpdate = serverSource.indexOf('.from("orders")', loopStart);
+
+  assert.ok(syncStart >= 0);
+  assert.ok(loopStart > syncStart);
+  assert.ok(coreOrderUpdate > loopStart);
+  assert.ok(itemLookup > coreOrderUpdate);
+  assert.match(serverSource.slice(loopStart, itemLookup), /payment_status: orderPaymentStatus/);
+});
+
+test("order finalization calculates partial balances from successful order payments only", () => {
+  assert.match(serverSource, /payment_purpose, status, amount/);
+  assert.match(serverSource, /payment\.payment_purpose\)\.toLowerCase\(\) !== "order"/);
+  assert.match(serverSource, /orderAmountDue > verifiedOrderPayments \+ 0\.000001/);
+  assert.match(serverSource, /const orderPaymentStatus = normalizedStatus === "paid"/);
+  assert.match(serverSource, /payment_status: orderPaymentStatus \|\| "paid"/);
 });
