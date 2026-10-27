@@ -267,6 +267,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   const [paymentNoticeError, setPaymentNoticeError] = useState("");
   const [paymentNoticeSuccess, setPaymentNoticeSuccess] = useState("");
   const [paymentNoticeEmailFailed, setPaymentNoticeEmailFailed] = useState(false);
+  const [paymentNoticeOverrideRevealed, setPaymentNoticeOverrideRevealed] = useState(false);
   const [paymentNoticeOverride, setPaymentNoticeOverride] = useState(false);
   const [paymentNoticeOverrideReason, setPaymentNoticeOverrideReason] = useState("");
 
@@ -402,6 +403,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     setPaymentNoticeError("");
     setPaymentNoticeSuccess("");
     setPaymentNoticeEmailFailed(false);
+    setPaymentNoticeOverrideRevealed(false);
     setPaymentNoticeOverride(false);
     setPaymentNoticeOverrideReason("");
   };
@@ -418,6 +420,9 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     setPaymentNoticeError("");
     setPaymentNoticeSuccess("");
     setPaymentNoticeEmailFailed(false);
+    setPaymentNoticeOverrideRevealed(false);
+    setPaymentNoticeOverride(false);
+    setPaymentNoticeOverrideReason("");
 
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -510,9 +515,30 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
         throw new Error(result?.message || "Unable to send the payment notice.");
       }
 
-      setPaymentNoticeData((current) => ({ ...current, ...result, email: result.email ?? current?.email }));
+      setPaymentNoticeData((current) => ({
+        ...current,
+        ...result,
+        email: result.email ?? current?.email,
+        reminders: result.reminder
+          ? [
+              {
+                id: result.reminder.id ?? result.notification?.id,
+                createdAt: result.reminder.createdAt,
+                status: result.email?.status ?? "queued",
+                attempts: result.email?.attempts ?? 0,
+                retryAvailable: result.email?.retryAvailable ?? false,
+                administrator: result.reminder.administrator ?? null,
+                overrideReason: result.reminder.overrideReason ?? null,
+              },
+              ...(current?.reminders ?? []).filter(
+                (reminder) => reminder.id !== (result.reminder.id ?? result.notification?.id),
+              ),
+            ]
+          : current?.reminders,
+      }));
       const emailFailed = result.email?.status === "failed" || result.email?.ok === false;
       setPaymentNoticeEmailFailed(emailFailed);
+      setPaymentNoticeOverrideRevealed(false);
       setPaymentNoticeOverride(false);
       setPaymentNoticeOverrideReason("");
       setPaymentNoticeSuccess(result.message || "Payment notice sent successfully.");
@@ -1159,64 +1185,97 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                   </div>
                   {paymentNoticeData.isCancelled ? <p className="admin-orders-modal__error">This order is cancelled and cannot receive payment reminders.</p> : paymentNoticeData.accounting.outstanding > 0 ? (
                     <label className="admin-orders-payment-notice-message">
-                      <span>Message</span>
-                      <textarea value={paymentNoticeMessage} onChange={(event) => setPaymentNoticeMessage(event.target.value)} rows={9} />
+                      <span>Reminder message</span>
+                      <textarea value={paymentNoticeMessage} onChange={(event) => setPaymentNoticeMessage(event.target.value)} rows={5} />
                     </label>
                   ) : <p className="admin-orders-modal__success">This order has no outstanding order payment.</p>}
-                  {paymentNoticeData.accounting.outstanding > 0 && paymentNoticeData.notification ? (
-                    <p className={`admin-orders-modal__${paymentNoticeData.email?.status === "sent" ? "success" : paymentNoticeData.email?.status === "failed" ? "error" : "section-label"}`}>
-                      {paymentNoticeData.email?.status === "sent"
-                        ? "Reminder sent"
-                        : paymentNoticeData.email?.status === "queued"
-                          ? "Reminder already queued"
-                          : paymentNoticeData.email?.status === "failed" && paymentNoticeData.email?.retryAvailable
-                            ? "Reminder failed - retry available"
-                            : paymentNoticeData.email?.status === "failed"
-                              ? "Retry cooldown active or retry limit reached"
-                              : "Reminder already created; email delivery status is unavailable."}
-                    </p>
+                  {paymentNoticeData.accounting.outstanding > 0 ? (
+                    <div className="admin-orders-payment-notice-status" aria-live="polite">
+                      <div>
+                        <span className="admin-orders-modal__section-label">Latest reminder</span>
+                        <strong className={`admin-orders-payment-notice-status__badge admin-orders-payment-notice-status__badge--${paymentNoticeData.email?.status || "not-sent"}`}>
+                          {paymentNoticeData.email?.status === "sent"
+                            ? "Sent"
+                            : paymentNoticeData.email?.status === "queued"
+                              ? "Queued"
+                              : paymentNoticeData.email?.status === "failed"
+                                ? "Failed"
+                                : paymentNoticeData.notification
+                                  ? "Created"
+                                  : "Not sent"}
+                        </strong>
+                      </div>
+                      <p>
+                        {paymentNoticeData.email?.status === "sent"
+                          ? "Email provider accepted the reminder."
+                          : paymentNoticeData.email?.status === "queued"
+                            ? "Waiting for email delivery."
+                            : paymentNoticeData.email?.status === "failed" && paymentNoticeData.email?.retryAvailable
+                              ? "Delivery failed; a retry is available."
+                              : paymentNoticeData.email?.status === "failed"
+                                ? "Delivery failed; retry is unavailable until the cooldown or limit allows it."
+                                : paymentNoticeData.notification
+                                  ? "Reminder record created; delivery status is unavailable."
+                                  : "No reminder has been sent for this balance."}
+                      </p>
+                    </div>
                   ) : null}
                   {paymentNoticeData.reminders?.[0]?.createdAt ? (
-                    <p className="admin-orders-modal__section-label">
+                    <p className="admin-orders-modal__section-label admin-orders-payment-notice-last-reminder">
                       Last reminder: {new Date(paymentNoticeData.reminders[0].createdAt).toLocaleString()}.
                     </p>
                   ) : null}
                   {paymentNoticeData.reminders?.length > 0 ? (
                     <div className="admin-orders-payment-notice-history">
-                      <span className="admin-orders-modal__section-label">Reminder history</span>
+                      <div className="admin-orders-payment-notice-history__heading">
+                        <span className="admin-orders-modal__section-label">Reminder history</span>
+                        <small>{paymentNoticeData.reminders.length} record{paymentNoticeData.reminders.length === 1 ? "" : "s"}</small>
+                      </div>
                       {paymentNoticeData.reminders.slice(0, 5).map((reminder) => (
                         <div key={reminder.id} className="admin-orders-payment-notice-history__row">
-                          <span>{reminder.createdAt ? new Date(reminder.createdAt).toLocaleString() : "Unknown date"}</span>
-                          <strong>{reminder.status === "sent" ? "Sent" : reminder.status === "queued" ? "Queued" : reminder.status === "failed" ? "Failed" : reminder.status}</strong>
+                          <div>
+                            <strong>{reminder.createdAt ? new Date(reminder.createdAt).toLocaleString() : "Unknown date"}</strong>
+                            {reminder.administrator ? <small>By {reminder.administrator}</small> : null}
+                            {reminder.overrideReason ? <small>Override: {reminder.overrideReason}</small> : null}
+                          </div>
+                          <span className={`admin-orders-payment-notice-status__badge admin-orders-payment-notice-status__badge--${reminder.status || "not-sent"}`}>
+                            {reminder.status === "sent" ? "Sent" : reminder.status === "queued" ? "Queued" : reminder.status === "failed" ? "Failed" : reminder.status || "Unknown"}
+                          </span>
                         </div>
                       ))}
                     </div>
                   ) : null}
                   {paymentNoticeData.accounting.outstanding > 0 && paymentNoticeData.cooldownActive && !paymentNoticeData.email?.retryAvailable ? (
                     <div className="admin-orders-payment-notice-override">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={paymentNoticeOverride}
-                          onChange={(event) => {
-                            setPaymentNoticeOverride(event.target.checked);
-                            if (!event.target.checked) setPaymentNoticeOverrideReason("");
-                          }}
-                        />
-                        <span>Override 24-hour cooldown</span>
-                      </label>
-                      {paymentNoticeOverride ? (
-                        <input
-                          type="text"
-                          value={paymentNoticeOverrideReason}
-                          onChange={(event) => setPaymentNoticeOverrideReason(event.target.value)}
-                          placeholder="Reason for override"
-                          aria-label="Reason for reminder cooldown override"
-                        />
-                      ) : null}
+                      {!paymentNoticeOverrideRevealed ? (
+                        <button type="button" className="admin-orders-payment-notice-override__reveal" onClick={() => setPaymentNoticeOverrideRevealed(true)}>
+                          Resend Anyway
+                        </button>
+                      ) : (
+                        <>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={paymentNoticeOverride}
+                              onChange={(event) => {
+                                setPaymentNoticeOverride(event.target.checked);
+                                if (!event.target.checked) setPaymentNoticeOverrideReason("");
+                              }}
+                            />
+                            <span>Override 24-hour cooldown</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentNoticeOverrideReason}
+                            onChange={(event) => setPaymentNoticeOverrideReason(event.target.value)}
+                            placeholder="Required reason for override"
+                            aria-label="Reason for reminder cooldown override"
+                          />
+                        </>
+                      )}
                       {paymentNoticeData.cooldownUntil ? (
                         <small>
-                          {paymentNoticeData.cooldownActive ? "Cooldown expires" : "Cooldown ended"} {new Date(paymentNoticeData.cooldownUntil).toLocaleString()}.
+                          Cooldown active until {new Date(paymentNoticeData.cooldownUntil).toLocaleString()}.
                         </small>
                       ) : null}
                     </div>
@@ -1237,7 +1296,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                 <svg className="admin-orders-modal__button-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m4 4 16 8-16 8 3-8-3-8Zm3.5 8h8.25" />
                 </svg>
-                <span>{paymentNoticeSaving ? "Sending..." : paymentNoticeEmailFailed && paymentNoticeData?.email?.retryAvailable ? "Retry Email" : paymentNoticeOverride ? "Override Cooldown" : paymentNoticeSuccess ? "Reminder queued" : paymentNoticeData?.notification ? paymentNoticeData?.cooldownActive ? "Cooldown Active" : "Send Reminder" : "Send Reminder"}</span>
+                <span>{paymentNoticeSaving ? "Sending..." : paymentNoticeEmailFailed && paymentNoticeData?.email?.retryAvailable ? "Retry Email" : paymentNoticeOverride ? "Send Payment Reminder" : paymentNoticeSuccess ? "Reminder Queued" : "Send Payment Reminder"}</span>
               </button>
             </footer>
           </div>

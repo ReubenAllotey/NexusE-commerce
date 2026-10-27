@@ -21302,6 +21302,86 @@ body[data-theme="dark"] .admin-categories-action-menu__panel button.is-danger {
   font-size: 1.1rem;
 }
 
+.admin-orders-payment-notice-modal {
+  width: min(40rem, 100%);
+  max-height: min(90dvh, 48rem);
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.admin-orders-payment-notice-modal .admin-orders-modal__body {
+  gap: 0.8rem;
+}
+
+.admin-orders-payment-notice-modal .admin-orders-modal__header {
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.admin-orders-payment-notice-modal .admin-orders-modal__header span {
+  color: #17377a;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.admin-orders-payment-notice-status {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  background: #f8fafc;
+}
+
+.admin-orders-payment-notice-status > div,
+.admin-orders-payment-notice-history__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.admin-orders-payment-notice-status p {
+  margin: 0;
+  color: #5d6c83;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.admin-orders-payment-notice-status__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.5rem;
+  padding: 0.27rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.admin-orders-payment-notice-status__badge--sent {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-orders-payment-notice-status__badge--queued,
+.admin-orders-payment-notice-status__badge--created {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.admin-orders-payment-notice-status__badge--failed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.admin-orders-payment-notice-status__badge--not-sent {
+  background: #e2e8f0;
+  color: #475569;
+}
+
 .admin-orders-payment-notice-message {
   display: grid;
   gap: 0.45rem;
@@ -21309,7 +21389,8 @@ body[data-theme="dark"] .admin-categories-action-menu__panel button.is-danger {
 
 .admin-orders-payment-notice-message textarea {
   width: 100%;
-  min-height: 10rem;
+  min-height: 7.5rem;
+  max-height: 13rem;
   box-sizing: border-box;
   resize: vertical;
   border: 1px solid #d7dee8;
@@ -21321,9 +21402,152 @@ body[data-theme="dark"] .admin-categories-action-menu__panel button.is-danger {
   line-height: 1.5;
 }
 
+.admin-orders-payment-notice-last-reminder {
+  margin: -0.1rem 0 0;
+}
+
+.admin-orders-payment-notice-history {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  background: #ffffff;
+}
+
+.admin-orders-payment-notice-history__heading small {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.admin-orders-payment-notice-history__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #edf2f7;
+}
+
+.admin-orders-payment-notice-history__row > div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.admin-orders-payment-notice-history__row strong,
+.admin-orders-payment-notice-history__row small {
+  overflow-wrap: anywhere;
+}
+
+.admin-orders-payment-notice-history__row strong {
+  color: #172033;
+  font-size: 0.8rem;
+}
+
+.admin-orders-payment-notice-history__row small {
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.admin-orders-payment-notice-override {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(247, 79, 0, 0.35);
+  border-radius: 0.8rem;
+  background: rgba(247, 79, 0, 0.06);
+}
+
+.admin-orders-payment-notice-override label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #7c2d12;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.admin-orders-payment-notice-override input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 2.45rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(247, 79, 0, 0.35);
+  border-radius: 0.65rem;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.admin-orders-payment-notice-override small {
+  color: #9a3412;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.admin-orders-payment-notice-override__reveal {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #c2410c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 850;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.15rem;
+}
+
 body[data-theme="dark"] .admin-orders-payment-notice-summary div {
   border-color: #2b3648;
   background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-modal .admin-orders-modal__header {
+  border-color: #2b3648;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-modal .admin-orders-modal__header span {
+  color: #8fb2ff;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-status,
+body[data-theme="dark"] .admin-orders-payment-notice-history {
+  border-color: #2b3648;
+  background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-status p,
+body[data-theme="dark"] .admin-orders-payment-notice-history__heading small,
+body[data-theme="dark"] .admin-orders-payment-notice-history__row small {
+  color: #a9b8ce;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-history__row {
+  border-color: #2b3648;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-history__row strong {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-override {
+  border-color: rgba(247, 79, 0, 0.55);
+  background: rgba(247, 79, 0, 0.12);
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-override label,
+body[data-theme="dark"] .admin-orders-payment-notice-override small,
+body[data-theme="dark"] .admin-orders-payment-notice-override__reveal {
+  color: #fdba74;
+}
+
+body[data-theme="dark"] .admin-orders-payment-notice-override input[type="text"] {
+  border-color: #8b4a2e;
+  background: #111827;
+  color: #f8fafc;
 }
 
 body[data-theme="dark"] .admin-orders-payment-notice-summary strong,
@@ -21339,6 +21563,27 @@ body[data-theme="dark"] .admin-orders-payment-notice-message textarea {
 @media (max-width: 640px) {
   .admin-orders-payment-notice-summary {
     grid-template-columns: 1fr;
+  }
+
+  .admin-orders-payment-notice-modal {
+    width: min(94vw, 40rem);
+    max-height: 90dvh;
+    padding: 0.85rem;
+    border-radius: 1rem;
+  }
+
+  .admin-orders-payment-notice-modal .admin-orders-modal__header {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .admin-orders-payment-notice-modal .admin-orders-modal__close {
+    min-height: 2.25rem;
+    padding-inline: 0.7rem;
+  }
+
+  .admin-orders-payment-notice-history__row {
+    align-items: flex-start;
   }
 }
 
@@ -37476,4 +37721,13 @@ body[data-theme="dark"] .product-view .product-view__secondary-row .product-view
 body[data-theme="dark"] .home-page .hero-banner__eyebrow,
 body[data-theme="dark"] .shop-page .shop-summary {
   color: #0240cd;
+}
+
+/* Keep the payment notice footer fixed while only the modal body scrolls. */
+.admin-orders-payment-notice-modal {
+  overflow: hidden;
+}
+
+.admin-orders-payment-notice-modal .admin-orders-modal__body {
+  overflow-y: auto;
 }
