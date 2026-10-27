@@ -280,6 +280,22 @@ async function loadPaymentMap(paymentIds = []) {
 
 function buildNotificationAction(row, context = {}) {
   const actionUrl = clean(row.action_url);
+  const isShippingPaymentRequest = clean(row.source_type) === "payment_status"
+    && clean(row.source_key).startsWith("shipping-payment-request:")
+    && clean(row.order_id)
+    && clean(row.user_id);
+
+  // Registered users can use the authenticated shipping route directly. This
+  // avoids reusing an expired token stored in a notification row while still
+  // preventing guest access based on an order id alone.
+  if (isShippingPaymentRequest) {
+    return {
+      actionUrl: `/payment?purpose=shipping-balance&orderId=${encodeURIComponent(clean(row.order_id))}`,
+      actionLabel: clean(row.action_label) || "Pay Shipping Fee",
+      actionDescription: clean(row.action_description),
+    };
+  }
+
   if (actionUrl) {
     return {
       actionUrl,

@@ -305,6 +305,14 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
       (Boolean(paymentNoticeSuccess) && !paymentNoticeEmailFailed) ||
       paymentNoticeBlockedByOverride,
   );
+  const shippingAccounting = getShippingAccounting(activeShippingOrder ?? {});
+  const shippingOrderCancelled = ["cancelled", "canceled"].includes(
+    String(activeShippingOrder?.status ?? "").trim().toLowerCase(),
+  );
+  const shippingNoticeIneligible = Boolean(
+    activeShippingOrder
+      && (shippingAccounting.outstandingShipping <= 0 || shippingOrderCancelled),
+  );
   const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder);
   const {
     shipmentsByOrderId,
@@ -1326,41 +1334,84 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
       ) : null}
 
       {activeShippingOrder ? (
-        <div className="admin-orders-modal" role="dialog" aria-modal="true" aria-labelledby="shipping-payment-modal-title">
+        <div className="admin-orders-modal admin-orders-shipping-modal" role="dialog" aria-modal="true" aria-labelledby="shipping-payment-modal-title">
           <button
             type="button"
             className="admin-orders-modal__scrim"
             aria-label="Close shipping payment modal"
             onClick={closeShippingModal}
           />
-          <div className="admin-orders-modal__panel">
-            <header className="admin-orders-modal__header">
-              <div>
-                <p>Shipping payment</p>
-                <h2 id="shipping-payment-modal-title">{activeShippingOrder.orderNumber ?? activeShippingOrder.id}</h2>
-                <span>{activeShippingOrder.customerName || "Guest checkout"}</span>
+          <div className="admin-orders-modal__panel admin-orders-shipping-modal__panel">
+            <header className="admin-orders-modal__header admin-orders-shipping-modal__header">
+              <div className="admin-orders-shipping-modal__title">
+                <span className="admin-orders-shipping-modal__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M3.5 7.5h17v10h-17zM6 7.5 8 4.5h8l2 3M7 12h3m4 0h3M7 15h5" />
+                  </svg>
+                </span>
+                <div>
+                  <p>Shipping payment</p>
+                  <h2 id="shipping-payment-modal-title">Send Shipping Payment Notice</h2>
+                  <span>Remind the customer to complete their outstanding shipping payment.</span>
+                </div>
               </div>
-              <button type="button" className="admin-orders-modal__close" onClick={closeShippingModal}>Close</button>
+              <button
+                type="button"
+                className="admin-orders-modal__close admin-orders-shipping-modal__close"
+                onClick={closeShippingModal}
+                aria-label="Close shipping payment notice"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                  <path d="m5 5 10 10M15 5 5 15" />
+                </svg>
+              </button>
             </header>
-            <div className="admin-orders-modal__body">
+            <div className="admin-orders-modal__body admin-orders-shipping-modal__body">
               {(() => {
                 const accounting = getShippingAccounting(activeShippingOrder);
+                const paymentStatus = accounting.outstandingShipping <= 0
+                  ? "Paid"
+                  : accounting.paidShipping > 0
+                    ? "Partially Paid"
+                    : "Unpaid";
+
                 return (
-                  <dl className="admin-orders-modal__facts admin-orders-shipping-facts">
-                    <div><dt>Shipping total</dt><dd>{formatMoney(accounting.knownShipping)}</dd></div>
-                    <div><dt>Paid</dt><dd>{formatMoney(accounting.paidShipping)}</dd></div>
-                    <div><dt>Balance due</dt><dd>{formatMoney(accounting.outstandingShipping)}</dd></div>
-                  </dl>
+                  <>
+                    <dl className="admin-orders-shipping-modal__details">
+                      <div><dt>Order number</dt><dd>{activeShippingOrder.orderNumber ?? activeShippingOrder.id}</dd></div>
+                      <div><dt>Customer</dt><dd>{activeShippingOrder.customerName || "Guest checkout"}</dd></div>
+                      <div><dt>Email</dt><dd>{activeShippingOrder.customerEmail || activeShippingOrder.guestEmail || "Not provided"}</dd></div>
+                    </dl>
+                    <section className="admin-orders-shipping-modal__summary" aria-label="Shipping payment summary">
+                      <div><span>Shipping total</span><strong>{formatMoney(accounting.knownShipping)}</strong></div>
+                      <div><span>Amount paid</span><strong>{formatMoney(accounting.paidShipping)}</strong></div>
+                      <div className="is-due"><span>Balance due</span><strong>{formatMoney(accounting.outstandingShipping)}</strong></div>
+                      <div><span>Payment status</span><strong>{paymentStatus}</strong></div>
+                    </section>
+                  </>
                 );
               })()}
+              {shippingNoticeIneligible && !shippingNoticeSuccess ? (
+                <p className="admin-orders-modal__error">
+                  {shippingOrderCancelled
+                    ? "Cancelled orders cannot receive shipping payment notices."
+                    : "Shipping is already paid or has no outstanding balance."}
+                </p>
+              ) : null}
               {shippingNoticeError ? <p className="admin-orders-modal__error">{shippingNoticeError}</p> : null}
               {shippingNoticeSuccess ? <p className="admin-orders-modal__success">{shippingNoticeSuccess}</p> : null}
-              <p className="admin-orders-modal__section-label">The customer will receive an in-app notice with a secure payment action. The amount is recalculated by the server.</p>
+              <p className="admin-orders-shipping-modal__info">
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm0-8v4m0-6h.01" /></svg>
+                <span>The customer will receive a shipping payment reminder with a secure payment link.</span>
+              </p>
             </div>
-            <footer className="admin-orders-modal__actions">
+            <footer className="admin-orders-modal__actions admin-orders-shipping-modal__actions">
               <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={closeShippingModal}>Cancel</button>
-              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--primary" onClick={handleSendShippingNotice} disabled={shippingNoticeSaving || Boolean(shippingNoticeSuccess)}>
-                {shippingNoticeSaving ? "Sending..." : shippingNoticeSuccess ? "Notice sent" : "Send Payment Notice"}
+              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--primary" onClick={handleSendShippingNotice} disabled={shippingNoticeSaving || Boolean(shippingNoticeSuccess) || shippingNoticeIneligible}>
+                <svg className="admin-orders-modal__button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="m4 4 16 8-16 8 3-8-3-8Zm3.5 8h8.25" />
+                </svg>
+                <span>{shippingNoticeSaving ? "Sending..." : shippingNoticeSuccess ? "Notice sent" : "Send Payment Notice"}</span>
               </button>
             </footer>
           </div>

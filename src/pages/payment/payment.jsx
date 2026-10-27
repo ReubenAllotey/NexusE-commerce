@@ -29,6 +29,7 @@ import {
 import {
   initializePaystackCheckout,
   loadOrderBalancePaymentContext,
+  loadShippingBalancePaymentContext,
   verifyPaystackTransaction,
 } from "./paystackApi";
 
@@ -130,8 +131,8 @@ function getCallbackUrl(paymentIntent = null) {
   }
 
   const callbackUrl = new URL("/payment/success", window.location.origin);
-  if (paymentIntent?.purpose === "order-balance" && paymentIntent.orderId && paymentIntent.token) {
-    callbackUrl.searchParams.set("purpose", "order-balance");
+  if ((paymentIntent?.purpose === "order-balance" || paymentIntent?.purpose === "shipping-balance") && paymentIntent.orderId && paymentIntent.token) {
+    callbackUrl.searchParams.set("purpose", paymentIntent.purpose);
     callbackUrl.searchParams.set("orderId", paymentIntent.orderId);
     callbackUrl.searchParams.set("token", paymentIntent.token);
   }
@@ -351,7 +352,7 @@ function PaymentCheckout({
   useEffect(() => {
     let active = true;
 
-    if (paymentIntent?.purpose !== "order-balance") {
+    if (paymentIntent?.purpose !== "order-balance" && paymentIntent?.purpose !== "shipping-balance") {
       setOrderBalanceContext(null);
       setOrderBalanceLoading(false);
       setOrderBalanceError("");
@@ -364,7 +365,7 @@ function PaymentCheckout({
     setOrderBalanceError("");
     setOrderBalanceContext(null);
 
-    if (!paymentIntent.orderId || !paymentIntent.token) {
+    if (!paymentIntent.orderId || (paymentIntent.purpose === "order-balance" && !paymentIntent.token)) {
       setOrderBalanceLoading(false);
       setOrderBalanceError("This payment link is invalid or has expired.");
       return () => {
@@ -372,7 +373,25 @@ function PaymentCheckout({
       };
     }
 
-    void loadOrderBalancePaymentContext(paymentIntent.orderId, paymentIntent.token)
+    const loadContext = async () => {
+      if (paymentIntent.purpose === "shipping-balance" && !paymentIntent.token) {
+        const sessionResult = await supabase.auth.getSession();
+        if (sessionResult.error || !sessionResult.data?.session?.access_token) {
+          throw new Error("Please sign in to access this shipping payment.");
+        }
+        return loadShippingBalancePaymentContext(
+          paymentIntent.orderId,
+          "",
+          sessionResult.data.session.access_token,
+        );
+      }
+
+      return paymentIntent.purpose === "shipping-balance"
+        ? loadShippingBalancePaymentContext(paymentIntent.orderId, paymentIntent.token)
+        : loadOrderBalancePaymentContext(paymentIntent.orderId, paymentIntent.token);
+    };
+
+    void loadContext()
       .then((result) => {
         if (!active) return;
         setOrderBalanceContext(result);
@@ -395,8 +414,11 @@ function PaymentCheckout({
         id: orderBalanceContext.order.id,
         orderNumber: orderBalanceContext.order.orderNumber,
         customerName: orderBalanceContext.order.customerName,
-        customerEmail: orderBalanceContext.order.customerEmail,
+        customerEmail: orderBalanceContext.order.customerEmail || orderBalanceContext.order.guestEmail,
         shippingAddress: orderBalanceContext.order.shippingAddress,
+        shippingPaymentMode: orderBalanceContext.order.shipping_payment_mode || orderBalanceContext.order.shippingPaymentMode,
+        shippingPaymentStatus: orderBalanceContext.order.shipping_payment_status || orderBalanceContext.order.shippingPaymentStatus,
+        items: orderBalanceContext.order.items ?? [],
       }
     : null;
   const targetOrder = useMemo(() => {
@@ -418,7 +440,9 @@ function PaymentCheckout({
   const isShippingBalancePayment = paymentIntent?.purpose === "shipping-balance";
   const isOrderBalancePayment = paymentIntent?.purpose === "order-balance";
   const targetShippingAccounting = getShippingAccounting(targetOrder ?? {});
-  const displayedShippingBalance = targetShippingAccounting.outstandingShipping > 0
+  const displayedShippingBalance = orderBalanceContext?.accounting?.outstandingShipping > 0
+    ? orderBalanceContext.accounting.outstandingShipping
+    : targetShippingAccounting.outstandingShipping > 0
     ? targetShippingAccounting.outstandingShipping
     : paymentIntent?.amount ?? 0;
   const checkoutShippingAddress = isShippingBalancePayment ? targetOrder?.shippingAddress ?? null : snapshot.shippingAddress;
@@ -747,7 +771,9 @@ function PaymentCheckout({
         return;
       }
 
-      const tokenResult = await getAccessToken();
+    const tokenResult = isShippingBalancePayment && paymentIntent.token
+      ? { ok: true, accessToken: "" }
+      : await getAccessToken();
 
       if (!tokenResult.ok) {
         setError(tokenResult.message);
@@ -819,6 +845,7 @@ function PaymentCheckout({
           orderId: pendingOrder.id,
           orderNumber: pendingOrder.orderNumber,
           paymentPurpose: isShippingBalancePayment ? "shipping-balance" : "order",
+          paymentToken: isShippingBalancePayment ? paymentIntent.token : undefined,
           paymentMethod,
           paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
           paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
@@ -1418,6 +1445,9 @@ function PaymentStatusPage({
         accessToken: tokenResult.accessToken,
         guestAccessToken: session?.guestAccessToken,
         paymentReminderToken: callbackPaymentToken || session?.paymentReminderToken,
+        shippingPaymentToken: paymentPurpose === "shipping-balance"
+          ? callbackPaymentToken || session?.shippingPaymentToken
+          : "",
       });
       const paystackData = result?.data ?? {};
       const normalizedStatus = clean(paystackData.status).toLowerCase();

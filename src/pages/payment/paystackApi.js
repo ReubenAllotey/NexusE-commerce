@@ -47,12 +47,25 @@ export function loadOrderBalancePaymentContext(orderId, paymentToken) {
   });
 }
 
-export function verifyPaystackTransaction(reference, { accessToken = "", guestAccessToken = "", paymentReminderToken = "" } = {}) {
+export function loadShippingBalancePaymentContext(orderId, paymentToken, accessToken = "") {
+  const normalizedOrderId = String(orderId ?? "").trim();
+  const normalizedToken = String(paymentToken ?? "").trim();
+
+  return requestJson(`/api/payments/shipping-balance?orderId=${encodeURIComponent(normalizedOrderId)}`, {
+    headers: {
+      ...(normalizedToken ? { "X-Shipping-Payment-Token": normalizedToken } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  });
+}
+
+export function verifyPaystackTransaction(reference, { accessToken = "", guestAccessToken = "", paymentReminderToken = "", shippingPaymentToken = "" } = {}) {
   return requestJson(`/api/paystack/verify/${encodeURIComponent(String(reference ?? "").trim())}`, {
     headers: {
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(guestAccessToken ? { "X-Guest-Checkout-Token": guestAccessToken } : {}),
       ...(paymentReminderToken ? { "X-Payment-Reminder-Token": paymentReminderToken } : {}),
+      ...(shippingPaymentToken ? { "X-Shipping-Payment-Token": shippingPaymentToken } : {}),
     },
   });
 }

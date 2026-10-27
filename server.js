@@ -122,6 +122,14 @@ function verifyOrderPaymentReminderToken(token, orderId) {
   return verifyGuestCheckoutAccessToken(token, "payment-reminder", orderId);
 }
 
+function createShippingPaymentReminderToken(orderId) {
+  return createGuestCheckoutAccessToken("shipping-payment-reminder", orderId);
+}
+
+function verifyShippingPaymentReminderToken(token, orderId) {
+  return verifyGuestCheckoutAccessToken(token, "shipping-payment-reminder", orderId);
+}
+
 function getPublicAppUrl() {
   return (clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com").replace(/\/+$/, "");
 }
@@ -130,6 +138,12 @@ function buildOrderPaymentReminderUrl(orderId) {
   const normalizedOrderId = clean(orderId);
   const token = createOrderPaymentReminderToken(normalizedOrderId);
   return `${getPublicAppUrl()}/payment?purpose=order-balance&orderId=${encodeURIComponent(normalizedOrderId)}&token=${encodeURIComponent(token)}`;
+}
+
+function buildShippingPaymentReminderUrl(orderId) {
+  const normalizedOrderId = clean(orderId);
+  const token = createShippingPaymentReminderToken(normalizedOrderId);
+  return `${getPublicAppUrl()}/payment?purpose=shipping-balance&orderId=${encodeURIComponent(normalizedOrderId)}&token=${encodeURIComponent(token)}`;
 }
 
 function formatGhanaCedis(value) {
@@ -2205,6 +2219,125 @@ function getServerShippingAccounting(items = []) {
   return { knownShipping, paidShipping, outstandingShipping, hasPendingShipping, status };
 }
 
+async function loadShippingPaymentDetails(orderId, userId = null) {
+  let orderQuery = supabaseAdmin
+    .from("orders")
+    .select("id, order_number, user_id, customer_name, customer_email, guest_email, status, shipping_payment_mode, shipping_payment_status")
+    .eq("id", orderId);
+
+  if (userId) {
+    orderQuery = orderQuery.eq("user_id", userId);
+  }
+
+  const { data: order, error: orderError } = await orderQuery.maybeSingle();
+  if (orderError) throw orderError;
+  if (!order) return { ok: false, message: "Order not found." };
+
+  const { data: items, error: itemError } = await supabaseAdmin
+    .from("order_items")
+    .select("line_shipping, shipping_paid_amount, shipping_fee_status")
+    .eq("order_id", order.id);
+  if (itemError) throw itemError;
+
+  return {
+    ok: true,
+    order,
+    items: Array.isArray(items) ? items : [],
+    accounting: getServerShippingAccounting(items),
+  };
+}
+
+function isCancelledOrder(order) {
+  return ["cancelled", "canceled"].includes(clean(order?.status).toLowerCase());
+}
+
+async function claimShippingPaymentAttempt({ orderId, userId, amount, providerReference }) {
+  const { data, error } = await supabaseAdmin.rpc("claim_shipping_payment_attempt", {
+    p_order_id: orderId,
+    p_user_id: userId || null,
+    p_amount: amount,
+    p_provider_reference: providerReference,
+  });
+
+  if (error) throw error;
+  return data ?? null;
+}
+
+async function acquireShippingPaymentInitializationLease(paymentId, leaseId) {
+  const { data, error } = await supabaseAdmin.rpc("acquire_shipping_payment_initialization_lease", {
+    p_payment_id: paymentId,
+    p_lease_id: leaseId,
+    p_lease_seconds: 120,
+  });
+  if (error) throw error;
+  return data ?? null;
+}
+
+async function completeShippingPaymentInitialization({ paymentId, leaseId, providerReference, authorizationUrl, accessCode }) {
+  const { data, error } = await supabaseAdmin.rpc("complete_shipping_payment_initialization", {
+    p_payment_id: paymentId,
+    p_lease_id: leaseId,
+    p_provider_reference: providerReference,
+    p_authorization_url: authorizationUrl,
+    p_access_code: accessCode,
+  });
+  if (error) throw error;
+  return data ?? null;
+}
+
+async function releaseShippingPaymentInitialization(paymentId, leaseId, markFailed = false) {
+  const { data, error } = await supabaseAdmin.rpc("release_shipping_payment_initialization", {
+    p_payment_id: paymentId,
+    p_lease_id: leaseId,
+    p_mark_failed: markFailed,
+  });
+  if (error) throw error;
+  return data ?? null;
+}
+
+async function inspectShippingPaymentProviderState(paymentRow) {
+  const reference = clean(paymentRow?.provider_reference);
+  if (!reference) return { state: "unknown" };
+
+  let response;
+  try {
+    response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: {
+        Authorization: `Bearer ${paystackSecret}`,
+        Accept: "application/json",
+      },
+    });
+  } catch {
+    return { state: "unknown" };
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    return { state: "unknown" };
+  }
+
+  if (!response.ok || payload?.status === false || !payload?.data) {
+    return { state: "unknown" };
+  }
+
+  const providerStatus = normalizePaymentStatus(payload.data.status);
+  if (providerStatus !== "successful") {
+    return { state: providerStatus || "unknown" };
+  }
+
+  const validation = validatePaystackSuccessfulTransaction(
+    paymentRow,
+    payload.data,
+    reference,
+    "shipping",
+  );
+  return validation.ok
+    ? { state: "successful", payload: payload.data }
+    : { state: "invalid", message: validation.message };
+}
+
 async function handleAdminShippingPaymentNotice(req, res) {
   const authResult = await getAuthenticatedUser(req);
   if (!authResult.ok || !authResult.user) {
@@ -2227,7 +2360,7 @@ async function handleAdminShippingPaymentNotice(req, res) {
 
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
-    .select("id, order_number, user_id, customer_name, customer_email")
+    .select("id, order_number, user_id, customer_name, customer_email, guest_email, status, shipping_payment_mode, shipping_payment_status")
     .eq("id", orderId)
     .maybeSingle();
   if (orderError) {
@@ -2238,8 +2371,14 @@ async function handleAdminShippingPaymentNotice(req, res) {
     sendJson(res, 404, { ok: false, message: "Order not found." });
     return;
   }
-  if (!order.user_id && !isValidQueuedEmailAddress(order.customer_email)) {
+  const recipientEmail = clean(order.customer_email || order.guest_email).toLowerCase();
+  if (!order.user_id && !isValidQueuedEmailAddress(recipientEmail)) {
     sendJson(res, 409, { ok: false, message: "This guest order does not have an eligible customer email address." });
+    return;
+  }
+
+  if (isCancelledOrder(order)) {
+    sendJson(res, 409, { ok: false, message: "Cancelled orders cannot receive shipping payment notices." });
     return;
   }
 
@@ -2264,10 +2403,16 @@ async function handleAdminShippingPaymentNotice(req, res) {
     return;
   }
 
+  if (order.shipping_payment_mode && !["pay_now", "pay_later"].includes(clean(order.shipping_payment_mode).toLowerCase())) {
+    sendJson(res, 409, { ok: false, message: "This order has an unsupported shipping payment mode." });
+    return;
+  }
+
   const sourceKey = `shipping-payment-request:${order.id}`;
+  const shippingPaymentUrl = buildShippingPaymentReminderUrl(order.id);
   const notificationValues = {
     user_id: order.user_id || null,
-    recipient_email: order.user_id ? null : clean(order.customer_email).toLowerCase(),
+    recipient_email: order.user_id ? null : recipientEmail,
     recipient_name: order.customer_name || "Customer",
     category: "shipping",
     title: "Shipping Fee Payment Required",
@@ -2276,7 +2421,7 @@ async function handleAdminShippingPaymentNotice(req, res) {
     payment_id: null,
     source_type: "payment_status",
     source_key: sourceKey,
-    action_url: `/payment?purpose=shipping-balance&orderId=${encodeURIComponent(order.id)}&orderNumber=${encodeURIComponent(order.order_number || "")}`,
+    action_url: shippingPaymentUrl,
     action_label: "Pay Shipping Fee",
     action_description: "Complete the remaining shipping payment for this order.",
     is_read: false,
@@ -2301,7 +2446,7 @@ async function handleAdminShippingPaymentNotice(req, res) {
     .eq("source_key", sourceKey);
   const existing = inserted ?? (await (order.user_id
     ? existingQuery.eq("user_id", order.user_id)
-    : existingQuery.eq("recipient_email", clean(order.customer_email).toLowerCase())).maybeSingle()).data;
+    : existingQuery.eq("recipient_email", recipientEmail)).maybeSingle()).data;
   const queueAvailable = await isEmailQueueAvailable();
   const email = inserted && !queueAvailable
     ? await sendNotificationEmailForRow(existing ?? notificationValues)
@@ -2438,6 +2583,64 @@ async function handleOrderBalancePaymentContext(req, res) {
     amountDueNow: notice.accounting.outstanding,
     currency: "GHS",
     paymentPurpose: "order-balance",
+  });
+}
+
+async function handleShippingBalancePaymentContext(req, res) {
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const orderId = clean(requestUrl.searchParams.get("orderId"));
+  const paymentToken = clean(req.headers["x-shipping-payment-token"] || req.headers["x-payment-reminder-token"]);
+  const tokenMatches = orderId && verifyShippingPaymentReminderToken(paymentToken, orderId);
+
+  let userId = null;
+  if (!tokenMatches) {
+    const authResult = await getAuthenticatedUser(req);
+    if (!authResult.ok || !authResult.user) {
+      sendJson(res, 401, { ok: false, message: "This shipping payment link is invalid or has expired." });
+      return;
+    }
+    userId = authResult.user.id;
+  }
+
+  if (!orderId) {
+    sendJson(res, 400, { ok: false, message: "An order is required." });
+    return;
+  }
+
+  let context;
+  try {
+    context = await loadShippingPaymentDetails(orderId, userId);
+  } catch (error) {
+    sendJson(res, 500, { ok: false, message: "Unable to load the shipping payment balance." });
+    return;
+  }
+
+  if (!context.ok) {
+    sendJson(res, 404, { ok: false, message: context.message });
+    return;
+  }
+
+  if (isCancelledOrder(context.order)) {
+    sendJson(res, 409, { ok: false, message: "This order is cancelled and cannot receive shipping payments." });
+    return;
+  }
+
+  if (context.accounting.status === "pending") {
+    sendJson(res, 409, { ok: false, message: "Shipping is still being calculated for this order.", accounting: context.accounting });
+    return;
+  }
+
+  if (context.accounting.outstandingShipping <= 0) {
+    sendJson(res, 409, { ok: false, message: "This order has no eligible outstanding shipping payment.", accounting: context.accounting });
+    return;
+  }
+
+  sendJson(res, 200, {
+    ok: true,
+    order: context.order,
+    accounting: context.accounting,
+    amountDueNow: context.accounting.outstandingShipping,
+    paymentPurpose: "shipping-balance",
   });
 }
 
@@ -2900,7 +3103,9 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
       orderNumber: orderResult.order?.order_number || notification.order_id,
       outstanding: accounting.outstandingShipping,
       appUrl,
-      actionUrl: absoluteActionUrl,
+      // Generate the short-lived shipping token when the queue job is sent,
+      // rather than relying on the URL captured when the notice was created.
+      actionUrl: buildShippingPaymentReminderUrl(notification.order_id),
     });
     return sendTransactionalEmail({
       to: recipient,
@@ -4394,6 +4599,7 @@ async function handleInitialize(req, res) {
   const paymentPurpose = requestedPaymentPurpose === "shipping-balance"
     ? "shipping-balance"
     : "order";
+  const isShippingPayment = paymentPurpose === "shipping-balance";
   const paymentMethod = clean(body.paymentMethod) || "mobile-money";
   const paymentNetwork = clean(body.paymentNetwork) || "";
   const paymentPhoneNumber = clean(body.paymentPhoneNumber) || "";
@@ -4770,50 +4976,81 @@ async function handleInitialize(req, res) {
     return;
   }
 
-  const authResult = await getAuthenticatedUser(req);
-
-  if (!authResult.ok) {
-    sendJson(res, 401, { ok: false, message: authResult.message });
+  const shippingPaymentToken = clean(body.paymentToken);
+  const shippingTokenOrderId = isShippingPayment
+    ? verifyShippingPaymentReminderToken(shippingPaymentToken, clean(body.orderId))
+      ? clean(body.orderId)
+      : ""
+    : "";
+  if (isShippingPayment && shippingPaymentToken && !shippingTokenOrderId) {
+    sendJson(res, 401, { ok: false, message: "This shipping payment link is invalid or has expired." });
     return;
   }
 
-  const profileResult = await loadProfile(authResult.user.id);
+  let authResult = null;
+  let profileResult = null;
+  let orderId = clean(body.orderId);
+  let orderRow;
 
-  if (!profileResult.ok) {
-    sendJson(res, 403, { ok: false, message: profileResult.message });
-    return;
+  if (shippingTokenOrderId) {
+    orderId = shippingTokenOrderId;
+    const tokenOrderResult = await supabaseAdmin
+      .from("orders")
+      .select("*")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (tokenOrderResult.error) {
+      sendJson(res, 500, { ok: false, message: "Unable to load the shipping order." });
+      return;
+    }
+    orderRow = tokenOrderResult.data;
+  } else {
+    authResult = await getAuthenticatedUser(req);
+
+    if (!authResult.ok) {
+      sendJson(res, 401, { ok: false, message: authResult.message });
+      return;
+    }
+
+    profileResult = await loadProfile(authResult.user.id);
+
+    if (!profileResult.ok) {
+      sendJson(res, 403, { ok: false, message: profileResult.message });
+      return;
+    }
+
+    if (profileResult.profile.role !== "customer" || profileResult.profile.status !== "active") {
+      sendJson(res, 403, {
+        ok: false,
+        message: "Only active customer accounts can start checkout.",
+      });
+      return;
+    }
   }
-
-  if (profileResult.profile.role !== "customer" || profileResult.profile.status !== "active") {
-    sendJson(res, 403, {
-      ok: false,
-      message: "Only active customer accounts can start checkout.",
-    });
-    return;
-  }
-
-  const orderId = clean(body.orderId);
 
   if (!orderId) {
     sendJson(res, 400, { ok: false, message: "An order id is required." });
     return;
   }
 
-  const { data: orderRow, error: orderError } = await supabaseAdmin
-    .from("orders")
-    .select("*")
-    .eq("id", orderId)
-    .eq("user_id", authResult.user.id)
-    .maybeSingle();
+  const orderResult = orderRow
+    ? { data: orderRow, error: null }
+    : await supabaseAdmin
+      .from("orders")
+      .select("*")
+      .eq("id", orderId)
+      .eq("user_id", authResult.user.id)
+      .maybeSingle();
 
-  if (orderError) {
+  if (orderResult.error) {
     sendJson(res, 500, {
       ok: false,
-      message: orderError.message || "Unable to load the order.",
+      message: orderResult.error.message || "Unable to load the order.",
     });
     return;
   }
 
+  orderRow = orderResult.data;
   if (!orderRow) {
     sendJson(res, 404, {
       ok: false,
@@ -4822,12 +5059,12 @@ async function handleInitialize(req, res) {
     return;
   }
 
-  const { data: linkedOrderRows, error: linkedOrderError } = orderRow.checkout_group_id
+  const { data: linkedOrderRows, error: linkedOrderError } = paymentPurpose === "order" && orderRow.checkout_group_id
     ? await supabaseAdmin
         .from("orders")
         .select("id, checkout_group_id, total, amount_due_now, user_id")
         .eq("checkout_group_id", orderRow.checkout_group_id)
-        .eq("user_id", authResult.user.id)
+        .eq("user_id", authResult?.user?.id || orderRow.user_id)
     : { data: [orderRow], error: null };
 
   if (linkedOrderError) {
@@ -4839,8 +5076,19 @@ async function handleInitialize(req, res) {
     (sum, linkedOrder) => sum + (Number(linkedOrder.amount_due_now ?? linkedOrder.total) || 0),
     0,
   );
+  const shippingContext = paymentPurpose === "shipping-balance"
+    ? await loadShippingPaymentDetails(orderRow.id)
+    : null;
+  if (shippingContext && (!shippingContext.ok || isCancelledOrder(shippingContext.order))) {
+    sendJson(res, 409, { ok: false, message: "This order is not eligible for a shipping payment." });
+    return;
+  }
+  if (shippingContext?.accounting.status === "pending") {
+    sendJson(res, 409, { ok: false, message: "Shipping is still being calculated for this order." });
+    return;
+  }
   const authoritativeShippingBalance = paymentPurpose === "shipping-balance"
-    ? await getOutstandingShippingAmount(orderRow.id)
+    ? shippingContext.accounting.outstandingShipping
     : 0;
   const amount = paymentPurpose === "order"
     ? checkoutAmountDueNow
@@ -4854,11 +5102,18 @@ async function handleInitialize(req, res) {
     return;
   }
 
-  const isShippingPayment = paymentPurpose === "shipping-balance";
-  let paymentRow = isShippingPayment ? null : await findOpenPayment(orderRow.id, amount, "order");
-  const providerReference = isShippingPayment
-    ? buildPaymentReference(`${orderRow.order_number}-shipping`)
-    : clean(paymentRow?.provider_reference) || buildPaymentReference(orderRow.order_number);
+  const requestedProviderReference = buildPaymentReference(
+    isShippingPayment ? `${orderRow.order_number}-shipping` : orderRow.order_number,
+  );
+  let paymentRow = isShippingPayment
+    ? await claimShippingPaymentAttempt({
+        orderId: orderRow.id,
+        userId: orderRow.user_id,
+        amount,
+        providerReference: requestedProviderReference,
+      })
+    : await findOpenPayment(orderRow.id, amount, "order");
+  const providerReference = clean(paymentRow?.provider_reference) || requestedProviderReference;
 
   if (paymentRow?.authorization_url && paymentRow?.access_code) {
     sendJson(res, 200, {
@@ -4875,10 +5130,94 @@ async function handleInitialize(req, res) {
     return;
   }
 
+  let shippingInitializationLeaseId = "";
+  if (isShippingPayment) {
+    shippingInitializationLeaseId = crypto.randomUUID();
+    let leaseResult;
+    try {
+      leaseResult = await acquireShippingPaymentInitializationLease(paymentRow.id, shippingInitializationLeaseId);
+    } catch (error) {
+      sendJson(res, 503, { ok: false, code: "shipping_initialization_unavailable", message: "Shipping payment initialization is temporarily unavailable." });
+      return;
+    }
+
+    if (leaseResult?.state === "busy") {
+      sendJson(res, 409, { ok: false, code: "shipping_initialization_in_progress", message: "This shipping payment is already being prepared. Please try again shortly." });
+      return;
+    }
+    if (leaseResult?.state === "settled") {
+      sendJson(res, 409, { ok: false, code: "shipping_payment_settled", message: "This shipping payment has already been completed." });
+      return;
+    }
+    if (leaseResult?.state === "ready" && leaseResult.authorizationUrl && leaseResult.accessCode) {
+      sendJson(res, 200, {
+        ok: true,
+        data: {
+          reference: leaseResult.providerReference,
+          authorization_url: leaseResult.authorizationUrl,
+          access_code: leaseResult.accessCode,
+        },
+        payment: paymentRow,
+        order: mapOrderBundle(orderRow, []),
+        amountDueNow: amount,
+      });
+      return;
+    }
+    if (leaseResult?.state !== "acquired") {
+      sendJson(res, 503, { ok: false, code: "shipping_initialization_unavailable", message: "Shipping payment initialization is temporarily unavailable." });
+      return;
+    }
+
+    if (leaseResult.recoveryRequired) {
+      const providerState = await inspectShippingPaymentProviderState(paymentRow);
+      if (providerState.state === "successful") {
+        const { error: finalizeError } = await supabaseAdmin.rpc("finalize_shipping_payment", {
+          p_payment_id: paymentRow.id,
+          p_verified_amount: Number(providerState.payload.amount) / 100,
+          p_verified_currency: clean(providerState.payload.currency || paymentRow.currency || "GHS").toUpperCase(),
+        });
+        if (finalizeError) {
+          sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "A successful shipping payment was found but could not be finalized safely. Please contact support." });
+          return;
+        }
+        const recoveredPayment = await getPaymentByReference(reference) || paymentRow;
+        const recoveredOrder = await loadOrderBundle(paymentRow.order_id);
+        if (recoveredOrder.ok) {
+          const notificationResult = await ensureShippingPaymentConfirmationNotification(recoveredPayment, recoveredOrder.order);
+          if (!notificationResult.ok) {
+            sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "The shipping payment was finalized, but its confirmation could not be queued safely." });
+            return;
+          }
+        }
+        sendJson(res, 409, { ok: false, code: "shipping_payment_settled", message: "This shipping payment was already completed. Please refresh the order." });
+        return;
+      }
+      if (["failed", "cancelled", "abandoned"].includes(providerState.state)) {
+        try {
+          await releaseShippingPaymentInitialization(paymentRow.id, shippingInitializationLeaseId, true);
+        } catch {
+          sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "The previous shipping payment attempt could not be safely closed. Please contact support." });
+          return;
+        }
+        sendJson(res, 409, { ok: false, code: "shipping_attempt_expired", message: "The previous shipping payment attempt did not complete. Please try again." });
+        return;
+      }
+      if (providerState.state !== "unknown") {
+        try {
+          await releaseShippingPaymentInitialization(paymentRow.id, shippingInitializationLeaseId, false);
+        } catch {
+          // Keep the unresolved state if the lease cannot be cleared safely.
+        }
+      }
+      sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "The previous shipping payment attempt has an unresolved Paystack state. Please contact support before retrying." });
+      return;
+    }
+  }
+
   if (!paymentRow) {
     paymentRow = await createPendingPaymentRecord({
       orderId: orderRow.id,
-      userId: authResult.user.id,
+      userId: authResult?.user?.id || orderRow.user_id || null,
       providerReference,
       amount,
       paymentMethod,
@@ -4889,7 +5228,7 @@ async function handleInitialize(req, res) {
   }
 
   const requestBody = {
-    email: clean(profileResult.profile.email),
+    email: clean(profileResult?.profile?.email || orderRow.customer_email || orderRow.guest_email),
     amount: Math.round(amount * 100),
     currency: "GHS",
     callback_url: callbackUrl,
@@ -4905,23 +5244,57 @@ async function handleInitialize(req, res) {
     },
   };
 
-  const upstreamResponse = await fetch("https://api.paystack.co/transaction/initialize", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${paystackSecret}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  const upstreamData = await upstreamResponse.json().catch(() => ({}));
-
-  if (!upstreamResponse.ok || upstreamData?.status === false) {
-    try {
-      await updatePaymentRow(paymentRow.id, {
-        status: "failed",
+  let upstreamResponse;
+  try {
+    upstreamResponse = await fetch("https://api.paystack.co/transaction/initialize", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${paystackSecret}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    if (isShippingPayment) {
+      sendJson(res, 409, {
+        ok: false,
+        code: "shipping_initialization_unresolved",
+        message: "Paystack's response could not be confirmed. Please retry later or contact support.",
       });
+      return;
+    }
+    throw error;
+  }
+
+  let upstreamData;
+  try {
+    upstreamData = await upstreamResponse.json();
+  } catch {
+    if (isShippingPayment) {
+      sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "Paystack's response could not be confirmed. Please retry later or contact support." });
+      return;
+    }
+    upstreamData = {};
+  }
+
+  const providerRejected = upstreamData?.status === false && upstreamResponse.status < 500;
+  if (!upstreamResponse.ok || upstreamData?.status === false) {
+    if (isShippingPayment) {
+      if (!providerRejected) {
+        sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "Paystack's initialization result could not be confirmed. Please retry later or contact support." });
+        return;
+      }
+      try {
+        await releaseShippingPaymentInitialization(paymentRow.id, shippingInitializationLeaseId, true);
+      } catch {
+        sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "The shipping payment result could not be safely confirmed. Please contact support." });
+        return;
+      }
+    }
+    try {
+      if (!isShippingPayment) await updatePaymentRow(paymentRow.id, { status: "failed" });
     } catch {
       // Ignore cleanup errors; the payment row still exists for later inspection.
     }
@@ -4936,12 +5309,42 @@ async function handleInitialize(req, res) {
 
   const checkoutData = upstreamData?.data ?? {};
   const reference = clean(checkoutData.reference) || providerReference;
-  const updatedPayment = await updatePaymentRow(paymentRow.id, {
-    provider_reference: reference,
-    authorization_url: checkoutData.authorization_url ?? null,
-    access_code: checkoutData.access_code ?? null,
-    status: "pending",
-  });
+  const authorizationUrl = clean(checkoutData.authorization_url);
+  const accessCode = clean(checkoutData.access_code);
+  if (!authorizationUrl || !accessCode) {
+    if (isShippingPayment) {
+      sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "Paystack did not return a complete shipping checkout. Please retry later or contact support." });
+      return;
+    }
+  }
+
+  let updatedPayment;
+  if (isShippingPayment) {
+    try {
+      const completion = await completeShippingPaymentInitialization({
+        paymentId: paymentRow.id,
+        leaseId: shippingInitializationLeaseId,
+        providerReference: reference,
+        authorizationUrl,
+        accessCode,
+      });
+      if (completion?.state === "settled") {
+        sendJson(res, 409, { ok: false, code: "shipping_payment_settled", message: "This shipping payment was completed while checkout was being prepared." });
+        return;
+      }
+      updatedPayment = await getPaymentByReference(reference) || paymentRow;
+    } catch {
+      sendJson(res, 409, { ok: false, code: "shipping_initialization_unresolved", message: "Paystack accepted or may have accepted the request, but checkout details could not be saved safely. Please contact support before retrying." });
+      return;
+    }
+  } else {
+    updatedPayment = await updatePaymentRow(paymentRow.id, {
+      provider_reference: reference,
+      authorization_url: checkoutData.authorization_url ?? null,
+      access_code: checkoutData.access_code ?? null,
+      status: "pending",
+    });
+  }
 
   sendJson(res, 200, {
     ok: true,
@@ -4972,8 +5375,10 @@ async function handleVerify(req, res, reference) {
   if (paymentRow && !clean(paymentRow.user_id)) {
     const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
     const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
+    const shippingPaymentToken = clean(req.headers["x-shipping-payment-token"]);
     if (!verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow.order_id)
-      && !verifyOrderPaymentReminderToken(paymentReminderToken, paymentRow.order_id)) {
+      && !verifyOrderPaymentReminderToken(paymentReminderToken, paymentRow.order_id)
+      && !verifyShippingPaymentReminderToken(shippingPaymentToken, paymentRow.order_id)) {
       sendJson(res, 401, { ok: false, message: "This guest checkout session is no longer available. Please restart checkout." });
       return;
     }
@@ -6550,6 +6955,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/payments/order-balance" && req.method === "GET") {
     await handleOrderBalancePaymentContext(req, res);
+    return;
+  }
+
+  if (pathname === "/api/payments/shipping-balance" && req.method === "GET") {
+    await handleShippingBalancePaymentContext(req, res);
     return;
   }
 

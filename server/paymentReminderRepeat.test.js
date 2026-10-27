@@ -75,20 +75,20 @@ test("new reminder creation never initializes Paystack or sends email directly",
 
 test("admin UI exposes reminder, cooldown, override, history, and terminal states", () => {
   for (const label of [
-    "Send Reminder",
-    "Cooldown Active",
-    "Override Cooldown",
+    "Send Payment Reminder",
+    "Cooldown active until",
+    "Override 24-hour cooldown",
     "Reminder history",
-    "Reminder already queued",
-    "Reminder sent",
+    "Reminder record created",
+    "Email provider accepted the reminder.",
     "This order is cancelled and cannot receive payment reminders.",
   ]) {
     assert.match(adminSource, new RegExp(label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")));
   }
   assert.match(adminSource, /window\.confirm\(confirmationMessage\)/);
   assert.match(adminSource, /Last reminder:/);
-  assert.match(adminSource, /Cooldown expires/);
-  assert.match(adminSource, /Cooldown ended/);
+  assert.match(adminSource, /cooldownUntil/);
+  assert.match(adminSource, /cooldownActive/);
   assert.match(adminSource, /result\?\.code === "reminder_queued"/);
   assert.match(adminSource, /result\?\.code === "reminder_cooldown"/);
   const appCss = fs.readFileSync(path.join(root, "src/App.css"), "utf8");

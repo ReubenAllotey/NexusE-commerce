@@ -37737,3 +37737,231 @@ body[data-theme="dark"] .shop-page .shop-summary {
 .admin-orders-payment-notice-modal .admin-orders-modal__body {
   overflow-y: auto;
 }
+
+/* Compact shipping reminder modal. */
+.admin-orders-shipping-modal__panel {
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: min(90dvh, 38rem);
+  gap: 0.85rem;
+  padding: 1.25rem;
+}
+
+.admin-orders-shipping-modal__header {
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid #e5eaf1;
+}
+
+.admin-orders-shipping-modal__title {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.admin-orders-shipping-modal__icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 0.7rem;
+  background: rgba(23, 55, 122, 0.1);
+  color: #17377a;
+}
+
+.admin-orders-shipping-modal__icon svg,
+.admin-orders-shipping-modal__info svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.admin-orders-shipping-modal__header h2 {
+  margin-top: 0.2rem;
+  font-size: 1.2rem;
+}
+
+.admin-orders-shipping-modal__header span {
+  max-width: 31rem;
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.admin-orders-shipping-modal__close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  place-items: center;
+  border-radius: 0.65rem;
+}
+
+.admin-orders-shipping-modal__close svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.admin-orders-shipping-modal__body {
+  gap: 0.85rem;
+}
+
+.admin-orders-shipping-modal__details,
+.admin-orders-shipping-modal__summary {
+  display: grid;
+  margin: 0;
+  gap: 0.45rem;
+}
+
+.admin-orders-shipping-modal__details {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-orders-shipping-modal__details div,
+.admin-orders-shipping-modal__summary div {
+  min-width: 0;
+}
+
+.admin-orders-shipping-modal__details dt,
+.admin-orders-shipping-modal__summary span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.admin-orders-shipping-modal__details dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  color: #172033;
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.admin-orders-shipping-modal__summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.85rem;
+  border: 1px solid #e5eaf1;
+  border-radius: 0.85rem;
+  background: #f8fafc;
+}
+
+.admin-orders-shipping-modal__summary div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.admin-orders-shipping-modal__summary strong {
+  color: #172033;
+  font-size: 0.88rem;
+  text-align: right;
+}
+
+.admin-orders-shipping-modal__summary .is-due {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(185, 28, 28, 0.16);
+  border-radius: 0.65rem;
+  background: #fef2f2;
+}
+
+.admin-orders-shipping-modal__summary .is-due span,
+.admin-orders-shipping-modal__summary .is-due strong {
+  color: #b91c1c;
+}
+
+.admin-orders-shipping-modal__summary .is-due strong {
+  font-size: 0.98rem;
+}
+
+.admin-orders-shipping-modal__info {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  color: #52627a;
+  font-size: 0.79rem;
+  line-height: 1.45;
+}
+
+.admin-orders-shipping-modal__info svg {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.05rem;
+  color: #17377a;
+}
+
+.admin-orders-shipping-modal__actions {
+  padding-top: 0.1rem;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__header {
+  border-color: #2b3648;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__icon {
+  background: rgba(143, 178, 255, 0.14);
+  color: #a9c2ff;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__details dt,
+body[data-theme="dark"] .admin-orders-shipping-modal__summary span,
+body[data-theme="dark"] .admin-orders-shipping-modal__info {
+  color: #a9b8ce;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__details dd,
+body[data-theme="dark"] .admin-orders-shipping-modal__summary strong {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__summary {
+  border-color: #2b3648;
+  background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__summary .is-due {
+  border-color: rgba(252, 165, 165, 0.25);
+  background: rgba(127, 29, 29, 0.28);
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__summary .is-due span,
+body[data-theme="dark"] .admin-orders-shipping-modal__summary .is-due strong {
+  color: #fecaca;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__info svg {
+  color: #a9c2ff;
+}
+
+@media (max-width: 560px) {
+  .admin-orders-shipping-modal__panel {
+    width: calc(100vw - 1.5rem);
+    padding: 1rem;
+  }
+
+  .admin-orders-shipping-modal__details {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .admin-orders-shipping-modal__actions {
+    flex-direction: column-reverse;
+  }
+
+  .admin-orders-shipping-modal__actions .admin-orders-modal__button {
+    width: 100%;
+  }
+}
