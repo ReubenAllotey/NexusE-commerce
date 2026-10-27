@@ -3782,15 +3782,20 @@ async function syncCheckoutPaymentStatus(orderId, status, settledAmount = 0, all
     // the order stuck in pending_payment; a later webhook/callback can safely
     // finish the shipping fields without creating another payment or order.
     if (normalizedStatus === "paid") {
-      const { error: coreUpdateError } = await supabaseAdmin
+      const { data: coreUpdatedOrder, error: coreUpdateError } = await supabaseAdmin
         .from("orders")
         .update({
           payment_status: orderPaymentStatus,
           status: nextOrderStatus,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", order.id);
+        .eq("id", order.id)
+        .select("id, payment_status, status")
+        .single();
       if (coreUpdateError) throw coreUpdateError;
+      if (!coreUpdatedOrder) {
+        throw new Error("The verified payment order could not be updated.");
+      }
     }
 
     const { data: items, error: itemError } = await supabaseAdmin
@@ -3870,6 +3875,9 @@ async function syncCheckoutPaymentStatus(orderId, status, settledAmount = 0, all
   }
 
   const firstOrder = nextOrders.find((order) => order.id === orderId) ?? nextOrders[0];
+  if (!firstOrder) {
+    throw new Error("The verified payment order could not be updated.");
+  }
   const { data: bundleItems, error: bundleItemError } = await supabaseAdmin
     .from("order_items")
     .select("*")

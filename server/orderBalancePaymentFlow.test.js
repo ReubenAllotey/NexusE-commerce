@@ -11,6 +11,10 @@ const apiSource = await readFile(
   new URL("../src/pages/payment/paystackApi.js", import.meta.url),
   "utf8",
 );
+const notificationMigration = await readFile(
+  new URL("../supabase/migrations/20261027_0044_guest_order_notification_guard.sql", import.meta.url),
+  "utf8",
+);
 
 test("order-balance context is token-protected and server-calculated", () => {
   assert.ok(serverSource.includes('pathname === "/api/payments/order-balance"'));
@@ -86,4 +90,32 @@ test("order finalization calculates partial balances from successful order payme
   assert.match(serverSource, /orderAmountDue > verifiedOrderPayments \+ 0\.000001/);
   assert.match(serverSource, /const orderPaymentStatus = normalizedStatus === "paid"/);
   assert.match(serverSource, /payment_status: orderPaymentStatus \|\| "paid"/);
+});
+
+test("guest order status updates cannot be rolled back by the legacy order notification trigger", () => {
+  assert.match(notificationMigration, /create or replace function private\.handle_order_notification_change\(\)/);
+  assert.match(notificationMigration, /security definer/);
+  assert.match(notificationMigration, /set search_path = ''/);
+  assert.match(notificationMigration, /if new\.user_id is null then\s+return new;/s);
+  assert.match(notificationMigration, /private\.upsert_notification\(/);
+  assert.match(notificationMigration, /revoke all on function private\.handle_order_notification_change\(\) from public, anon, authenticated/);
+});
+
+test("a 0.01 GHS order payment remains separate from deferred shipping", () => {
+  assert.match(serverSource, /Math\.max\(Number\(order\.amount_due_now \?\? order\.total\) \|\| 0, 0\)/);
+  assert.match(serverSource, /clean\(payment\.payment_purpose\)\.toLowerCase\(\) !== "order"/);
+  assert.match(serverSource, /shipping_payment_mode === "pay_later"/);
+  assert.match(serverSource, /payment_status: orderPaymentStatus/);
+  assert.match(serverSource, /shipping_payment_status: shippingPaymentStatus/);
+});
+
+test("the success route does not claim payment success before backend verification", () => {
+  const statusStart = paymentSource.indexOf("function PaymentStatusPage(");
+  const verifyStart = paymentSource.indexOf("async function verifyPayment", statusStart);
+  const statusSource = paymentSource.slice(statusStart, verifyStart);
+
+  assert.match(statusSource, /session\?\.status === "successful" && variant === "success"/);
+  assert.doesNotMatch(statusSource, /setResolvedVariant\(variant\)/);
+  assert.match(paymentSource, /setResolvedVariant\("success"\)/);
+  assert.match(paymentSource, /setVerificationState\("error"\)/);
 });

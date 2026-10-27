@@ -1359,10 +1359,6 @@ function PaymentStatusPage({
         : "Pending";
 
   useEffect(() => {
-    setResolvedVariant(variant);
-  }, [variant]);
-
-  useEffect(() => {
     return undefined;
   }, []);
 
