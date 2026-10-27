@@ -13909,6 +13909,12 @@ body[data-theme="dark"] .location-picker__selected {
   color: #ffffff;
 }
 
+.admin-orders-payment-notice-modal .admin-orders-modal__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  box-shadow: none;
+}
+
 @media (max-width: 1280px) {
   .admin-orders-summary,
   .admin-orders-details__summary {

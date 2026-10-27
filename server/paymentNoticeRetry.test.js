@@ -9,6 +9,10 @@ const serverSource = fs.readFileSync(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "server.js"),
   "utf8",
 );
+const adminOrdersSource = fs.readFileSync(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/pages/Admin/AdminOrdersPage.jsx"),
+  "utf8",
+);
 
 function extractFunction(name) {
   const match = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(serverSource);
@@ -149,4 +153,31 @@ test("admin authorization and Pay Now link regeneration remain server-side", () 
   const retryEnd = serverSource.indexOf("sendJson(res, 409", retryStart);
   assert.ok(retryStart >= 0 && retryEnd > retryStart);
   assert.doesNotMatch(serverSource.slice(retryStart, retryEnd), /sendOrderPaymentEmail/);
+});
+
+test("payment reminder modal sends normal reminders through the admin endpoint", () => {
+  assert.match(adminOrdersSource, /fetch\("\/api\/admin\/order-payment-notice"/);
+  assert.match(adminOrdersSource, /retryEmail: retryExisting/);
+  assert.match(adminOrdersSource, /overrideCooldown: paymentNoticeOverride && !retryExisting/);
+  assert.match(adminOrdersSource, /overrideReason: paymentNoticeOverride && !retryExisting/);
+});
+
+test("payment reminder modal blocks normal sends during cooldown and exposes the expiry", () => {
+  assert.match(adminOrdersSource, /paymentNoticeData\?\.cooldownActive/);
+  assert.match(adminOrdersSource, /Cooldown active until/);
+  assert.match(adminOrdersSource, /paymentNoticeBlockedByOverride/);
+  assert.match(adminOrdersSource, /Enable Override to Resend/);
+});
+
+test("payment reminder modal requires an explicit override reason", () => {
+  assert.match(adminOrdersSource, /Resend Anyway/);
+  assert.match(adminOrdersSource, /checked=\{paymentNoticeOverride\}/);
+  assert.match(adminOrdersSource, /Enter a reason before overriding the 24-hour reminder cooldown/);
+  assert.match(adminOrdersSource, /Required reason for override/);
+});
+
+test("payment reminder modal surfaces backend errors", () => {
+  assert.match(adminOrdersSource, /result\?\.message \|\| "Unable to send the payment notice\."/);
+  assert.match(adminOrdersSource, /setPaymentNoticeError\(error instanceof Error/);
+  assert.match(adminOrdersSource, /setPaymentNoticeSuccess\(result\.message/);
 });

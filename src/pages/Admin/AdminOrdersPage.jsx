@@ -288,6 +288,23 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     () => orders.find((order) => order.id === paymentNoticeOrderId) ?? null,
     [orders, paymentNoticeOrderId],
   );
+  const paymentNoticeRetryAvailable = Boolean(
+    paymentNoticeEmailFailed && paymentNoticeData?.email?.retryAvailable,
+  );
+  const paymentNoticeOverrideRequired = Boolean(
+    paymentNoticeData?.accounting?.outstanding > 0 &&
+      paymentNoticeData?.cooldownActive &&
+      !paymentNoticeRetryAvailable,
+  );
+  const paymentNoticeBlockedByOverride = paymentNoticeOverrideRequired && !paymentNoticeOverride;
+  const paymentNoticeSubmitDisabled = Boolean(
+    paymentNoticeLoading ||
+      paymentNoticeSaving ||
+      paymentNoticeData?.isCancelled ||
+      !paymentNoticeData?.accounting?.outstanding ||
+      (Boolean(paymentNoticeSuccess) && !paymentNoticeEmailFailed) ||
+      paymentNoticeBlockedByOverride,
+  );
   const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder);
   const {
     shipmentsByOrderId,
@@ -1271,6 +1288,9 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                             placeholder="Required reason for override"
                             aria-label="Reason for reminder cooldown override"
                           />
+                          {!paymentNoticeOverride ? (
+                            <small>Select the override option above to enable resending.</small>
+                          ) : null}
                         </>
                       )}
                       {paymentNoticeData.cooldownUntil ? (
@@ -1291,12 +1311,14 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                 type="button"
                 className="admin-orders-modal__button admin-orders-modal__button--primary"
                 onClick={handleSendPaymentNotice}
-                disabled={paymentNoticeLoading || paymentNoticeSaving || paymentNoticeData?.isCancelled || !paymentNoticeData?.accounting?.outstanding || (Boolean(paymentNoticeSuccess) && !paymentNoticeEmailFailed) || (Boolean(paymentNoticeData?.notification) && !paymentNoticeEmailFailed && paymentNoticeData?.cooldownActive && !paymentNoticeOverride) || (paymentNoticeEmailFailed && paymentNoticeData?.email?.retryAvailable === false && paymentNoticeData?.cooldownActive && !paymentNoticeOverride)}
+                disabled={paymentNoticeSubmitDisabled}
+                aria-disabled={paymentNoticeSubmitDisabled}
+                title={paymentNoticeBlockedByOverride ? "Select the cooldown override and provide a reason to resend." : undefined}
               >
                 <svg className="admin-orders-modal__button-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m4 4 16 8-16 8 3-8-3-8Zm3.5 8h8.25" />
                 </svg>
-                <span>{paymentNoticeSaving ? "Sending..." : paymentNoticeEmailFailed && paymentNoticeData?.email?.retryAvailable ? "Retry Email" : paymentNoticeOverride ? "Send Payment Reminder" : paymentNoticeSuccess ? "Reminder Queued" : "Send Payment Reminder"}</span>
+                <span>{paymentNoticeSaving ? "Sending..." : paymentNoticeRetryAvailable ? "Retry Email" : paymentNoticeBlockedByOverride ? "Enable Override to Resend" : paymentNoticeSuccess ? "Reminder Queued" : "Send Payment Reminder"}</span>
               </button>
             </footer>
           </div>
