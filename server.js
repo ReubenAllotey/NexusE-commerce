@@ -2119,6 +2119,13 @@ async function recordPaymentEvent(paymentId, payload = {}) {
   }
 }
 
+function getSafeReconciliationError(error) {
+  return {
+    code: clean(error?.code).slice(0, 80) || "unknown",
+    message: clean(error?.message).replace(/\s+/g, " ").slice(0, 240) || "unknown",
+  };
+}
+
 async function handleChangePassword(req, res) {
   if (!supabaseAdmin) {
     sendJson(res, 500, {
@@ -3545,6 +3552,199 @@ async function handleAdminOrderPaymentNotice(req, res) {
       ? "Payment reminder saved and email queued for delivery."
       : "Payment reminder saved; email delivery status is being processed.",
   });
+}
+
+async function handleAdminPaymentReconcile(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can reconcile payments." });
+    return;
+  }
+
+  if (!paystackSecret || !supabaseAdmin) {
+    sendJson(res, 503, { ok: false, message: "Payment reconciliation is not configured." });
+    return;
+  }
+
+  const body = normalizePayload(await readJsonBody(req));
+  const reference = clean(body.reference || body.paymentReference);
+  const recordReconciliationOutcome = async (paymentId, status, details = {}) => {
+    try {
+      await recordPaymentEvent(paymentId, {
+        provider_event_type: "admin_reconcile",
+        provider_reference: reference,
+        status,
+        payload: {
+          source: "admin_payment_reconcile",
+          admin_id: authResult.user.id,
+          ...details,
+        },
+      });
+    } catch (error) {
+      console.error("Payment reconciliation audit write failed:", JSON.stringify(getSafeReconciliationError(error)));
+      return false;
+    }
+    return true;
+  };
+  if (!reference) {
+    sendJson(res, 400, { ok: false, message: "A Paystack payment reference is required." });
+    return;
+  }
+
+  let paymentRow;
+  try {
+    paymentRow = await getPaymentByReference(reference);
+  } catch (error) {
+    console.error("Payment reconciliation payment lookup failed:", JSON.stringify(getSafeReconciliationError(error)));
+    sendJson(res, 500, { ok: false, message: "Unable to load the persisted payment." });
+    return;
+  }
+
+  if (!paymentRow) {
+    sendJson(res, 404, { ok: false, message: "The persisted payment could not be found." });
+    return;
+  }
+
+  if (getReceiptPaymentPurpose(paymentRow) !== "order" || !paymentRow.order_id) {
+    sendJson(res, 409, { ok: false, message: "Only persisted product-order payments can be reconciled here." });
+    return;
+  }
+
+  let upstreamResponse;
+  let upstreamData;
+  try {
+    upstreamResponse = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: {
+        Authorization: `Bearer ${paystackSecret}`,
+        Accept: "application/json",
+      },
+    });
+    upstreamData = await upstreamResponse.json().catch(() => ({}));
+  } catch {
+    await recordReconciliationOutcome(paymentRow.id, "failed", {
+      outcome: "paystack_unavailable",
+    });
+    sendJson(res, 502, { ok: false, message: "Unable to reach Paystack for payment verification." });
+    return;
+  }
+
+  if (!upstreamResponse.ok || upstreamData?.status === false) {
+    await recordReconciliationOutcome(paymentRow.id, "failed", {
+      outcome: "paystack_verification_failed",
+      provider_status: upstreamData?.status === false ? "rejected" : "unavailable",
+    });
+    sendJson(res, upstreamResponse.status || 502, {
+      ok: false,
+      message: "Paystack could not verify the payment reference.",
+    });
+    return;
+  }
+
+  const paystackData = upstreamData?.data ?? {};
+  const validation = validatePaystackSuccessfulTransaction(paymentRow, paystackData, reference, "order");
+  if (!validation.ok) {
+    await recordReconciliationOutcome(paymentRow.id, "failed", {
+      outcome: "persisted_payment_validation_failed",
+    });
+    sendJson(res, 400, { ok: false, message: validation.message });
+    return;
+  }
+
+  try {
+    await recordPaymentEvent(paymentRow.id, {
+      provider_event_type: "admin_reconcile",
+      provider_reference: reference,
+      status: "processing",
+      payload: {
+        source: "admin_payment_reconcile",
+        admin_id: authResult.user.id,
+        outcome: "processing",
+      },
+    });
+
+    const initialOrderResult = await loadOrderBundle(paymentRow.order_id);
+    if (!initialOrderResult.ok || !initialOrderResult.order) {
+      throw new Error("The persisted payment order could not be loaded.");
+    }
+    const initialOrder = initialOrderResult.order;
+
+    let reconciledPayment = paymentRow;
+    if (normalizePaymentStatus(paymentRow.status) !== "successful") {
+      reconciledPayment = await updatePaymentRow(paymentRow.id, {
+        status: "successful",
+        amount: Number(paystackData.amount) / 100,
+        amount_minor: Math.round(Number(paystackData.amount)),
+        currency: clean(paystackData.currency).toUpperCase(),
+        paid_at: paystackData.paid_at ?? new Date().toISOString(),
+      });
+    }
+
+    await syncCheckoutPaymentStatus(paymentRow.order_id, "paid", reconciledPayment.amount, false);
+
+    const [persistedPayment, orderResult, balanceNotice] = await Promise.all([
+      getPaymentByReference(reference),
+      loadOrderBundle(paymentRow.order_id),
+      loadAdminOrderPaymentNotice(paymentRow.order_id),
+    ]);
+    if (!persistedPayment || !orderResult.ok || !orderResult.order || !balanceNotice.ok) {
+      throw new Error("The reconciled payment state could not be reloaded.");
+    }
+
+    const expectedPaymentStatus = balanceNotice.accounting.outstanding <= 0 ? "paid" : "pending";
+    const persistedPaymentStatus = clean(orderResult.order.payment_status).toLowerCase();
+    if (persistedPaymentStatus !== expectedPaymentStatus) {
+      throw new Error("The persisted order payment status did not match its verified balance.");
+    }
+
+    if (clean(initialOrder.shippingPaymentMode || initialOrder.shipping_payment_mode).toLowerCase() === "pay_later"
+      && clean(initialOrder.shippingPaymentStatus || initialOrder.shipping_payment_status).toLowerCase() === "outstanding"
+      && clean(orderResult.order.shippingPaymentStatus || orderResult.order.shipping_payment_status).toLowerCase() !== "outstanding") {
+      throw new Error("The deferred shipping payment status changed unexpectedly.");
+    }
+
+    const successAuditRecorded = await recordReconciliationOutcome(paymentRow.id, "successful", {
+      outcome: "reconciled",
+      expected_payment_status: expectedPaymentStatus,
+      persisted_payment_status: persistedPaymentStatus,
+    });
+    if (!successAuditRecorded) {
+      throw new Error("The reconciliation success audit could not be recorded.");
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      payment: persistedPayment,
+      order: orderResult.order,
+      reconciliation: {
+        reference,
+        paymentStatus: persistedPayment.status,
+        orderPaymentStatus: orderResult.order.payment_status,
+        orderStatus: orderResult.order.status,
+        shippingPaymentStatus: orderResult.order.shipping_payment_status,
+      },
+    });
+  } catch (error) {
+    const safeError = getSafeReconciliationError(error);
+    console.error("Payment reconciliation failed:", JSON.stringify({
+      ...safeError,
+      paymentId: paymentRow.id,
+      orderId: paymentRow.order_id,
+    }));
+    await recordReconciliationOutcome(paymentRow.id, "failed", {
+      outcome: "reconciliation_failed",
+      error_code: safeError.code,
+    });
+    sendJson(res, 500, {
+      ok: false,
+      message: "Payment reconciliation could not be completed. Please retry.",
+    });
+  }
 }
 
 async function handleGenerateProductContent(req, res) {
@@ -6338,6 +6538,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/order-payment-notice" && (req.method === "GET" || req.method === "POST")) {
     await handleAdminOrderPaymentNotice(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/payments/reconcile" && req.method === "POST") {
+    await handleAdminPaymentReconcile(req, res);
     return;
   }
 
