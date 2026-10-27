@@ -19,6 +19,7 @@ import {
   buildAccountSetupEmail,
   buildGuestAccountSetupNotification,
 } from "./server/services/accountSetupEmail.js";
+import { validateReconciliationState } from "./server/services/paymentReconciliationState.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
@@ -2322,7 +2323,7 @@ async function handleAdminShippingPaymentNotice(req, res) {
 async function loadAdminOrderPaymentNotice(orderId) {
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
-    .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, shipping_address_snapshot, total, amount_due_now, payment_status, status")
+    .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, shipping_address_snapshot, total, amount_due_now, payment_status, shipping_payment_mode, shipping_payment_status, status")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -2338,7 +2339,7 @@ async function loadAdminOrderPaymentNotice(orderId) {
     ? (() => {
         const query = supabaseAdmin
           .from("orders")
-          .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, shipping_address_snapshot, total, amount_due_now, payment_status, status")
+          .select("id, checkout_group_id, order_number, user_id, customer_name, customer_email, guest_email, shipping_address_snapshot, total, amount_due_now, payment_status, shipping_payment_mode, shipping_payment_status, status")
           .eq("checkout_group_id", order.checkout_group_id);
         return order.user_id ? query.eq("user_id", order.user_id) : query.is("user_id", null);
       })()
@@ -3696,19 +3697,13 @@ async function handleAdminPaymentReconcile(req, res) {
       throw new Error("The reconciled payment state could not be reloaded.");
     }
 
-    const expectedPaymentStatus = balanceNotice.accounting.outstanding <= 0 ? "paid" : "pending";
-    // loadOrderBundle returns the mapped camelCase view; use the fresh raw
-    // order from the canonical balance query for persisted-state validation.
-    const persistedPaymentStatus = clean(balanceNotice.order.payment_status).toLowerCase();
-    if (persistedPaymentStatus !== expectedPaymentStatus) {
-      throw new Error("The persisted order payment status did not match its verified balance.");
+    // loadOrderBundle returns the mapped camelCase view; the balance query
+    // retains raw persisted fields for reconciliation-state validation.
+    const reconciliationState = validateReconciliationState(balanceNotice, initialOrder);
+    if (!reconciliationState.ok) {
+      throw new Error(reconciliationState.message);
     }
-
-    if (clean(initialOrder.shippingPaymentMode || initialOrder.shipping_payment_mode).toLowerCase() === "pay_later"
-      && clean(initialOrder.shippingPaymentStatus || initialOrder.shipping_payment_status).toLowerCase() === "outstanding"
-      && clean(balanceNotice.order.shipping_payment_status).toLowerCase() !== "outstanding") {
-      throw new Error("The deferred shipping payment status changed unexpectedly.");
-    }
+    const { expectedPaymentStatus, persistedPaymentStatus } = reconciliationState;
 
     const successAuditRecorded = await recordReconciliationOutcome(paymentRow.id, "successful", {
       outcome: "reconciled",

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { validateReconciliationState } from "./services/paymentReconciliationState.js";
 
 const serverSource = await readFile(new URL("../server.js", import.meta.url), "utf8");
 const endpointStart = serverSource.indexOf("async function handleAdminPaymentReconcile(");
@@ -42,9 +43,9 @@ test("reconciliation returns persisted payment, order, and shipping statuses", (
   assert.match(endpointSource, /paymentStatus: persistedPayment\.status/);
   assert.match(endpointSource, /shippingPaymentStatus: orderResult\.order\.shipping_payment_status/);
   assert.match(serverSource, /select\("id, payment_status, status"\)[\r\n]+\s+\.single\(\)/);
-  assert.match(endpointSource, /expectedPaymentStatus = balanceNotice\.accounting\.outstanding <= 0 \? "paid" : "pending"/);
-  assert.match(endpointSource, /persistedPaymentStatus = clean\(balanceNotice\.order\.payment_status\)/);
-  assert.match(endpointSource, /persistedPaymentStatus !== expectedPaymentStatus/);
+  assert.match(serverSource, /payment_status, shipping_payment_mode, shipping_payment_status, status/);
+  assert.match(endpointSource, /validateReconciliationState\(balanceNotice, initialOrder\)/);
+  assert.match(endpointSource, /persistedPaymentStatus/);
 });
 
 test("reconciliation preserves deferred shipping and zero-row failure handling", () => {
@@ -68,13 +69,66 @@ test("payment event audit upsert matches the production uniqueness index", () =>
 
 test("already-reconciled guest orders validate raw persisted status while keeping shipping separate", () => {
   assert.match(endpointSource, /loadAdminOrderPaymentNotice\(paymentRow\.order_id\)/);
-  assert.match(endpointSource, /balanceNotice\.order\.payment_status/);
-  assert.match(endpointSource, /balanceNotice\.order\.shipping_payment_status/);
-  assert.match(endpointSource, /shipping_payment_mode.*pay_later/s);
+  assert.match(endpointSource, /validateReconciliationState\(balanceNotice, initialOrder\)/);
+  assert.match(serverSource, /shipping_payment_mode, shipping_payment_status, status/);
 });
 
 test("partial product payments remain pending even when shipping is separately payable", () => {
-  assert.match(endpointSource, /expectedPaymentStatus = balanceNotice\.accounting\.outstanding <= 0 \? "paid" : "pending"/);
   assert.match(serverSource, /payment_purpose\)\.toLowerCase\(\) !== "order"/);
   assert.match(serverSource, /shippingPaymentStatus/);
+});
+
+test("validates the raw Supabase order shape for a fully paid deferred-shipping order", () => {
+  assert.deepEqual(validateReconciliationState({
+    ok: true,
+    accounting: { outstanding: 0 },
+    order: { payment_status: "paid", shipping_payment_status: "outstanding" },
+  }, {
+    shipping_payment_mode: "pay_later",
+    shipping_payment_status: "outstanding",
+  }), {
+    ok: true,
+    expectedPaymentStatus: "paid",
+    persistedPaymentStatus: "paid",
+    persistedShippingStatus: "outstanding",
+  });
+});
+
+test("accepts the mapped initial order while validating raw persisted shipping fields", () => {
+  const result = validateReconciliationState({
+    ok: true,
+    accounting: { outstanding: 0 },
+    order: { payment_status: "paid", shipping_payment_status: "outstanding" },
+  }, {
+    shippingPaymentMode: "pay_later",
+    shippingPaymentStatus: "outstanding",
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.persistedShippingStatus, "outstanding");
+});
+
+test("keeps a partial product balance pending without treating deferred shipping as product debt", () => {
+  const result = validateReconciliationState({
+    ok: true,
+    accounting: { outstanding: 0.2 },
+    order: { payment_status: "pending", shipping_payment_status: "outstanding" },
+  }, {
+    shippingPaymentMode: "pay_later",
+    shippingPaymentStatus: "outstanding",
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.expectedPaymentStatus, "pending");
+});
+
+test("rejects a changed deferred-shipping status without removing the validation", () => {
+  const result = validateReconciliationState({
+    ok: true,
+    accounting: { outstanding: 0 },
+    order: { payment_status: "paid", shipping_payment_status: "paid" },
+  }, {
+    shippingPaymentMode: "pay_later",
+    shippingPaymentStatus: "outstanding",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "shipping_status_mismatch");
 });
