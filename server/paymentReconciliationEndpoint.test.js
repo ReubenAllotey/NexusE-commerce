@@ -43,6 +43,7 @@ test("reconciliation returns persisted payment, order, and shipping statuses", (
   assert.match(endpointSource, /shippingPaymentStatus: orderResult\.order\.shipping_payment_status/);
   assert.match(serverSource, /select\("id, payment_status, status"\)[\r\n]+\s+\.single\(\)/);
   assert.match(endpointSource, /expectedPaymentStatus = balanceNotice\.accounting\.outstanding <= 0 \? "paid" : "pending"/);
+  assert.match(endpointSource, /persistedPaymentStatus = clean\(balanceNotice\.order\.payment_status\)/);
   assert.match(endpointSource, /persistedPaymentStatus !== expectedPaymentStatus/);
 });
 
@@ -63,4 +64,17 @@ test("payment event audit upsert matches the production uniqueness index", () =>
   assert.match(serverSource, /status: "processing"/);
   assert.match(serverSource, /status: "successful"/);
   assert.match(serverSource, /status: "failed"/);
+});
+
+test("already-reconciled guest orders validate raw persisted status while keeping shipping separate", () => {
+  assert.match(endpointSource, /loadAdminOrderPaymentNotice\(paymentRow\.order_id\)/);
+  assert.match(endpointSource, /balanceNotice\.order\.payment_status/);
+  assert.match(endpointSource, /balanceNotice\.order\.shipping_payment_status/);
+  assert.match(endpointSource, /shipping_payment_mode.*pay_later/s);
+});
+
+test("partial product payments remain pending even when shipping is separately payable", () => {
+  assert.match(endpointSource, /expectedPaymentStatus = balanceNotice\.accounting\.outstanding <= 0 \? "paid" : "pending"/);
+  assert.match(serverSource, /payment_purpose\)\.toLowerCase\(\) !== "order"/);
+  assert.match(serverSource, /shippingPaymentStatus/);
 });

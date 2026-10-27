@@ -3697,14 +3697,16 @@ async function handleAdminPaymentReconcile(req, res) {
     }
 
     const expectedPaymentStatus = balanceNotice.accounting.outstanding <= 0 ? "paid" : "pending";
-    const persistedPaymentStatus = clean(orderResult.order.payment_status).toLowerCase();
+    // loadOrderBundle returns the mapped camelCase view; use the fresh raw
+    // order from the canonical balance query for persisted-state validation.
+    const persistedPaymentStatus = clean(balanceNotice.order.payment_status).toLowerCase();
     if (persistedPaymentStatus !== expectedPaymentStatus) {
       throw new Error("The persisted order payment status did not match its verified balance.");
     }
 
     if (clean(initialOrder.shippingPaymentMode || initialOrder.shipping_payment_mode).toLowerCase() === "pay_later"
       && clean(initialOrder.shippingPaymentStatus || initialOrder.shipping_payment_status).toLowerCase() === "outstanding"
-      && clean(orderResult.order.shippingPaymentStatus || orderResult.order.shipping_payment_status).toLowerCase() !== "outstanding") {
+      && clean(balanceNotice.order.shipping_payment_status).toLowerCase() !== "outstanding") {
       throw new Error("The deferred shipping payment status changed unexpectedly.");
     }
 
