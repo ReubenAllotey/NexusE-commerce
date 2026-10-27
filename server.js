@@ -4213,7 +4213,7 @@ async function handleInitialize(req, res) {
     }
 
     const requestBody = {
-      email: clean(notice.order.customer_email),
+      email: clean(notice.order.customer_email || notice.order.guest_email),
       amount: Math.round(amount * 100),
       currency: "GHS",
       callback_url: callbackUrl,

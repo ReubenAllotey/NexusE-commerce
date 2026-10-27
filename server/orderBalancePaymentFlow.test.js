@@ -34,6 +34,14 @@ test("payment page hydrates empty-cart reminder links from the backend", () => {
   assert.match(paymentSource, /loadOrderBalancePaymentContext\(paymentIntent\.orderId, paymentIntent\.token\)/);
   assert.match(paymentSource, /Number\(orderBalanceContext\?\.amountDueNow\) \|\| 0/);
   assert.match(paymentSource, /paymentIntent\?\.purpose !== "order-balance"/);
+  assert.match(
+    paymentSource,
+    /!isShippingBalancePayment && !isOrderBalancePayment && \(!shippingAddress \|\| cartRows\.length === 0\)/,
+  );
+  assert.doesNotMatch(
+    paymentSource,
+    /if \(!isShippingBalancePayment && \(!shippingAddress \|\| cartRows\.length === 0\)\)/,
+  );
 });
 
 test("order-balance initialization remains separate from shipping payments", () => {

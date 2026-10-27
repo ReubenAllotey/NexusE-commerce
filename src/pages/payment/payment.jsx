@@ -870,7 +870,9 @@ function PaymentCheckout({
     }
   }
 
-  if (!isShippingBalancePayment && (!shippingAddress || cartRows.length === 0)) {
+  // Existing-order reminder payments are hydrated from the signed link and
+  // must not depend on cart or delivery-address checkout state.
+  if (!isShippingBalancePayment && !isOrderBalancePayment && (!shippingAddress || cartRows.length === 0)) {
     return <Navigate to="/shipping-address" replace />;
   }
 
