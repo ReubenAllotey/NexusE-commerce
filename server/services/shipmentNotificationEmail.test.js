@@ -10,6 +10,7 @@ test("shipping payment reminder is branded, item-payment separate, and escaped",
   const email = buildShippingPaymentRequiredEmail({
     customerName: "<Guest Customer>",
     orderNumber: "NX-SHIP-001",
+    items: [{ productName: "<Phone>", quantity: 2 }],
     outstanding: 125.5,
     appUrl: "https://example.invalid",
     actionUrl: "/payment?purpose=shipping-balance&orderId=fictional-order",
@@ -19,6 +20,9 @@ test("shipping payment reminder is branded, item-payment separate, and escaped",
   assert.match(email.text, /GH₵125\.50/);
   assert.match(email.html, /&lt;Guest Customer&gt;/);
   assert.match(email.html, /\/payment\?purpose=shipping-balance&amp;orderId=fictional-order/);
+  assert.match(email.text, /Pay Shipping Balance Now/);
+  assert.match(email.html, /Pay Shipping Balance Now/);
+  assert.match(email.html, /&lt;Phone&gt; \(Qty 2\)/);
   assert.doesNotMatch(email.html, /Paystack/);
 });
 

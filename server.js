@@ -3101,6 +3101,7 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
     const shippingReminder = buildShippingPaymentRequiredEmail({
       customerName,
       orderNumber: orderResult.order?.order_number || notification.order_id,
+      items: orderResult.items,
       outstanding: accounting.outstandingShipping,
       appUrl,
       // Generate the short-lived shipping token when the queue job is sent,
@@ -3817,8 +3818,9 @@ async function handleAdminPaymentReconcile(req, res) {
     return;
   }
 
-  if (getReceiptPaymentPurpose(paymentRow) !== "order" || !paymentRow.order_id) {
-    sendJson(res, 409, { ok: false, message: "Only persisted product-order payments can be reconciled here." });
+  const paymentPurpose = getReceiptPaymentPurpose(paymentRow);
+  if (!paymentPurpose || !paymentRow.order_id) {
+    sendJson(res, 409, { ok: false, message: "The persisted payment has no supported payment purpose." });
     return;
   }
 
@@ -3853,12 +3855,87 @@ async function handleAdminPaymentReconcile(req, res) {
   }
 
   const paystackData = upstreamData?.data ?? {};
-  const validation = validatePaystackSuccessfulTransaction(paymentRow, paystackData, reference, "order");
+  const validation = validatePaystackSuccessfulTransaction(paymentRow, paystackData, reference, paymentPurpose);
   if (!validation.ok) {
     await recordReconciliationOutcome(paymentRow.id, "failed", {
       outcome: "persisted_payment_validation_failed",
     });
     sendJson(res, 400, { ok: false, message: validation.message });
+    return;
+  }
+
+  if (paymentPurpose === "shipping") {
+    try {
+      await recordPaymentEvent(paymentRow.id, {
+        provider_event_type: "admin_reconcile",
+        provider_reference: reference,
+        status: "processing",
+        payload: {
+          source: "admin_shipping_payment_reconcile",
+          admin_id: authResult.user.id,
+          outcome: "processing",
+        },
+      });
+
+      const { data: finalizedShipping, error: shippingFinalizeError } = await supabaseAdmin.rpc("finalize_shipping_payment", {
+        p_payment_id: paymentRow.id,
+        p_verified_amount: Number(paystackData.amount) / 100,
+        p_verified_currency: clean(paystackData.currency).toUpperCase(),
+      });
+      if (shippingFinalizeError) throw shippingFinalizeError;
+
+      if (finalizedShipping?.already_finalized || finalizedShipping?.alreadyFinalized) {
+        const { error: shippingSyncError } = await supabaseAdmin.rpc("reconcile_successful_shipping_payment_order", {
+          p_payment_id: paymentRow.id,
+        });
+        if (shippingSyncError) throw shippingSyncError;
+      }
+
+      const [persistedPayment, orderContext] = await Promise.all([
+        getPaymentByReference(reference),
+        loadShippingPaymentDetails(paymentRow.order_id),
+      ]);
+      if (!persistedPayment || normalizePaymentStatus(persistedPayment.status) !== "successful" || !orderContext.ok) {
+        throw new Error("The verified shipping payment state could not be reloaded.");
+      }
+      if (orderContext.accounting.outstandingShipping > 0 || orderContext.accounting.status !== "paid") {
+        throw new Error("The verified shipping payment did not settle the persisted shipping balance.");
+      }
+
+      const auditRecorded = await recordReconciliationOutcome(paymentRow.id, "successful", {
+        outcome: "shipping_reconciled",
+        persisted_payment_status: persistedPayment.status,
+        persisted_shipping_payment_status: orderContext.order.shipping_payment_status,
+      });
+      if (!auditRecorded) throw new Error("The reconciliation success audit could not be recorded.");
+
+      sendJson(res, 200, {
+        ok: true,
+        payment: persistedPayment,
+        order: orderContext.order,
+        reconciliation: {
+          reference,
+          paymentStatus: persistedPayment.status,
+          shippingPaymentStatus: orderContext.order.shipping_payment_status,
+          shippingOutstanding: orderContext.accounting.outstandingShipping,
+        },
+      });
+    } catch (error) {
+      const safeError = getSafeReconciliationError(error);
+      console.error("Shipping payment reconciliation failed:", JSON.stringify({
+        ...safeError,
+        paymentId: paymentRow.id,
+        orderId: paymentRow.order_id,
+      }));
+      await recordReconciliationOutcome(paymentRow.id, "failed", {
+        outcome: "shipping_reconciliation_failed",
+        error_code: safeError.code,
+      });
+      sendJson(res, 500, {
+        ok: false,
+        message: "Shipping payment reconciliation could not be completed. Please retry.",
+      });
+    }
     return;
   }
 
@@ -5783,6 +5860,15 @@ async function handleVerify(req, res, reference) {
         });
         return;
       }
+      if (finalizedShipping?.already_finalized || finalizedShipping?.alreadyFinalized) {
+        const { error: shippingSyncError } = await supabaseAdmin.rpc("reconcile_successful_shipping_payment_order", {
+          p_payment_id: paymentRow.id,
+        });
+        if (shippingSyncError) {
+          sendJson(res, 409, { ok: false, message: "The shipping payment was verified but the order status could not be synchronized safely." });
+          return;
+        }
+      }
 
       const refreshedPayment = await getPaymentByReference(cleanReference);
       updatedPayment = refreshedPayment ?? paymentRow;
@@ -6043,15 +6129,20 @@ async function handleReceiptPdf(req, res, reference) {
     return;
   }
 
+  const shippingToken = clean(req.headers["x-shipping-payment-token"] || req.headers["x-payment-reminder-token"]);
+  const guestShippingAccess = paymentRow.payment_purpose === "shipping"
+    && verifyShippingPaymentReminderToken(shippingToken, paymentRow.order_id);
   const authResult = await getAuthenticatedUser(req).catch(() => ({ ok: false, user: null }));
-  if (!authResult.ok || !authResult.user) {
+  if ((!authResult.ok || !authResult.user) && !guestShippingAccess) {
     sendJson(res, 401, { ok: false, message: "Please sign in to view this receipt." });
     return;
   }
 
-  const profileResult = await loadProfile(authResult.user.id).catch(() => null);
+  const profileResult = authResult.user
+    ? await loadProfile(authResult.user.id).catch(() => null)
+    : null;
   const isAdmin = profileResult?.profile ? isActiveAdminProfile(profileResult.profile) : false;
-  if (!isAdmin && clean(paymentRow.user_id) !== clean(authResult.user.id)) {
+  if (!guestShippingAccess && !isAdmin && clean(paymentRow.user_id) !== clean(authResult.user?.id)) {
     sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
     return;
   }
@@ -6065,14 +6156,14 @@ async function handleReceiptPdf(req, res, reference) {
 
   const orderUserId = clean(orderResult.order.customerId ?? orderResult.order.customer_id ?? orderResult.order.userId ?? orderResult.order.user_id);
 
-  if (!isAdmin && (!orderUserId || orderUserId !== authResult.user.id)) {
+  if (!guestShippingAccess && !isAdmin && (!orderUserId || orderUserId !== authResult.user?.id)) {
     sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
     return;
   }
 
   let receiptOrders = [orderResult];
   const checkoutGroupId = clean(orderResult.order.checkout_group_id);
-  if (checkoutGroupId) {
+  if (checkoutGroupId && !guestShippingAccess) {
     const { data: linkedOrders, error: linkedOrderError } = await supabaseAdmin
       .from("orders")
       .select("id, user_id")
@@ -6223,7 +6314,7 @@ async function handleWebhook(req, res) {
         if (isShippingPayment) {
           const verifiedAmount = Number(event?.data?.amount ?? paymentRow.amount_minor ?? 0) / 100;
           const verifiedCurrency = clean(event?.data?.currency || paymentRow.currency || "GHS").toUpperCase();
-          const { error: shippingFinalizeError } = await supabaseAdmin.rpc("finalize_shipping_payment", {
+          const { data: shippingFinalizeResult, error: shippingFinalizeError } = await supabaseAdmin.rpc("finalize_shipping_payment", {
             p_payment_id: paymentRow.id,
             p_verified_amount: verifiedAmount,
             p_verified_currency: verifiedCurrency,
@@ -6231,6 +6322,15 @@ async function handleWebhook(req, res) {
           if (shippingFinalizeError) {
             sendJson(res, 500, { ok: false, message: shippingFinalizeError.message || "Shipping payment finalization failed." });
             return;
+          }
+          if (shippingFinalizeResult?.already_finalized || shippingFinalizeResult?.alreadyFinalized) {
+            const { error: shippingSyncError } = await supabaseAdmin.rpc("reconcile_successful_shipping_payment_order", {
+              p_payment_id: paymentRow.id,
+            });
+            if (shippingSyncError) {
+              sendJson(res, 500, { ok: false, message: "The shipping payment was verified but the order status could not be synchronized safely." });
+              return;
+            }
           }
           const refreshedPayment = await getPaymentByReference(reference);
           const orderResult = await loadOrderBundle(paymentRow.order_id);

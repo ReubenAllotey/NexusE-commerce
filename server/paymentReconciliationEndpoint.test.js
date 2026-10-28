@@ -17,11 +17,14 @@ test("reconciliation is restricted to authenticated active administrators", () =
   assert.match(serverSource.slice(routeStart, routeStart + 180), /req\.method === "POST"/);
 });
 
-test("reconciliation verifies Paystack against the persisted product payment", () => {
+test("reconciliation verifies Paystack against the persisted payment purpose", () => {
   assert.match(endpointSource, /getPaymentByReference\(reference\)/);
   assert.match(endpointSource, /transaction\/verify/);
-  assert.match(endpointSource, /validatePaystackSuccessfulTransaction\(paymentRow, paystackData, reference, "order"\)/);
-  assert.match(endpointSource, /getReceiptPaymentPurpose\(paymentRow\) !== "order"/);
+  assert.match(endpointSource, /const paymentPurpose = getReceiptPaymentPurpose\(paymentRow\)/);
+  assert.match(endpointSource, /validatePaystackSuccessfulTransaction\(paymentRow, paystackData, reference, paymentPurpose\)/);
+  assert.match(endpointSource, /if \(paymentPurpose === "shipping"\)/);
+  assert.match(endpointSource, /finalize_shipping_payment/);
+  assert.match(endpointSource, /shipping_reconciled/);
   assert.doesNotMatch(endpointSource, /body\.(orderId|amount|currency|paymentPurpose)/);
 });
 
@@ -65,6 +68,21 @@ test("payment event audit upsert matches the production uniqueness index", () =>
   assert.match(serverSource, /status: "processing"/);
   assert.match(serverSource, /status: "successful"/);
   assert.match(serverSource, /status: "failed"/);
+});
+
+test("shipping finalization has no unauthenticated or unverified entry point", () => {
+  const verifyStart = serverSource.indexOf("async function handleVerify(");
+  const webhookStart = serverSource.indexOf("async function handleWebhook(");
+  const verifySource = serverSource.slice(verifyStart, webhookStart);
+  const webhookSource = serverSource.slice(webhookStart, serverSource.indexOf("async function handleHealth", webhookStart));
+
+  assert.match(verifySource, /validatePaystackSuccessfulTransaction\(/);
+  assert.match(verifySource, /verifyShippingPaymentReminderToken|verifyGuestCheckoutAccessToken/);
+  assert.match(webhookSource, /x-paystack-signature/);
+  assert.match(webhookSource, /crypto\.timingSafeEqual/);
+  assert.match(webhookSource, /validatePaystackSuccessfulTransaction\(/);
+  assert.match(endpointSource, /getAuthenticatedUser\(req\)/);
+  assert.match(endpointSource, /isActiveAdminProfile\(profileResult\.profile\)/);
 });
 
 test("already-reconciled guest orders validate raw persisted status while keeping shipping separate", () => {

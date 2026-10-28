@@ -32,6 +32,18 @@ const shippingLeaseMigration = await readFile(
   new URL("../supabase/migrations/20261027_0046_shipping_payment_initialization_lease.sql", import.meta.url),
   "utf8",
 );
+const shippingReconcileMigration = await readFile(
+  new URL("../supabase/migrations/20261028_0047_reconcile_successful_shipping_payment_order.sql", import.meta.url),
+  "utf8",
+);
+const shippingFinalizeRecoveryMigration = await readFile(
+  new URL("../supabase/migrations/20261028_0048_finalize_successful_shipping_payment_allocation.sql", import.meta.url),
+  "utf8",
+);
+const shippingPreMigrationAudit = await readFile(
+  new URL("../supabase/queries/audit_shipping_allocations_pre_migration.sql", import.meta.url),
+  "utf8",
+);
 
 test("order-balance context is token-protected and server-calculated", () => {
   assert.ok(serverSource.includes('pathname === "/api/payments/order-balance"'));
@@ -141,6 +153,74 @@ test("shipping success verification uses its dedicated token without changing pr
   assert.match(serverSource, /finalize_shipping_payment/);
   assert.match(paymentSource, /paymentPurpose === "shipping-balance"/);
   assert.match(paymentSource, /paymentStatus: serverPayment.status/);
+  assert.match(paymentSource, /callbackUrl: getCallbackUrl\(paymentIntent\)/);
+  assert.match(serverSource, /reconcile_successful_shipping_payment_order/);
+});
+
+test("shipping success amount display uses the shipping principal, not the order total", () => {
+  assert.match(paymentSource, /paymentPurpose === "shipping-balance"\s*\? session\?\.shippingBalanceDue/);
+  assert.match(paymentSource, /paymentPurpose === "shipping-balance"\s*\n\s*\? Number\(session\?\.shippingBalanceDue\)/);
+  assert.doesNotMatch(paymentSource, /amountPaid: Number\(serverPayment\.amount\) \|\| summaryTotal/);
+});
+
+test("shipping receipt access is scoped to a valid guest token and remains authenticated for registered users", () => {
+  assert.match(serverSource, /guestShippingAccess = paymentRow\.payment_purpose === "shipping"/);
+  assert.match(serverSource, /verifyShippingPaymentReminderToken\(shippingToken, paymentRow\.order_id\)/);
+  assert.match(serverSource, /X-Shipping-Payment-Token|x-shipping-payment-token/);
+  assert.match(paymentSource, /X-Shipping-Payment-Token/);
+});
+
+test("successful shipping reconciliation recalculates locked item accounting without touching product payment", () => {
+  assert.match(shippingReconcileMigration, /security definer/);
+  assert.match(shippingReconcileMigration, /set search_path = ''/);
+  assert.match(shippingReconcileMigration, /for update/);
+  assert.match(shippingReconcileMigration, /shipping_payment_status = v_next_status/);
+  assert.doesNotMatch(shippingReconcileMigration, /\n\s*payment_status\s*=/);
+  assert.match(shippingReconcileMigration, /grant execute .* to service_role/);
+});
+
+test("shipping finalization allocates pending and stale-successful payments exactly once", () => {
+  assert.match(shippingFinalizeRecoveryMigration, /create table public\.shipping_payment_allocations/);
+  assert.match(shippingFinalizeRecoveryMigration, /constraint shipping_payment_allocations_payment_unique unique \(payment_id\)/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_existing_allocation public\.shipping_payment_allocations%rowtype/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_has_allocation boolean := false/);
+  assert.match(shippingFinalizeRecoveryMigration, /where payment_id = v_payment\.id[\s\S]*?for update/);
+  assert.match(shippingFinalizeRecoveryMigration, /if v_has_allocation then/);
+  assert.match(shippingFinalizeRecoveryMigration, /Shipping payment allocation history requires manual reconciliation/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_remaining := v_verified_amount/);
+  assert.match(shippingFinalizeRecoveryMigration, /set shipping_paid_amount = least\(/);
+  assert.match(shippingFinalizeRecoveryMigration, /insert into public\.shipping_payment_allocations/);
+  assert.match(shippingFinalizeRecoveryMigration, /set status = 'successful'/);
+  assert.match(shippingFinalizeRecoveryMigration, /'alreadyFinalized', v_has_allocation/);
+  assert.match(shippingFinalizeRecoveryMigration, /from public\.payments[\s\S]*?for update/);
+  assert.match(shippingFinalizeRecoveryMigration, /from public\.orders[\s\S]*?for update/);
+  assert.match(shippingFinalizeRecoveryMigration, /from public\.order_items[\s\S]*?for update/);
+  assert.doesNotMatch(shippingFinalizeRecoveryMigration, /insert\s+into\s+public\.payments/i);
+});
+
+test("shipping allocation ledger binds retries and preserves product payments", () => {
+  assert.match(shippingFinalizeRecoveryMigration, /payment_id uuid not null references public\.payments\(id\) on delete restrict/);
+  assert.match(shippingFinalizeRecoveryMigration, /order_id uuid not null references public\.orders\(id\) on delete restrict/);
+  assert.match(shippingFinalizeRecoveryMigration, /amount_minor bigint not null check \(amount_minor > 0\)/);
+  assert.match(shippingFinalizeRecoveryMigration, /revoke all on table public\.shipping_payment_allocations from public, anon, authenticated, service_role/);
+  assert.match(shippingFinalizeRecoveryMigration, /alter table public\.shipping_payment_allocations enable row level security/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_existing_allocation\.amount_minor <> v_verified_amount_minor/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_existing_allocation\.order_id <> v_payment\.order_id/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_payment\.amount_minor <> v_verified_amount_minor/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_verified_amount \* 100/);
+  assert.match(shippingFinalizeRecoveryMigration, /v_untracked_successful_payment_id uuid/);
+  assert.match(shippingFinalizeRecoveryMigration, /not exists \([\s\S]*?shipping_payment_allocations/);
+  assert.match(shippingFinalizeRecoveryMigration, /historical successful shipping payment requires manual reconciliation/);
+  assert.match(shippingFinalizeRecoveryMigration, /shipping_payment_status = v_next_status/);
+  assert.doesNotMatch(shippingFinalizeRecoveryMigration, /\n\s*payment_status\s*=/);
+});
+
+test("pre-migration shipping audit uses only existing payment and item tables", () => {
+  assert.doesNotMatch(shippingPreMigrationAudit, /shipping_payment_allocations/);
+  assert.match(shippingPreMigrationAudit, /successful_amount_minor/);
+  assert.match(shippingPreMigrationAudit, /aggregate_matches_but_payment_mapping_unproven/);
+  assert.match(shippingPreMigrationAudit, /successful_payment_not_reflected_in_items/);
+  assert.match(shippingPreMigrationAudit, /partial_or_ambiguous_manual_review/);
 });
 
 test("reminder verification remains token-bound even if Paystack metadata is incomplete", () => {

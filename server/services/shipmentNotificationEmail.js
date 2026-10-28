@@ -23,6 +23,7 @@ function resolveAppUrl(appUrl) {
 export function buildShippingPaymentRequiredEmail({
   customerName,
   orderNumber,
+  items = [],
   outstanding,
   appUrl,
   actionUrl,
@@ -30,12 +31,21 @@ export function buildShippingPaymentRequiredEmail({
   const name = clean(customerName) || "Customer";
   const number = clean(orderNumber) || "your order";
   const amount = formatCedis(outstanding);
+  const itemLines = (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const name = clean(item?.productName || item?.product_name) || "Product";
+      const quantity = Number(item?.quantity) > 0 ? Number(item.quantity) : null;
+      return quantity ? `${name} (Qty ${quantity})` : name;
+    })
+    .filter(Boolean);
+  const products = itemLines.length > 0 ? itemLines.join(", ") : "Your order items";
   const orderUrl = clean(actionUrl).startsWith("http")
     ? clean(actionUrl)
     : `${resolveAppUrl(appUrl)}${clean(actionUrl) || "/profile/orders"}`;
   const subject = `Shipping payment required for order ${number}`;
-  const text = `Dear ${name},\n\nYour order ${number} has an outstanding shipping payment of ${amount}. Please complete this payment so we can continue processing your delivery.\n\nView your order: ${orderUrl}\n\nNexus Import Hub\nShop Beyond Borders. We Handle the Rest.`;
-  const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033;max-width:640px"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>Dear ${escapeHtml(name)},</p><h1 style="color:#0240CD;font-size:22px">Shipping payment required</h1><p>Your order <strong>${escapeHtml(number)}</strong> has an outstanding shipping payment of <strong style="color:#F74F00">${escapeHtml(amount)}</strong>.</p><p>Please complete this payment so we can continue processing your delivery.</p><p><a href="${escapeHtml(orderUrl)}" style="display:inline-block;background:#0240CD;color:#fff;padding:11px 18px;text-decoration:none;border-radius:6px">View Your Order</a></p><p style="color:#64748b">Shop Beyond Borders. We Handle the Rest.</p></div>`;
+  const text = `Dear ${name},\n\nYour order ${number} has an outstanding shipping balance of ${amount}.\n\nOrder details:\nProducts: ${products}\nOrder ID: ${number}\nOutstanding shipping balance: ${amount}\n\nPlease complete your shipping payment so we can continue processing your delivery.\n\nPay Shipping Balance Now: ${orderUrl}\n\nNexus Import Hub\nShop Beyond Borders. We Handle the Rest.`;
+  const htmlItems = itemLines.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033;max-width:640px"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>Dear ${escapeHtml(name)},</p><h1 style="color:#0240CD;font-size:22px">Shipping payment required</h1><p>Your order <strong>${escapeHtml(number)}</strong> has an outstanding shipping balance of <strong style="color:#F74F00">${escapeHtml(amount)}</strong>.</p><h3 style="color:#172033;margin-bottom:6px">Order details</h3><p style="margin-top:0"><strong>Order ID:</strong> ${escapeHtml(number)}<br><strong>Outstanding shipping balance:</strong> ${escapeHtml(amount)}</p><ul style="margin-top:0;padding-left:20px">${htmlItems || `<li>${escapeHtml(products)}</li>`}</ul><p>Please complete your shipping payment so we can continue processing your delivery.</p><p><a href="${escapeHtml(orderUrl)}" style="display:inline-block;background:#0240CD;color:#fff;padding:11px 18px;text-decoration:none;border-radius:6px">Pay Shipping Balance Now</a></p><p style="color:#64748b">Shop Beyond Borders. We Handle the Rest.</p></div>`;
   return { subject, text, html };
 }
 

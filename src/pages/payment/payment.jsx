@@ -685,7 +685,7 @@ function PaymentCheckout({
       if (!authUser) {
         const initResponse = await initializePaystackCheckout(
           {
-            callbackUrl: getCallbackUrl(),
+            callbackUrl: getCallbackUrl(paymentIntent),
             guestCheckout: true,
             guestCheckoutEmail: checkoutCustomerEmail,
             guestCheckoutName: checkoutCustomerName,
@@ -841,7 +841,7 @@ function PaymentCheckout({
 
       const initResponse = await initializePaystackCheckout(
         {
-          callbackUrl: getCallbackUrl(),
+          callbackUrl: getCallbackUrl(paymentIntent),
           orderId: pendingOrder.id,
           orderNumber: pendingOrder.orderNumber,
           paymentPurpose: isShippingBalancePayment ? "shipping-balance" : "order",
@@ -1370,7 +1370,10 @@ function PaymentStatusPage({
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [receiptError, setReceiptError] = useState("");
 
-  const amount = receiptRecord?.amountPaid ?? activeOrder?.total ?? session?.amount ?? session?.totals?.totalPrice ?? 0;
+  const amount = receiptRecord?.amountPaid
+    ?? (paymentPurpose === "shipping-balance"
+      ? session?.shippingBalanceDue ?? activeOrder?.shippingTotal ?? 0
+      : activeOrder?.total ?? session?.amount ?? session?.totals?.totalPrice ?? 0);
   const orderNumber = receiptRecord?.orderNumber ?? activeOrder?.orderNumber ?? session?.orderNumber ?? "ORD-PENDING";
   const paymentReference = reference || session?.paymentReference || receiptRecord?.paymentReference || "PAY-PENDING";
   const methodLabel = receiptRecord?.paymentNetwork
@@ -1508,7 +1511,10 @@ function PaymentStatusPage({
             paymentNetwork: serverPayment.payment_network ?? session?.paymentNetwork ?? "",
             paymentPhoneNumber: serverPayment.payment_phone_number ?? session?.paymentPhoneNumber ?? "",
             paymentStatus: serverPayment.status ?? "successful",
-            amountPaid: Number(serverPayment.amount) || summaryTotal,
+            amountPaid: Number(serverPayment.amount)
+              || (paymentPurpose === "shipping-balance"
+                ? Number(session?.shippingBalanceDue) || Number(activeOrder?.shippingTotal) || 0
+                : Number(session?.amount) || 0),
             currency: serverPayment.currency ?? "GHS",
             itemCount: Array.isArray(serverOrder?.items)
               ? serverOrder.items.length
@@ -1662,11 +1668,48 @@ function PaymentStatusPage({
           : "Please do not charge the order again while the first transaction is still pending.";
 
   const handleViewOrder = () => {
+    if (paymentPurpose === "shipping-balance" && !authUser?.id && callbackPaymentToken && (activeOrder?.id || session?.orderId)) {
+      const orderId = activeOrder?.id || session?.orderId;
+      const params = new URLSearchParams({
+        purpose: "shipping-balance",
+        orderId,
+        token: callbackPaymentToken,
+      });
+      navigate(`/payment?${params.toString()}`);
+      return;
+    }
+
     navigate("/profile/orders");
   };
 
-  const handleReceipt = () => {
-    navigate(`/receipt/${paymentReference}`);
+  const handleReceipt = async () => {
+    if (!paymentReference || typeof window === "undefined") return;
+
+    try {
+      const accessToken = authUser?.id ? (await getAccessToken()).accessToken : "";
+      const response = await fetch(`/api/receipts/${encodeURIComponent(paymentReference)}/pdf`, {
+        headers: {
+          Accept: "application/pdf",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(paymentPurpose === "shipping-balance" && callbackPaymentToken
+            ? { "X-Shipping-Payment-Token": callbackPaymentToken }
+            : {}),
+        },
+      });
+
+      if (!response.ok) throw new Error("Unable to download the receipt right now.");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${orderNumber || "receipt"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setVerificationError(error instanceof Error ? error.message : "Unable to download the receipt right now.");
+    }
   };
 
   const handleContinue = () => {
