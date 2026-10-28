@@ -153,6 +153,27 @@ test("shipping notices reject cancelled orders and guest orders can use guest_em
   assert.match(serverSource, /shipping balance is already paid/);
 });
 
+test("shipping notices are queue-only and fail closed when delivery creation is unavailable", () => {
+  const noticeStart = serverSource.indexOf("async function handleAdminShippingPaymentNotice");
+  const noticeEnd = serverSource.indexOf("async function loadAdminOrderPaymentNotice", noticeStart);
+  assert.ok(noticeStart >= 0 && noticeEnd > noticeStart);
+  const noticeSource = serverSource.slice(noticeStart, noticeEnd);
+
+  assert.doesNotMatch(noticeSource, /sendNotificationEmailForRow/);
+  assert.doesNotMatch(noticeSource, /isEmailQueueAvailable/);
+  assert.match(noticeSource, /loadPaymentNoticeDelivery\(inserted\.id\)/);
+  assert.match(noticeSource, /code: "notification_queue_failed"/);
+  assert.match(noticeSource, /code: "email_queue_unavailable"/);
+  assert.match(noticeSource, /No email was sent/);
+  assert.match(noticeSource, /notificationError\.code !== "23505"/);
+});
+
+test("successful order confirmations remain notification-triggered queue jobs", () => {
+  assert.match(serverSource, /ensureOrderConfirmationNotification/);
+  assert.match(serverSource, /sourceKey = `payment:\$\{payment\.id\}:status:successful`/);
+  assert.match(serverSource, /private\.queue_notification_email|notification_email_deliveries/);
+});
+
 test("shipping initialization claims one active attempt and preserves verified finalization", () => {
   assert.match(serverSource, /claimShippingPaymentAttempt/);
   assert.match(serverSource, /claim_shipping_payment_attempt/);

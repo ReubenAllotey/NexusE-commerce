@@ -2439,7 +2439,12 @@ async function handleAdminShippingPaymentNotice(req, res) {
     .maybeSingle();
 
   if (notificationError && notificationError.code !== "23505") {
-    sendJson(res, 500, { ok: false, message: notificationError.message || "Unable to send the shipping payment notice." });
+    console.error("Shipping payment notification insertion failed:", notificationError.code || "unknown");
+    sendJson(res, 503, {
+      ok: false,
+      code: "notification_queue_failed",
+      message: "The shipping notice could not be queued. No email was sent.",
+    });
     return;
   }
 
@@ -2451,12 +2456,28 @@ async function handleAdminShippingPaymentNotice(req, res) {
   const existing = inserted ?? (await (order.user_id
     ? existingQuery.eq("user_id", order.user_id)
     : existingQuery.eq("recipient_email", recipientEmail)).maybeSingle()).data;
-  const queueAvailable = await isEmailQueueAvailable();
-  const email = inserted && !queueAvailable
-    ? await sendNotificationEmailForRow(existing ?? notificationValues)
-    : inserted
-      ? { ok: true, queued: true, message: "Email queued for delivery." }
-      : { ok: true, skipped: true, message: "This notification was already created." };
+
+  if (inserted) {
+    const deliveryResult = await loadPaymentNoticeDelivery(inserted.id);
+    if (deliveryResult.error || !deliveryResult.data) {
+      console.error(
+        "Shipping payment notification delivery was not created:",
+        deliveryResult.error?.code || "missing_delivery",
+      );
+      sendJson(res, 503, {
+        ok: false,
+        code: "email_queue_unavailable",
+        message: "The shipping notice was not queued for email delivery. No email was sent.",
+        notification: existing ?? null,
+        accounting,
+      });
+      return;
+    }
+  }
+
+  const email = inserted
+    ? { ok: true, queued: true, message: "Email queued for delivery." }
+    : { ok: true, skipped: true, message: "This notification was already created." };
 
   sendJson(res, 200, {
     ok: true,
