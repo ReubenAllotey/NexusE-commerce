@@ -26,9 +26,8 @@ function isPendingInsert(payload: Record<string, unknown>) {
     clean(payload.table) === "notification_email_deliveries" &&
     clean(row.status) === "pending" &&
     clean(row.notification_id) !== "" &&
-    clean(row.recipient_user_id) !== "" &&
     clean(row.recipient_email) !== "" &&
-    ["order_status", "payment_status", "shipment_event"].includes(notificationType) &&
+    ["order_status", "payment_status", "shipment_event", "account_setup"].includes(notificationType) &&
     Number(row.max_attempts ?? 0) > 0 &&
     Number(row.attempts ?? 0) === 0
   );
