@@ -2198,6 +2198,7 @@ function getServerShippingAccounting(items = []) {
   let paidShipping = 0;
   let outstandingShipping = 0;
   let hasPendingShipping = false;
+  let hasUnconfirmedShipping = false;
 
   for (const item of Array.isArray(items) ? items : []) {
     const lineShipping = Math.max(Number(item.line_shipping) || 0, 0);
@@ -2208,15 +2209,18 @@ function getServerShippingAccounting(items = []) {
     paidShipping += paidAmount;
     outstandingShipping += Math.max(lineShipping - paidAmount, 0);
     hasPendingShipping ||= feeStatus === "pending";
+    hasUnconfirmedShipping ||= feeStatus === "pending" && lineShipping > 0;
   }
 
-  const status = hasPendingShipping && outstandingShipping <= 0
+  const status = hasUnconfirmedShipping
     ? "pending"
-    : outstandingShipping > 0
-      ? paidShipping > 0 ? "partial" : "unpaid"
-      : knownShipping > 0 ? "paid" : "free";
+    : hasPendingShipping && outstandingShipping <= 0
+      ? "pending"
+      : outstandingShipping > 0
+        ? paidShipping > 0 ? "partial" : "unpaid"
+        : knownShipping > 0 ? "paid" : "free";
 
-  return { knownShipping, paidShipping, outstandingShipping, hasPendingShipping, status };
+  return { knownShipping, paidShipping, outstandingShipping, hasPendingShipping, hasUnconfirmedShipping, status };
 }
 
 async function loadShippingPaymentDetails(orderId, userId = null) {

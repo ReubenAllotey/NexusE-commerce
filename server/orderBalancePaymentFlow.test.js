@@ -40,8 +40,16 @@ const shippingFinalizeRecoveryMigration = await readFile(
   new URL("../supabase/migrations/20261028_0048_finalize_successful_shipping_payment_allocation.sql", import.meta.url),
   "utf8",
 );
+const legacyShippingStatusMigration = await readFile(
+  new URL("../supabase/migrations/20261028_0049_repair_legacy_shipping_fee_status.sql", import.meta.url),
+  "utf8",
+);
 const shippingPreMigrationAudit = await readFile(
   new URL("../supabase/queries/audit_shipping_allocations_pre_migration.sql", import.meta.url),
+  "utf8",
+);
+const legacyShippingStatusAudit = await readFile(
+  new URL("../supabase/queries/audit_legacy_shipping_fee_status.sql", import.meta.url),
   "utf8",
 );
 
@@ -117,6 +125,7 @@ test("shipping accounting handles unpaid, partial, paid, and pending item shapes
     paidShipping: 0,
     outstandingShipping: 20,
     hasPendingShipping: false,
+    hasUnconfirmedShipping: false,
     status: "unpaid",
   });
   assert.equal(getShippingAccounting({ items: [
@@ -128,6 +137,13 @@ test("shipping accounting handles unpaid, partial, paid, and pending item shapes
   assert.equal(getShippingAccounting({ items: [
     { lineShipping: 0, shippingPaidAmount: 0, shippingFeeStatus: "pending" },
   ] }).status, "pending");
+  assert.equal(getShippingAccounting({ items: [
+    { lineShipping: 20, shippingPaidAmount: 0, shippingFeeStatus: "pending" },
+  ] }).status, "pending");
+  assert.equal(getShippingAccounting({ items: [
+    { lineShipping: 20, shippingPaidAmount: 0, shippingFeeStatus: "pending" },
+    { lineShipping: 20, shippingPaidAmount: 0, shippingFeeStatus: "ready" },
+  ] }).hasUnconfirmedShipping, true);
 });
 
 test("shipping notices reject cancelled orders and guest orders can use guest_email", () => {
@@ -213,6 +229,37 @@ test("shipping allocation ledger binds retries and preserves product payments", 
   assert.match(shippingFinalizeRecoveryMigration, /historical successful shipping payment requires manual reconciliation/);
   assert.match(shippingFinalizeRecoveryMigration, /shipping_payment_status = v_next_status/);
   assert.doesNotMatch(shippingFinalizeRecoveryMigration, /\n\s*payment_status\s*=/);
+});
+
+test("legacy NULL shipping statuses are promoted only for proven fee snapshots", () => {
+  assert.match(legacyShippingStatusMigration, /742c03ee-87a4-4018-b99b-dbfe8e4f916f/);
+  assert.match(legacyShippingStatusMigration, /c3f2e4f4-a9bf-479e-8af6-026b1c678ea1/);
+  assert.match(legacyShippingStatusMigration, /shipping_fee_status is null/);
+  assert.match(legacyShippingStatusMigration, /v_item\.shipping_fee is null/);
+  assert.match(legacyShippingStatusMigration, /v_item\.line_shipping <= 0/);
+  assert.match(legacyShippingStatusMigration, /v_item\.quantity <= 0/);
+  assert.match(legacyShippingStatusMigration, /abs\(v_item\.line_shipping - \(v_item\.shipping_fee \* v_item\.quantity\)\) > 0\.000001/);
+  assert.match(legacyShippingStatusMigration, /set shipping_fee_status = 'ready'/);
+  assert.match(legacyShippingStatusMigration, /set shipping_fee_status = 'pending'/);
+  assert.match(legacyShippingStatusMigration, /has_unconfirmed_shipping/);
+  assert.match(legacyShippingStatusMigration, /alter column shipping_fee_status set not null/);
+  assert.match(legacyShippingStatusMigration, /check \(shipping_fee_status in \('pending', 'ready'\)\)/);
+  assert.match(legacyShippingStatusMigration, /not in \('cancelled', 'canceled'\)/);
+  assert.match(legacyShippingStatusMigration, /create temporary table legacy_shipping_status_orders/);
+  assert.match(legacyShippingStatusMigration, /lower\(coalesce\(o\.status, ''\)\) not in \('cancelled', 'canceled'\)/);
+  assert.match(legacyShippingStatusMigration, /and oi\.order_id = 'c3f2e4f4-a9bf-479e-8af6-026b1c678ea1'::uuid/);
+  assert.match(legacyShippingStatusMigration, /and shipping_fee_status is null/);
+  assert.doesNotMatch(legacyShippingStatusMigration, /update public\.order_items as oi[\s\S]*where oi\.shipping_fee_status is null[\s\S]*set shipping_fee_status = 'ready'/);
+});
+
+test("legacy shipping status audit is read-only and classifies ambiguous rows as ineligible", () => {
+  assert.doesNotMatch(legacyShippingStatusAudit, /\b(update|insert|delete|alter|drop)\b/i);
+  assert.match(legacyShippingStatusAudit, /unambiguous_ready_candidate/);
+  assert.match(legacyShippingStatusAudit, /ambiguous_ineligible_candidate/);
+  assert.match(legacyShippingStatusAudit, /cancelled_order_review/);
+  assert.match(legacyShippingStatusAudit, /invalid_status_manual_review/);
+  assert.match(legacyShippingStatusAudit, /lower\(oi\.shipping_fee_status\) not in \('pending', 'ready'\)/);
+  assert.match(legacyShippingStatusAudit, /shipping_fee_status is null/);
 });
 
 test("pre-migration shipping audit uses only existing payment and item tables", () => {

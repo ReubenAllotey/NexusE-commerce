@@ -8,6 +8,7 @@ export function getShippingAccounting(order = {}) {
   let paidShipping = 0;
   let outstandingShipping = 0;
   let hasPendingShipping = false;
+  let hasUnconfirmedShipping = false;
 
   for (const item of items) {
     const lineShipping = Math.max(Number(readItemValue(item, "lineShipping", "line_shipping")) || 0, 0);
@@ -23,21 +24,25 @@ export function getShippingAccounting(order = {}) {
     paidShipping += paidAmount;
     outstandingShipping += Math.max(lineShipping - paidAmount, 0);
     hasPendingShipping ||= feeStatus === "pending";
+    hasUnconfirmedShipping ||= feeStatus === "pending" && lineShipping > 0;
   }
 
-  const status = hasPendingShipping && outstandingShipping <= 0
+  const status = hasUnconfirmedShipping
     ? "pending"
-    : outstandingShipping > 0
-      ? paidShipping > 0 ? "partial" : "unpaid"
-      : knownShipping > 0
-        ? "paid"
-        : "free";
+    : hasPendingShipping && outstandingShipping <= 0
+      ? "pending"
+      : outstandingShipping > 0
+        ? paidShipping > 0 ? "partial" : "unpaid"
+        : knownShipping > 0
+          ? "paid"
+          : "free";
 
   return {
     knownShipping,
     paidShipping,
     outstandingShipping,
     hasPendingShipping,
+    hasUnconfirmedShipping,
     status,
   };
 }
