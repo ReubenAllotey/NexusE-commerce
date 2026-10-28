@@ -979,7 +979,7 @@ async function createGuestAuthAccount(email, fullName) {
       password: null,
       eligible: isEligibleCustomer,
       message: isEligibleCustomer
-        ? "Your order has been linked to your existing account. Sign in to track it."
+        ? "An account already exists for this email. Sign in to track your order."
         : "An account already exists for this email. Sign in or reset your password to track this order.",
     };
   }
@@ -1040,7 +1040,7 @@ async function createGuestAuthAccount(email, fullName) {
           password: null,
           eligible: isEligibleCustomer,
           message: isEligibleCustomer
-            ? "Your order has been linked to your existing account. Sign in to track it."
+            ? "An account already exists for this email. Sign in to track your order."
             : "An account already exists for this email. Sign in or reset your password to track this order.",
         };
       }
@@ -1061,7 +1061,7 @@ async function createGuestAuthAccount(email, fullName) {
             password: null,
             eligible: isEligibleCustomer,
             message: isEligibleCustomer
-              ? "Your order has been linked to your existing account. Sign in to track it."
+              ? "An account already exists for this email. Sign in to track your order."
               : "An account already exists for this email. Sign in or reset your password to track this order.",
           };
         }
@@ -1077,6 +1077,24 @@ async function createGuestAuthAccount(email, fullName) {
   }
 
   throw lastError ?? new Error("Unable to create the guest account.");
+}
+
+// Keep account provisioning behind one post-verification entry point so the
+// browser and webhook paths use the same Auth race handling and safeguards.
+async function provisionGuestAccountAfterVerifiedPayment(email, fullName) {
+  const cleanEmail = clean(email).toLowerCase();
+  if (!cleanEmail || !isValidQueuedEmailAddress(cleanEmail)) {
+    return {
+      created: false,
+      user: null,
+      profile: null,
+      password: null,
+      eligible: false,
+      message: "The verified payment has no valid guest email address.",
+    };
+  }
+
+  return createGuestAuthAccount(cleanEmail, fullName);
 }
 
 async function loadProfileById(userId) {
@@ -5765,7 +5783,7 @@ async function handleVerify(req, res, reference) {
 
     try {
       try {
-        guestAccount = await createGuestAuthAccount(guestEmail, guestName);
+        guestAccount = await provisionGuestAccountAfterVerifiedPayment(guestEmail, guestName);
       } catch (accountError) {
         // Payment and order confirmation must not depend on account creation.
         // The guest remains unlinked until they complete a secure account flow.
@@ -6458,13 +6476,62 @@ async function handleWebhook(req, res) {
             !wasPaymentSuccessful,
           );
           const verifiedPayment = await getPaymentByReference(reference);
-          const orderResult = await loadOrderBundle(paymentRow.order_id);
+          let orderResult = await loadOrderBundle(paymentRow.order_id);
           if (!orderResult.ok) {
             sendJson(res, 500, {
               ok: false,
               message: orderResult.message || "Unable to load the verified order for notification queueing.",
             });
             return;
+          }
+
+          const persistedGuestEmail = clean(
+            orderResult.order?.customer_email || orderResult.order?.guest_email,
+          ).toLowerCase();
+          const persistedGuestName = clean(
+            orderResult.order?.customer_name || orderResult.order?.guest_full_name,
+          ) || persistedGuestEmail.split("@")[0] || "Guest Customer";
+
+          if (!clean(orderResult.order?.user_id) && isValidQueuedEmailAddress(persistedGuestEmail)) {
+            let guestAccount = null;
+            try {
+              guestAccount = await provisionGuestAccountAfterVerifiedPayment(
+                persistedGuestEmail,
+                persistedGuestName,
+              );
+            } catch (accountError) {
+              // Account setup is recoverable. Never reverse a verified payment
+              // or fail webhook delivery solely because Auth is unavailable.
+              console.error(
+                "Guest account provisioning deferred after webhook payment:",
+                accountError?.message || "Unknown account error",
+              );
+            }
+
+            const accountUser = guestAccount?.user;
+            const accountMetadata = accountUser?.user_metadata ?? {};
+            const isSystemGuestAccount = Boolean(
+              guestAccount?.created
+              || accountMetadata.account_type === "guest"
+              || accountMetadata.must_change_password === true,
+            );
+
+            if (isSystemGuestAccount && clean(accountUser?.id)) {
+              try {
+                const linkedOrder = await updateGuestOrderBundle(paymentRow.order_id, {
+                  user_id: accountUser.id,
+                });
+                orderResult = { ok: true, order: linkedOrder.order, items: linkedOrder.items };
+                if (!clean(verifiedPayment?.user_id)) {
+                  await updatePaymentRow(paymentRow.id, { user_id: accountUser.id });
+                }
+              } catch (linkError) {
+                console.error(
+                  "Guest account link deferred after webhook payment:",
+                  linkError?.message || "Unknown account link error",
+                );
+              }
+            }
           }
 
           const notificationResult = await ensureOrderConfirmationNotification(

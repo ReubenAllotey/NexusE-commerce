@@ -76,6 +76,7 @@ const deployedFunctions = [
   "ensureOrderConfirmationNotification",
   "ensureShippingPaymentConfirmationNotification",
   "ensureGuestAccountSetupNotification",
+  "provisionGuestAccountAfterVerifiedPayment",
   "parsePaystackMetadata",
   "normalizePaystackPaymentPurpose",
   "validatePaystackSuccessfulTransaction",
@@ -141,7 +142,15 @@ function createSupabaseMock(state) {
     auth: {
       admin: {
         getUserById: async (userId) => ({
-          data: { user: { id: userId, user_metadata: { account_type: "customer" } } },
+          data: {
+            user: {
+              id: userId,
+              email: state.guestAccountEmail ?? "guest@example.invalid",
+              user_metadata: state.guestAccountUserId === userId
+                ? { account_type: "guest", must_change_password: true }
+                : { account_type: "customer" },
+            },
+          },
           error: null,
         }),
       },
@@ -202,6 +211,11 @@ function createHarnessState(overrides = {}) {
     paymentUpdates: [],
     paymentEvents: [],
     orderSyncs: [],
+    accountProvisioning: "disabled",
+    accountCalls: 0,
+    guestAccountUserId: "guest-user-fictional-001",
+    guestAccountEmail: "test.customer@example.invalid",
+    orderUpdates: [],
     ...overrides.state,
   };
 }
@@ -218,9 +232,13 @@ function buildWebhookModule(state) {
       id: userId,
       role: "customer",
       status: "active",
-      account_type: "customer",
-      email: "registered.customer@example.invalid",
+      account_type: state.guestAccountUserId === userId ? "guest" : "customer",
+      email: state.guestAccountUserId === userId
+        ? state.guestAccountEmail
+        : "registered.customer@example.invalid",
     }),
+    provisionGuestAccountAfterVerifiedPayment: undefined,
+    createGuestAuthAccount: undefined,
     buildGuestAccountSetupNotification: (order) => ({
       user_id: order.user_id,
       category: "orders",
@@ -249,11 +267,57 @@ function buildWebhookModule(state) {
       Object.assign(payment, values);
       return payment;
     },
+    updateGuestOrderBundle: async (orderId, values) => {
+      state.orderUpdates.push({ orderId, values });
+      const order = state.orders.find((row) => row.id === orderId);
+      Object.assign(order, values);
+      return { order, items: state.orderItems };
+    },
     syncCheckoutPaymentStatus: async (orderId, status, amount, allocate) => {
       state.orderSyncs.push({ orderId, status, amount, allocate });
       return { order: state.orders.find((order) => order.id === orderId), items: state.orderItems };
     },
     sendJson: (response, statusCode, payload) => response.finish(statusCode, payload),
+  };
+
+  context.createGuestAuthAccount = async () => {
+    state.accountCalls += 1;
+    if (state.accountProvisioning === "disabled") {
+      return { created: false, user: null, profile: null, eligible: false };
+    }
+    if (state.accountProvisioning === "failure") {
+      throw new Error("fictional auth outage");
+    }
+    if (state.accountProvisioning === "existing"
+      || (state.accountProvisioning === "concurrent" && state.accountCalls > 1)) {
+      return {
+        created: false,
+        user: {
+          id: state.accountProvisioning === "concurrent"
+            ? state.guestAccountUserId
+            : "registered-user-fictional-001",
+          email: state.guestAccountEmail,
+          user_metadata: state.accountProvisioning === "concurrent"
+            ? { account_type: "guest", must_change_password: true }
+            : { account_type: "customer" },
+        },
+        profile: {
+          role: "customer",
+          status: "active",
+          account_type: state.accountProvisioning === "concurrent" ? "guest" : "customer",
+          email: state.guestAccountEmail,
+        },
+      };
+    }
+    return {
+      created: true,
+      user: {
+        id: state.guestAccountUserId,
+        email: state.guestAccountEmail,
+        user_metadata: { account_type: "guest", must_change_password: true },
+      },
+      profile: { role: "customer", status: "active", account_type: "guest", email: state.guestAccountEmail },
+    };
   };
 
   const script = `${deployedFunctions}\nthis.webhook = handleWebhook;`;
@@ -303,6 +367,86 @@ test("guest successful payment queues one notification from persisted order emai
   assert.equal(state.notifications[0].user_id, null);
   assert.equal(state.notifications[0].order_id, "order-fictional-001");
   assert.equal(state.notifications[0].payment_id, "payment-fictional-001");
+});
+
+test("webhook-first guest payment provisions one account and queues both notifications", async () => {
+  const state = createHarnessState({ state: { accountProvisioning: "new" } });
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001"),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(state.accountCalls, 1);
+  assert.equal(state.orders[0].user_id, state.guestAccountUserId);
+  assert.equal(state.payments[0].user_id, state.guestAccountUserId);
+  assert.deepEqual(
+    state.notifications.map((notification) => notification.source_type).sort(),
+    ["account_setup", "payment_status"],
+  );
+  assert.equal(state.notifications.filter((notification) => notification.source_type === "account_setup").length, 1);
+  assert.equal(state.notifications.filter((notification) => notification.source_type === "payment_status").length, 1);
+  assert.equal(state.notifications.some((notification) => Object.hasOwn(notification, "password")), false);
+  assert.equal(state.notifications.some((notification) => /temporary password|plaintext password/i.test(JSON.stringify(notification))), false);
+});
+
+test("browser verification uses the same post-payment provisioning entry point", () => {
+  const start = serverSource.indexOf("async function handleVerify");
+  const end = serverSource.indexOf("async function handleWebhook", start);
+  assert.ok(start >= 0 && end > start);
+  assert.match(
+    serverSource.slice(start, end),
+    /provisionGuestAccountAfterVerifiedPayment\(guestEmail, guestName\)/,
+  );
+});
+
+test("existing registered account is not linked or sent a setup notification", async () => {
+  const state = createHarnessState({ state: { accountProvisioning: "existing" } });
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001"),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(state.accountCalls, 1);
+  assert.equal(state.orders[0].user_id, null);
+  assert.equal(state.payments[0].user_id, null);
+  assert.equal(state.notifications.length, 1);
+  assert.equal(state.notifications[0].source_type, "payment_status");
+});
+
+test("account provisioning failure preserves the verified payment and order confirmation", async () => {
+  const state = createHarnessState({ state: { accountProvisioning: "failure" } });
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001"),
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(state.payments[0].status, "successful");
+  assert.equal(state.orders[0].user_id, null);
+  assert.equal(state.notifications.length, 1);
+  assert.equal(state.notifications[0].source_type, "payment_status");
+});
+
+test("concurrent browser and webhook provisioning remains one guest account and one setup notification", async () => {
+  const state = createHarnessState({ state: { accountProvisioning: "concurrent" } });
+  const webhook = buildWebhookModule(state);
+  const event = successfulEvent("ref-fictional-001");
+
+  const responses = await Promise.all([
+    invokeWebhook(webhook, state, event),
+    invokeWebhook(webhook, state, event),
+  ]);
+
+  assert.deepEqual(responses.map((response) => response.statusCode), [200, 200]);
+  assert.equal(state.accountCalls, 2);
+  assert.equal(state.orders[0].user_id, state.guestAccountUserId);
+  assert.equal(state.notifications.filter((notification) => notification.source_type === "account_setup").length, 1);
+  assert.equal(state.notifications.filter((notification) => notification.source_type === "payment_status").length, 1);
 });
 
 test("JSON-string Paystack metadata remains compatible with successful order payments", async () => {
