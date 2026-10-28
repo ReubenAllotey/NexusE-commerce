@@ -20,6 +20,7 @@ import {
   buildGuestAccountSetupNotification,
 } from "./server/services/accountSetupEmail.js";
 import { validateReconciliationState } from "./server/services/paymentReconciliationState.js";
+import { buildAdminPaymentSummary } from "./server/services/adminPaymentSummary.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
@@ -2563,6 +2564,87 @@ async function loadAdminOrderPaymentNotice(orderId) {
       paymentStatus: outstanding > 0 ? "pending" : "paid",
     },
   };
+}
+
+async function handleAdminPaymentSummary(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can view payment summaries." });
+    return;
+  }
+
+  const { data: orders, error: orderError } = await supabaseAdmin
+    .from("orders")
+    .select("id, order_number, total, amount_due_now, shipping_total, shipping_payment_mode, shipping_payment_status, status")
+    .order("created_at", { ascending: false });
+  if (orderError) {
+    sendJson(res, 500, { ok: false, message: "Unable to load payment summaries." });
+    return;
+  }
+
+  const orderRows = Array.isArray(orders) ? orders : [];
+  const orderIds = orderRows.map((order) => order.id).filter(Boolean);
+  const [{ data: payments, error: paymentError }, { data: items, error: itemError }] = await Promise.all([
+    orderIds.length > 0
+      ? supabaseAdmin
+          .from("payments")
+          .select("id, order_id, payment_purpose, status, amount, amount_minor, provider_reference, created_at, paid_at")
+          .in("order_id", orderIds)
+      : Promise.resolve({ data: [], error: null }),
+    orderIds.length > 0
+      ? supabaseAdmin
+          .from("order_items")
+          .select("order_id, line_shipping, shipping_paid_amount, shipping_fee_status")
+          .in("order_id", orderIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (paymentError || itemError) {
+    sendJson(res, 500, { ok: false, message: "Unable to load payment summaries." });
+    return;
+  }
+
+  const paymentsByOrderId = new Map();
+  for (const payment of Array.isArray(payments) ? payments : []) {
+    const current = paymentsByOrderId.get(payment.order_id) ?? [];
+    current.push(payment);
+    paymentsByOrderId.set(payment.order_id, current);
+  }
+  const itemsByOrderId = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const current = itemsByOrderId.get(item.order_id) ?? [];
+    current.push(item);
+    itemsByOrderId.set(item.order_id, current);
+  }
+
+  const summaries = orderRows.map((order) => buildAdminPaymentSummary(
+    order,
+    paymentsByOrderId.get(order.id) ?? [],
+    itemsByOrderId.get(order.id) ?? [],
+  ));
+
+  const metrics = summaries.reduce((result, summary) => {
+    result.totalOrderValue += summary.orderAmountDue;
+    result.verifiedProductRevenue += summary.verifiedOrderPayments;
+    result.outstandingProductPayments += summary.outstandingOrderPayment;
+    result.verifiedShippingPayments += summary.verifiedShippingPayments;
+    result.outstandingConfirmedShipping += summary.shippingPaymentStatus === "pending" ? 0 : summary.outstandingShippingPayment;
+    return result;
+  }, {
+    totalOrderValue: 0,
+    verifiedProductRevenue: 0,
+    outstandingProductPayments: 0,
+    verifiedShippingPayments: 0,
+    outstandingConfirmedShipping: 0,
+  });
+
+  sendJson(res, 200, { ok: true, summaries, metrics });
 }
 
 async function handleOrderBalancePaymentContext(req, res) {
@@ -7065,6 +7147,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/order-payment-notice" && (req.method === "GET" || req.method === "POST")) {
     await handleAdminOrderPaymentNotice(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/payment-summary" && req.method === "GET") {
+    await handleAdminPaymentSummary(req, res);
     return;
   }
 

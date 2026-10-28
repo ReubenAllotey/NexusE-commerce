@@ -340,9 +340,44 @@ export async function loadOrders({ authUser = null } = {}) {
     return { ok: false, message: itemsResult.message, orders: [] };
   }
 
+  const mappedOrders = mapOrderRowsToLegacyViewModels(orders, itemsResult.itemsByOrderId);
+  if (!isAdmin) {
+    return {
+      ok: true,
+      orders: mappedOrders,
+    };
+  }
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if (sessionError || !accessToken) {
+    return { ok: false, message: sessionError?.message || "Unable to authorize payment summaries.", orders: [] };
+  }
+
+  const summaryResponse = await fetch("/api/admin/payment-summary", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const summaryPayload = await summaryResponse.json().catch(() => ({}));
+  if (!summaryResponse.ok || summaryPayload?.ok === false) {
+    return {
+      ok: false,
+      message: summaryPayload?.message || "Unable to load payment summaries.",
+      orders: [],
+    };
+  }
+
+  const summaryByOrderId = new Map(
+    (Array.isArray(summaryPayload.summaries) ? summaryPayload.summaries : [])
+      .map((summary) => [summary.orderId, summary]),
+  );
+
   return {
     ok: true,
-    orders: mapOrderRowsToLegacyViewModels(orders, itemsResult.itemsByOrderId),
+    orders: mappedOrders.map((order) => ({
+      ...order,
+      paymentSummary: summaryByOrderId.get(order.id) ?? null,
+    })),
+    paymentMetrics: summaryPayload.metrics ?? null,
   };
 }
 

@@ -216,6 +216,46 @@ function AdminDashboard({
               to="/admin/categories"
               ariaLabel="View categories"
             />
+            <MetricCard
+              title="Product Revenue"
+              value={formatMoney(orderMetrics.verifiedProductRevenue)}
+              subtitle="Verified successful product payments only."
+              tone="green"
+              to="/admin/orders"
+              ariaLabel="View verified product revenue"
+            />
+            <MetricCard
+              title="Total Order Value"
+              value={formatMoney(orderMetrics.totalOrderValue)}
+              subtitle="Product amounts due, not received revenue."
+              tone="slate"
+              to="/admin/orders"
+              ariaLabel="View total order value"
+            />
+            <MetricCard
+              title="Product Outstanding"
+              value={formatMoney(orderMetrics.outstandingProductPayments)}
+              subtitle="Unsettled product payment balance."
+              tone="amber"
+              to="/admin/orders"
+              ariaLabel="View outstanding product payments"
+            />
+            <MetricCard
+              title="Shipping Collected"
+              value={formatMoney(orderMetrics.verifiedShippingPayments)}
+              subtitle="Verified shipping payments received."
+              tone="blue"
+              to="/admin/orders"
+              ariaLabel="View verified shipping payments"
+            />
+            <MetricCard
+              title="Shipping Outstanding"
+              value={formatMoney(orderMetrics.outstandingConfirmedShipping)}
+              subtitle="Confirmed shipping balance still due."
+              tone="slate"
+              to="/admin/orders"
+              ariaLabel="View outstanding shipping payments"
+            />
           </div>
 
           <div className="admin-dashboard-lower-grid">

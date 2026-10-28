@@ -74,16 +74,37 @@ export function getCategoryCounts(products = []) {
 }
 
 export function getOrderMetrics(orders = []) {
-  const totalRevenue = orders.reduce((sum, order) => sum + (order.total ?? 0), 0);
+  const financials = orders.reduce((result, order) => {
+    const summary = order?.paymentSummary;
+    result.totalOrderValue += Number(summary?.orderAmountDue ?? order?.amountDueNow ?? order?.total) || 0;
+    result.verifiedProductRevenue += Number(summary?.verifiedOrderPayments) || 0;
+    result.outstandingProductPayments += Number(summary?.outstandingOrderPayment) || 0;
+    result.verifiedShippingPayments += Number(summary?.verifiedShippingPayments) || 0;
+    if (summary?.shippingPaymentStatus !== "pending") {
+      result.outstandingConfirmedShipping += Number(summary?.outstandingShippingPayment) || 0;
+    }
+    return result;
+  }, {
+    totalOrderValue: 0,
+    verifiedProductRevenue: 0,
+    outstandingProductPayments: 0,
+    verifiedShippingPayments: 0,
+    outstandingConfirmedShipping: 0,
+  });
   const deliveredOrders = orders.filter((order) => isDeliveredOrder(order));
   const inTransitOrders = orders.filter((order) => isInTransitOrder(order));
 
   return {
     totalOrders: orders.length,
-    totalRevenue,
+    totalOrderValue: financials.totalOrderValue,
+    totalRevenue: financials.verifiedProductRevenue,
+    verifiedProductRevenue: financials.verifiedProductRevenue,
+    outstandingProductPayments: financials.outstandingProductPayments,
+    verifiedShippingPayments: financials.verifiedShippingPayments,
+    outstandingConfirmedShipping: financials.outstandingConfirmedShipping,
     deliveredOrders: deliveredOrders.length,
     inTransitOrders: inTransitOrders.length,
-    averageOrderValue: orders.length > 0 ? totalRevenue / orders.length : 0,
+    averageOrderValue: orders.length > 0 ? financials.totalOrderValue / orders.length : 0,
   };
 }
 

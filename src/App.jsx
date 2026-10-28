@@ -1,5 +1,5 @@
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import AppLoader from "./components/AppLoader/AppLoader";
 import CartEditModal from "./components/CartEditModal";
@@ -564,6 +564,7 @@ function AppShell({
               <AdminOrdersPage
                 orders={orders}
                 authUser={authUser}
+                onRefreshOrders={refreshOrders}
                 onUpdateOrderStatus={onUpdateOrderStatus}
               />,
             )}
@@ -977,6 +978,55 @@ function App() {
     [liveProducts],
   );
 
+  const refreshOrders = useCallback(async ({ silent = false } = {}) => {
+    const requestId = ++orderRequestIdRef.current;
+    if (!silent) {
+      setOrdersLoading(true);
+    }
+    setOrdersError("");
+
+    if (!authUser) {
+      if (requestId !== orderRequestIdRef.current) {
+        return { ok: false, message: "Order refresh was superseded." };
+      }
+
+      setOrders([]);
+      setOrdersLoading(false);
+      return { ok: true, orders: [] };
+    }
+
+    try {
+      const result = await loadOrders({ authUser });
+      if (requestId !== orderRequestIdRef.current) {
+        return { ok: false, message: "Order refresh was superseded." };
+      }
+
+      if (result.ok) {
+        setOrders(result.orders ?? []);
+        setOrdersError("");
+      } else if (!silent) {
+        // Keep the last known order state visible during a transient refresh failure.
+        setOrdersError(result.message || "Unable to load your orders.");
+      }
+
+      return result;
+    } catch (error) {
+      if (requestId !== orderRequestIdRef.current) {
+        return { ok: false, message: "Order refresh was superseded." };
+      }
+
+      const message = error?.message || "Unable to load your orders.";
+      if (!silent) {
+        setOrdersError(message);
+      }
+      return { ok: false, message };
+    } finally {
+      if (requestId === orderRequestIdRef.current) {
+        setOrdersLoading(false);
+      }
+    }
+  }, [authUser]);
+
   useEffect(() => {
     let active = true;
 
@@ -1153,57 +1203,12 @@ function App() {
       return undefined;
     }
 
-    let isMounted = true;
-    const requestId = ++orderRequestIdRef.current;
-    setOrdersLoading(true);
-    setOrdersError("");
-
-    const refreshOrders = async () => {
-      if (!authUser) {
-        if (!isMounted || requestId !== orderRequestIdRef.current) {
-          return;
-        }
-
-        setOrders([]);
-        setOrdersLoading(false);
-        return;
-      }
-
-      try {
-        const result = await loadOrders({ authUser });
-
-        if (!isMounted || requestId !== orderRequestIdRef.current) {
-          return;
-        }
-
-        if (result.ok) {
-          setOrders(result.orders ?? []);
-          setOrdersError("");
-        } else {
-          setOrders([]);
-          setOrdersError(result.message || "Unable to load your orders.");
-        }
-      } catch (error) {
-        if (!isMounted || requestId !== orderRequestIdRef.current) {
-          return;
-        }
-
-        setOrders([]);
-        setOrdersError(error?.message || "Unable to load your orders.");
-      } finally {
-        if (isMounted && requestId === orderRequestIdRef.current) {
-          setOrdersLoading(false);
-        }
-      }
-    };
-
     void refreshOrders();
 
     return () => {
-      isMounted = false;
       orderRequestIdRef.current += 1;
     };
-  }, [authReady, authUser?.id, authUser?.role, authUser?.status]);
+  }, [authReady, refreshOrders]);
 
   useEffect(() => {
     if (!authReady) {

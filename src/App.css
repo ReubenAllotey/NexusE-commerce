@@ -13247,6 +13247,17 @@ body[data-theme="dark"] .location-picker__selected {
   box-shadow: 0 16px 28px rgba(23, 55, 122, 0.16);
 }
 
+.admin-orders-header__button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.admin-orders-refresh-status {
+  margin: -0.7rem 0 0;
+  color: #a33a2b;
+  font-size: 0.86rem;
+}
+
 .admin-orders-panel {
   padding: 1rem;
   border-radius: 1.35rem;

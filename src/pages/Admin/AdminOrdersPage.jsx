@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import electronicsImage from "../../assets/images/electronic-set.png";
 import { loadAdminSession } from "./Auth/adminAuthStorage";
@@ -116,7 +116,24 @@ function getOrderSummaryStatus(order) {
 }
 
 function getPaymentStatusLabel(order) {
-  return normalizeText(order?.paymentStatus) === "paid" ? "Paid" : "Pending";
+  const status = normalizeText(order?.paymentSummary?.productPaymentStatus || order?.paymentStatus);
+  if (status === "paid" || status === "successful") return "Paid";
+  if (status === "partial" || status === "partially_paid") return "Partially Paid";
+  if (status === "failed") return "Failed";
+  return "Pending";
+}
+
+function getProductPaymentSummary(order) {
+  return order?.paymentSummary ?? {
+    orderAmountDue: Number(order?.amountDueNow ?? order?.total) || 0,
+    verifiedOrderPayments: normalizeText(order?.paymentStatus) === "paid" ? Number(order?.amountDueNow ?? order?.total) || 0 : 0,
+    outstandingOrderPayment: normalizeText(order?.paymentStatus) === "paid" ? 0 : Number(order?.amountDueNow ?? order?.total) || 0,
+    productPaymentStatus: normalizeText(order?.paymentStatus) === "paid" ? "paid" : "pending",
+    shippingAmountDue: 0,
+    verifiedShippingPayments: 0,
+    outstandingShippingPayment: 0,
+    shippingPaymentStatus: "not_due",
+  };
 }
 
 function getOrderTypeValue(order) {
@@ -244,7 +261,7 @@ function ChevronDownIcon() {
   );
 }
 
-function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = () => {} }) {
+function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null, onUpdateOrderStatus = () => {} }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [orderTypeFilter, setOrderTypeFilter] = useState("all");
@@ -259,6 +276,8 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   const [shippingNoticeSaving, setShippingNoticeSaving] = useState(false);
   const [shippingNoticeError, setShippingNoticeError] = useState("");
   const [shippingNoticeSuccess, setShippingNoticeSuccess] = useState("");
+  const [ordersRefreshing, setOrdersRefreshing] = useState(false);
+  const [ordersRefreshError, setOrdersRefreshError] = useState("");
   const [paymentNoticeOrderId, setPaymentNoticeOrderId] = useState(null);
   const [paymentNoticeData, setPaymentNoticeData] = useState(null);
   const [paymentNoticeMessage, setPaymentNoticeMessage] = useState("");
@@ -270,6 +289,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
   const [paymentNoticeOverrideRevealed, setPaymentNoticeOverrideRevealed] = useState(false);
   const [paymentNoticeOverride, setPaymentNoticeOverride] = useState(false);
   const [paymentNoticeOverrideReason, setPaymentNoticeOverrideReason] = useState("");
+  const ordersRefreshInFlightRef = useRef(false);
 
   const session = authUser ?? loadAdminSession();
   const activeStatusOrder = useMemo(
@@ -319,6 +339,57 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     loading: shipmentsLoading,
     error: shipmentsError,
   } = useShipmentBatches({ orders });
+
+  const runOrdersRefresh = useCallback(async ({ silent = false } = {}) => {
+    if (!onRefreshOrders || ordersRefreshInFlightRef.current) {
+      return { ok: false, message: "Order refresh is already in progress." };
+    }
+
+    ordersRefreshInFlightRef.current = true;
+    if (!silent) {
+      setOrdersRefreshing(true);
+      setOrdersRefreshError("");
+    }
+
+    try {
+      const result = await onRefreshOrders({ silent: true });
+      if (result?.ok) {
+        setOrdersRefreshError("");
+      } else {
+        setOrdersRefreshError(result?.message || "Unable to refresh orders.");
+      }
+      return result;
+    } catch (error) {
+      const result = { ok: false, message: error?.message || "Unable to refresh orders." };
+      setOrdersRefreshError(result.message);
+      return result;
+    } finally {
+      ordersRefreshInFlightRef.current = false;
+      if (!silent) {
+        setOrdersRefreshing(false);
+      }
+    }
+  }, [onRefreshOrders]);
+
+  useEffect(() => {
+    if (!onRefreshOrders || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        void runOrdersRefresh({ silent: true });
+      }
+    };
+
+    const interval = window.setInterval(refreshIfVisible, 30_000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [runOrdersRefresh, onRefreshOrders]);
 
   useEffect(() => {
     if (!hasOpenModal) {
@@ -431,6 +502,13 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
     setPaymentNoticeOverrideRevealed(false);
     setPaymentNoticeOverride(false);
     setPaymentNoticeOverrideReason("");
+  };
+
+  const openShippingModal = (order) => {
+    setShippingPaymentOrderId(order.id);
+    setShippingNoticeError("");
+    setShippingNoticeSuccess("");
+    void runOrdersRefresh({ silent: true });
   };
 
   const openPaymentNoticeModal = async (order) => {
@@ -603,12 +681,17 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
       }
 
       setShippingNoticeSuccess(
-        result.email?.ok === false
-          ? "In-app notification sent, but email delivery failed."
-          : result.message || "Payment notice sent to the customer.",
+        result.email?.queued
+          ? "Shipping notice saved and email queued for delivery."
+          : result.email?.status === "sent"
+            ? "Shipping notice saved. Email delivery was accepted by the provider."
+            : result.message || "Shipping notice saved.",
       );
+      void runOrdersRefresh({ silent: true });
     } catch (error) {
-      setShippingNoticeError(error instanceof Error ? error.message : "Unable to send the shipping payment notice.");
+      const message = error instanceof Error ? error.message : "Unable to send the shipping payment notice.";
+      setShippingNoticeError(message);
+      void runOrdersRefresh({ silent: true });
     } finally {
       setShippingNoticeSaving(false);
     }
@@ -650,7 +733,21 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
             <span>Search, filter, and manage customer orders from one place.</span>
           </div>
 
+          <div className="admin-orders-header__actions">
+            <button
+              type="button"
+              className="admin-orders-header__button"
+              onClick={() => void runOrdersRefresh()}
+              disabled={ordersRefreshing}
+            >
+              {ordersRefreshing ? "Refreshing..." : "Refresh orders"}
+            </button>
+          </div>
         </header>
+
+        {ordersRefreshError ? (
+          <p className="admin-orders-refresh-status" role="status">{ordersRefreshError}</p>
+        ) : null}
 
         <section className="admin-orders-panel">
           {shipmentsLoading ? (
@@ -840,6 +937,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                     const shipment = shipmentsByOrderId.get(order.id) ?? null;
                     const orderCount = getOrderItemCount(order);
                     const shippingAccounting = getShippingAccounting(order);
+                    const paymentSummary = getProductPaymentSummary(order);
 
                     return (
                         <tr key={order.id} className="admin-orders-row">
@@ -853,13 +951,18 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                             <small>{order.customerEmail || "No email captured"}</small>
                           </td>
                             <td>{orderCount}</td>
-                            <td>{formatMoney(order.total ?? 0)}</td>
                             <td>
                               <div className="admin-orders-payment-cell">
-                                <Pill tone={normalizeText(order.paymentStatus) === "paid" ? "green" : "amber"}>
+                                <strong>{formatMoney(order.total ?? 0)}</strong>
+                                <small>Product due {formatMoney(paymentSummary.orderAmountDue)}</small>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="admin-orders-payment-cell">
+                                <Pill tone={getPaymentStatusLabel(order) === "Paid" ? "green" : getPaymentStatusLabel(order) === "Failed" ? "red" : "amber"}>
                                   {getPaymentStatusLabel(order)}
                                 </Pill>
-                                {normalizeText(order.paymentStatus) !== "paid" && getOrderSummaryStatus(order) !== "cancelled" ? (
+                                {paymentSummary.outstandingOrderPayment > 0 && getOrderSummaryStatus(order) !== "cancelled" ? (
                                   <button
                                     type="button"
                                     className="admin-orders-payment-notice-trigger"
@@ -867,6 +970,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                                   >
                                     Pending Payment
                                   </button>
+                                ) : null}
+                                <small>Paid {formatMoney(paymentSummary.verifiedOrderPayments)}</small>
+                                <small>Outstanding {formatMoney(paymentSummary.outstandingOrderPayment)}</small>
+                                {paymentSummary.lastOrderPaymentAttempt ? (
+                                  <small>Last attempt: {paymentSummary.lastOrderPaymentAttempt.status}</small>
                                 ) : null}
                               </div>
                             </td>
@@ -876,17 +984,15 @@ function AdminOrdersPage({ orders = [], authUser = null, onUpdateOrderStatus = (
                                 className={`admin-orders-shipping-status admin-orders-shipping-status--${shippingAccounting.status}`}
                                 onClick={() => {
                                   if (shippingAccounting.status === "unpaid" || shippingAccounting.status === "partial") {
-                                    setShippingPaymentOrderId(order.id);
-                                    setShippingNoticeError("");
-                                    setShippingNoticeSuccess("");
+                                    openShippingModal(order);
                                   }
                                 }}
                                 disabled={!['unpaid', 'partial'].includes(shippingAccounting.status)}
                               >
                                 {getShippingPaymentLabel(shippingAccounting.status)}
                               </button>
-                              {shippingAccounting.outstandingShipping > 0 ? (
-                                <small>{formatMoney(shippingAccounting.outstandingShipping)} due</small>
+                              {paymentSummary.shippingAmountDue > 0 ? (
+                                <small>Paid {formatMoney(paymentSummary.verifiedShippingPayments)} · Outstanding {formatMoney(paymentSummary.outstandingShippingPayment)}</small>
                               ) : null}
                             </td>
                             <td>
