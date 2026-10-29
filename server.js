@@ -3815,10 +3815,9 @@ async function handleAdminNotificationEmail(req, res) {
     return;
   }
 
-  const queueAvailable = await isEmailQueueAvailable();
-  const email = queueAvailable
-    ? await requeueNotificationEmail(notification.id)
-    : await sendNotificationEmailForRow(notification);
+  // Admin-triggered delivery must remain inside the queue. Never fall back to
+  // direct provider delivery when the queue is unavailable.
+  const email = await requeueNotificationEmail(notification.id);
   sendJson(res, email.ok ? 200 : 409, {
     ok: email.ok,
     email,

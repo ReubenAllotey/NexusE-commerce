@@ -111,6 +111,19 @@ test("disabled or unavailable queues never send or update a delivery", async () 
   assert.equal(unavailable.updateValues, null);
 });
 
+test("admin notification retries stay queue-only when delivery is unavailable", () => {
+  const routeStart = serverSource.indexOf("async function handleAdminNotificationEmail");
+  const routeEnd = serverSource.indexOf("async function handleAdminOrderPaymentNotice", routeStart);
+  const routeSource = serverSource.slice(routeStart, routeEnd);
+  const retryStart = serverSource.indexOf("async function requeueNotificationEmail");
+  const retryEnd = serverSource.indexOf("async function loadPaymentNoticeDelivery", retryStart);
+  const retrySource = serverSource.slice(retryStart, retryEnd);
+
+  assert.match(routeSource, /const email = await requeueNotificationEmail\(notification\.id\);/);
+  assert.doesNotMatch(routeSource, /sendNotificationEmailForRow\(notification\)/);
+  assert.match(retrySource, /code: "queue_unavailable"/);
+});
+
 test("only failed deliveries past the cooldown can be requeued", async () => {
   const active = createState({ delivery: { ...createState().delivery, status: "pending" } });
   const activeResult = await buildHarness(active).requeueNotificationEmail("notification-fictional-001");
