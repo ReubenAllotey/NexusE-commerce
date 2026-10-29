@@ -380,6 +380,7 @@ function AppShell({
   onCreateNotification,
   onRefreshNotifications,
   onReplaceOrders,
+  onRefreshOrders,
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
   onUpdateOrderStatus,
@@ -564,7 +565,7 @@ function AppShell({
               <AdminOrdersPage
                 orders={orders}
                 authUser={authUser}
-                onRefreshOrders={refreshOrders}
+                onRefreshOrders={onRefreshOrders}
                 onUpdateOrderStatus={onUpdateOrderStatus}
               />,
             )}
@@ -1940,6 +1941,7 @@ function App() {
         onCreateNotification={handleCreateNotification}
         onRefreshNotifications={handleRefreshNotifications}
         onReplaceOrders={setOrders}
+        onRefreshOrders={refreshOrders}
         onMarkNotificationRead={handleMarkNotificationRead}
         onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
         onUpdateOrderStatus={handleAdminUpdateOrderStatus}

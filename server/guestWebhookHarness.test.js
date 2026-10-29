@@ -228,6 +228,17 @@ function buildWebhookModule(state) {
     supabaseAdmin: createSupabaseMock(state),
     paystackSecret: WEBHOOK_SECRET,
     clean: (value) => (value == null ? "" : String(value).trim()),
+    getPaymentAmountCedis: (payment = {}) => {
+      const minor = Number(payment?.amount_minor);
+      if (Number.isSafeInteger(minor)
+        && payment?.amount_minor !== null
+        && payment?.amount_minor !== undefined
+        && String(payment.amount_minor).trim() !== "") {
+        return minor / 100;
+      }
+      const amount = Number(payment?.amount);
+      return Number.isFinite(amount) ? amount : 0;
+    },
     loadProfileById: async (userId) => ({
       id: userId,
       role: "customer",

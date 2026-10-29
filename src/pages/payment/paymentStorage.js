@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabaseClient";
+import { getPaymentAmountCedis } from "../../shared/paymentAmount";
 
 // Temporary checkout state only. It is scoped to the signed-in user and cleared on logout.
 const PAYMENT_SESSION_KEY = "nexus-payment-session";
@@ -297,7 +298,7 @@ function mapPaymentRowToHistoryItem(paymentRow = {}, orderRow = null, itemCount 
   const status = clean(paymentRow.status).toLowerCase();
   const label = getPaymentStatusLabel(status);
   const tone = getPaymentStatusTone(status);
-  const amountPaid = Number(paymentRow.amount) || Number(paymentRow.amount_minor) / 100 || 0;
+  const amountPaid = getPaymentAmountCedis(paymentRow);
 
   return {
     id: clean(paymentRow.id),
@@ -325,7 +326,7 @@ function mapPaymentReceipt(paymentRow = {}, orderRow = null, items = []) {
   }
 
   const paymentStatus = clean(paymentRow.status).toLowerCase();
-  const amountPaid = Number(paymentRow.amount) || Number(paymentRow.amount_minor) / 100 || 0;
+  const amountPaid = getPaymentAmountCedis(paymentRow);
 
   return {
     id: clean(paymentRow.id),

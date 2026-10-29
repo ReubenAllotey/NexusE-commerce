@@ -14,6 +14,7 @@ import {
   SHIPPING_PAYMENT_MODES,
 } from "../../shared/shippingCheckout";
 import { getShippingAccounting } from "../../shared/shippingPayment";
+import { getPaymentAmountCedis } from "../../shared/paymentAmount";
 import {
   clearCheckoutDraft,
   clearPaymentSession,
@@ -1511,8 +1512,9 @@ function PaymentStatusPage({
             paymentNetwork: serverPayment.payment_network ?? session?.paymentNetwork ?? "",
             paymentPhoneNumber: serverPayment.payment_phone_number ?? session?.paymentPhoneNumber ?? "",
             paymentStatus: serverPayment.status ?? "successful",
-            amountPaid: Number(serverPayment.amount)
-              || (paymentPurpose === "shipping-balance"
+            amountPaid: serverPayment
+              ? getPaymentAmountCedis(serverPayment)
+              : (paymentPurpose === "shipping-balance"
                 ? Number(session?.shippingBalanceDue) || Number(activeOrder?.shippingTotal) || 0
                 : Number(session?.amount) || 0),
             currency: serverPayment.currency ?? "GHS",

@@ -158,6 +158,16 @@ function formatGhanaCedis(value) {
   }).format(safeValue);
 }
 
+function getPaymentAmountCedis(payment = {}) {
+  const minor = Number(payment?.amount_minor);
+  if (Number.isSafeInteger(minor) && payment?.amount_minor !== null && payment?.amount_minor !== undefined && clean(payment.amount_minor) !== "") {
+    return minor / 100;
+  }
+
+  const amount = Number(payment?.amount);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 function normalizeShipmentType(value) {
   const normalized = clean(value).toLowerCase();
 
@@ -3042,7 +3052,7 @@ async function ensureShippingPaymentConfirmationNotification(payment, order = nu
     recipient_name: clean(order?.customer_name || order?.customerName) || "Customer",
     category: "shipping",
     title: "Shipping payment confirmed",
-    message: `Your shipping payment of ${formatGhanaCedis(payment.amount)} for order ${orderNumber} was verified successfully.`,
+    message: `Your shipping payment of ${formatGhanaCedis(getPaymentAmountCedis(payment))} for order ${orderNumber} was verified successfully.`,
     order_id: orderId,
     payment_id: paymentId,
     action_url: "/profile/orders",
@@ -3144,7 +3154,7 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
       const confirmation = buildShippingPaymentConfirmationEmail({
         customerName,
         orderNumber: orderResult.order?.order_number || notification.order_id,
-        amount: paymentLookup.data.amount,
+        amount: getPaymentAmountCedis(paymentLookup.data),
         paymentReference: paymentLookup.data.provider_reference,
         appUrl,
       });
@@ -6150,7 +6160,7 @@ function validatePaystackSuccessfulTransaction(paymentRow, paystackData, request
 
 function mapReceiptListItem(payment, order, coveredOrders = []) {
   const purpose = getReceiptPaymentPurpose(payment);
-  const amount = Number(payment.amount) || Number(payment.amount_minor) / 100 || 0;
+  const amount = getPaymentAmountCedis(payment);
   const orderStatus = clean(order?.status) || "Processing";
   return {
     id: payment.id,
@@ -6327,7 +6337,7 @@ async function handleReceiptPdf(req, res, reference) {
       paymentReference: cleanReference,
       paymentStatus: normalizePaymentStatus(paymentRow.status) === "successful" ? "Successful" : clean(paymentRow.status),
       orderStatus: receipt.status,
-      amountPaid: Number(paymentRow.amount) || Number(paymentRow.amount_minor) / 100 || receipt.total || 0,
+      amountPaid: getPaymentAmountCedis(paymentRow),
       paymentMethod: paymentRow.payment_method,
       paymentNetwork: paymentRow.payment_network,
       createdAt: paymentRow.paid_at ?? paymentRow.created_at,
@@ -6340,7 +6350,7 @@ async function handleReceiptPdf(req, res, reference) {
         : JSON.stringify(receipt.shippingAddress || "Not provided"),
       subtotal: receipt.subtotal,
       shippingFeeCharged: receipt.shippingTotal,
-      shippingAmountPaid: purpose === "shipping" ? Number(paymentRow.amount) || 0 : itemShippingPaid || itemShippingCharged,
+      shippingAmountPaid: purpose === "shipping" ? getPaymentAmountCedis(paymentRow) : itemShippingPaid || itemShippingCharged,
       outstandingShipping,
     },
     combinedItems,
