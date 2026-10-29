@@ -77,6 +77,7 @@ const deployedFunctions = [
   "ensureShippingPaymentConfirmationNotification",
   "ensureGuestAccountSetupNotification",
   "provisionGuestAccountAfterVerifiedPayment",
+  "getVerifiedGuestAccountId",
   "parsePaystackMetadata",
   "normalizePaystackPaymentPurpose",
   "validatePaystackSuccessfulTransaction",
@@ -215,6 +216,7 @@ function createHarnessState(overrides = {}) {
     accountCalls: 0,
     guestAccountUserId: "guest-user-fictional-001",
     guestAccountEmail: "test.customer@example.invalid",
+    profileUnavailable: false,
     orderUpdates: [],
     ...overrides.state,
   };
@@ -239,15 +241,17 @@ function buildWebhookModule(state) {
       const amount = Number(payment?.amount);
       return Number.isFinite(amount) ? amount : 0;
     },
-    loadProfileById: async (userId) => ({
-      id: userId,
-      role: "customer",
-      status: "active",
-      account_type: state.guestAccountUserId === userId ? "guest" : "customer",
-      email: state.guestAccountUserId === userId
-        ? state.guestAccountEmail
-        : "registered.customer@example.invalid",
-    }),
+    loadProfileById: async (userId) => state.profileUnavailable
+      ? null
+      : ({
+        id: userId,
+        role: "customer",
+        status: "active",
+        account_type: state.guestAccountUserId === userId ? "guest" : "customer",
+        email: state.guestAccountUserId === userId
+          ? state.guestAccountEmail
+          : "registered.customer@example.invalid",
+      }),
     provisionGuestAccountAfterVerifiedPayment: undefined,
     createGuestAuthAccount: undefined,
     buildGuestAccountSetupNotification: (order) => ({
@@ -457,6 +461,21 @@ test("concurrent browser and webhook provisioning remains one guest account and 
   assert.equal(state.accountCalls, 2);
   assert.equal(state.orders[0].user_id, state.guestAccountUserId);
   assert.equal(state.notifications.filter((notification) => notification.source_type === "account_setup").length, 1);
+  assert.equal(state.notifications.filter((notification) => notification.source_type === "payment_status").length, 1);
+});
+
+test("account setup remains retryable when the linked guest profile is temporarily unavailable", async () => {
+  const state = createHarnessState({ state: { accountProvisioning: "new", profileUnavailable: true } });
+  const response = await invokeWebhook(
+    buildWebhookModule(state),
+    state,
+    successfulEvent("ref-fictional-001"),
+  );
+
+  assert.equal(response.statusCode, 500);
+  assert.equal(state.payments[0].status, "successful");
+  assert.equal(state.orders[0].user_id, state.guestAccountUserId);
+  assert.equal(state.notifications.filter((notification) => notification.source_type === "account_setup").length, 0);
   assert.equal(state.notifications.filter((notification) => notification.source_type === "payment_status").length, 1);
 });
 

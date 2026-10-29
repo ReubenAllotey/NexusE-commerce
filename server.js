@@ -1107,6 +1107,30 @@ async function provisionGuestAccountAfterVerifiedPayment(email, fullName) {
   return createGuestAuthAccount(cleanEmail, fullName);
 }
 
+function getVerifiedGuestAccountId(orderEmail, guestAccount = null) {
+  const userId = clean(guestAccount?.user?.id);
+  const expectedEmail = clean(orderEmail).toLowerCase();
+  const authEmail = clean(guestAccount?.user?.email).toLowerCase();
+  const metadata = guestAccount?.user?.user_metadata ?? {};
+  const profile = guestAccount?.profile;
+  const isSystemGuestAccount = Boolean(
+    guestAccount?.created
+      || profile?.account_type === "guest"
+      || metadata.account_type === "guest"
+      || metadata.must_change_password === true,
+  );
+
+  if (!userId || !isSystemGuestAccount || !isValidQueuedEmailAddress(expectedEmail) || authEmail !== expectedEmail) {
+    return "";
+  }
+
+  if (profile && (profile.role !== "customer" || profile.status !== "active")) {
+    return "";
+  }
+
+  return userId;
+}
+
 async function loadProfileById(userId) {
   if (!supabaseAdmin) {
     throw new Error("Supabase server credentials are missing.");
@@ -3087,15 +3111,16 @@ async function ensureGuestAccountSetupNotification(order = null) {
     || metadata.must_change_password === true;
   if (!isGuestAccount) return { ok: true, skipped: true };
 
+  if (!profile) {
+    return { ok: false, message: "The guest account profile is not ready; the setup email will be retried." };
+  }
+
   const authEmail = clean(authResult?.user?.email).toLowerCase();
   const profileEmail = clean(profile?.email).toLowerCase();
   if (!isValidQueuedEmailAddress(authEmail) || !profileEmail || profileEmail !== authEmail) {
     return { ok: false, message: "The guest account email is not ready for setup delivery; the email will be retried." };
   }
 
-  if (!profile) {
-    return { ok: false, message: "The guest account profile is not ready; the setup email will be retried." };
-  }
   if (profile.role !== "customer" || profile.status !== "active") {
     return { ok: false, message: "The guest account is not ready for setup email delivery; the email will be retried." };
   }
@@ -3476,7 +3501,7 @@ async function requeueNotificationEmail(notificationId) {
 
   const { data: existing, error: lookupError } = await supabaseAdmin
     .from("notification_email_deliveries")
-    .select("id, status, attempts, max_attempts, last_attempt_at, updated_at, next_attempt_at")
+    .select("id, status, attempts, max_attempts, last_attempt_at, updated_at, next_attempt_at, last_error")
     .eq("notification_id", notificationId)
     .maybeSingle();
   if (lookupError || !existing) {
@@ -3484,6 +3509,11 @@ async function requeueNotificationEmail(notificationId) {
   }
   if (existing.status !== "failed") {
     return { ok: false, message: "Only failed notification emails can be retried." };
+  }
+
+  if (Number(existing.attempts) >= Number(existing.max_attempts)
+    && /^Superseded by canonical payment notification /.test(String(existing.last_error || ""))) {
+    return { ok: false, code: "delivery_suppressed", message: "This notification delivery was permanently suppressed." };
   }
 
   if (Number(existing.attempts) >= Number(existing.max_attempts)) {
@@ -5809,8 +5839,7 @@ async function handleVerify(req, res, reference) {
       const guestOrderDetailsAvailable = await supportsGuestOrderDetails();
       const guestCustomerName = clean(guestAccount.profile?.full_name) || guestName;
       const guestCustomerEmail = clean(guestAccount.profile?.email) || guestEmail;
-      const shouldLinkToAccount = Boolean(guestAccount.created);
-      const linkedUserId = shouldLinkToAccount ? clean(guestAccount.user?.id) : "";
+      const linkedUserId = getVerifiedGuestAccountId(guestEmail, guestAccount);
       const guestOrderType = normalizeAvailabilityType(expectedCheckout.availabilityType || "ready_stock");
       const guestOrderStatus = guestOrderType === "preorder" ? "preorder_received" : "processing";
       const guestEstimatedArrival = clean(
@@ -6518,28 +6547,27 @@ async function handleWebhook(req, res) {
               );
             }
 
-            const accountUser = guestAccount?.user;
-            const accountMetadata = accountUser?.user_metadata ?? {};
-            const isSystemGuestAccount = Boolean(
-              guestAccount?.created
-              || accountMetadata.account_type === "guest"
-              || accountMetadata.must_change_password === true,
-            );
+            const linkedUserId = getVerifiedGuestAccountId(persistedGuestEmail, guestAccount);
 
-            if (isSystemGuestAccount && clean(accountUser?.id)) {
+            if (linkedUserId) {
               try {
                 const linkedOrder = await updateGuestOrderBundle(paymentRow.order_id, {
-                  user_id: accountUser.id,
+                  user_id: linkedUserId,
                 });
                 orderResult = { ok: true, order: linkedOrder.order, items: linkedOrder.items };
                 if (!clean(verifiedPayment?.user_id)) {
-                  await updatePaymentRow(paymentRow.id, { user_id: accountUser.id });
+                  await updatePaymentRow(paymentRow.id, { user_id: linkedUserId });
                 }
               } catch (linkError) {
                 console.error(
                   "Guest account link deferred after webhook payment:",
                   linkError?.message || "Unknown account link error",
                 );
+                sendJson(res, 500, {
+                  ok: false,
+                  message: "The payment was verified, but the guest account link is pending. The payment webhook can be retried safely.",
+                });
+                return;
               }
             }
           }
