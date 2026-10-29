@@ -2911,10 +2911,18 @@ async function sendTransactionalEmail({ to, subject, text, html }) {
 
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
+      const providerMessageId = clean(body?.messageId);
+      if (!providerMessageId) {
+        return {
+          ok: false,
+          ambiguous: true,
+          message: "Brevo accepted the email request but did not return a provider message ID.",
+        };
+      }
       return {
         ok: true,
         provider: "brevo",
-        providerMessageId: clean(body?.messageId),
+        providerMessageId,
       };
     }
 
@@ -2939,7 +2947,11 @@ async function sendTransactionalEmail({ to, subject, text, html }) {
       code: timedOut ? "ETIMEDOUT" : error?.code,
       message: timedOut ? "Brevo request timed out." : error?.message,
     });
-    return { ok: false, message: timedOut ? "Brevo email delivery timed out." : "Brevo email delivery failed." };
+    return {
+      ok: false,
+      ambiguous: true,
+      message: timedOut ? "Brevo email delivery outcome is uncertain after a timeout." : "Brevo email delivery outcome is uncertain after a connection failure.",
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -3548,7 +3560,7 @@ async function drainNotificationEmailQueue() {
 
     const now = new Date().toISOString();
     if (result.ok) {
-      await updateClaimedEmailJob(job, {
+      const persisted = await updateClaimedEmailJob(job, {
         status: "sent",
         sent_at: now,
         provider: result.provider || null,
@@ -3558,12 +3570,32 @@ async function drainNotificationEmailQueue() {
         updated_at: now,
         last_error: null,
       });
+      if (!persisted) {
+        console.error("Email delivery outcome is uncertain because the sent state could not be persisted.");
+        return { ok: false, code: "delivery_update_failed", processed };
+      }
     } else {
       const attempts = Number(job.attempts) || 1;
+      if (result.ambiguous) {
+        const persisted = await updateClaimedEmailJob(job, {
+          status: "manual_review",
+          next_attempt_at: now,
+          locked_at: null,
+          lock_token: null,
+          last_error: clean(result.message).slice(0, 500) || "Email delivery outcome requires manual review.",
+          updated_at: now,
+        });
+        if (!persisted) {
+          console.error("Ambiguous email delivery could not be moved to manual review.");
+          return { ok: false, code: "delivery_update_failed", processed };
+        }
+        processed += 1;
+        continue;
+      }
       const permanent = result.permanent || /no registered email|invalid recipient|invalid.*email|notification no longer exists/i.test(result.message || "");
       const exhausted = attempts >= (Number(job.max_attempts) || 5);
       const retryAt = new Date(Date.now() + getEmailRetryDelaySeconds(attempts) * 1000).toISOString();
-      await updateClaimedEmailJob(job, {
+      const persisted = await updateClaimedEmailJob(job, {
         status: "failed",
         attempts: permanent ? (Number(job.max_attempts) || 5) : attempts,
         next_attempt_at: permanent || exhausted ? now : retryAt,
@@ -3572,6 +3604,10 @@ async function drainNotificationEmailQueue() {
         last_error: clean(result.message).slice(0, 500) || "Email delivery failed.",
         updated_at: now,
       });
+      if (!persisted) {
+        console.error("Email delivery failure state could not be persisted.");
+        return { ok: false, code: "delivery_update_failed", processed };
+      }
     }
 
     processed += 1;
@@ -3664,6 +3700,84 @@ async function requeueNotificationEmail(notificationId) {
   }
 
   return { ok: true, queued: true, status: "queued", message: "Email queued for retry.", retryAt: now };
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean(value));
+}
+
+async function handleAdminEmailDeliveryReconcile(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can reconcile email deliveries." });
+    return;
+  }
+
+  if (!supabaseAdmin) {
+    sendJson(res, 503, { ok: false, message: "Email delivery reconciliation is not configured." });
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  const deliveryId = clean(body?.deliveryId);
+  const decision = clean(body?.decision).toLowerCase();
+  const reason = clean(body?.reason);
+  const providerMessageId = clean(body?.providerMessageId) || null;
+
+  if (!isUuid(deliveryId)) {
+    sendJson(res, 400, { ok: false, message: "A valid delivery ID is required." });
+    return;
+  }
+  if (!['mark_sent', 'requeue'].includes(decision)) {
+    sendJson(res, 400, { ok: false, message: "Decision must be mark_sent or requeue." });
+    return;
+  }
+  if (!reason || reason.length > 1000) {
+    sendJson(res, 400, { ok: false, message: "A reconciliation reason is required." });
+    return;
+  }
+  if (providerMessageId && providerMessageId.length > 255) {
+    sendJson(res, 400, { ok: false, message: "The provider message ID is too long." });
+    return;
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin.rpc("reconcile_notification_email_delivery", {
+      p_delivery_id: deliveryId,
+      p_decision: decision,
+      p_reason: reason,
+      p_admin_id: authResult.user.id,
+      p_provider_message_id: providerMessageId,
+    });
+    if (error || !Array.isArray(data) || data.length !== 1) {
+      console.error("Email delivery reconciliation failed:", JSON.stringify({ code: error?.code || "invalid_result" }));
+      sendJson(res, 409, { ok: false, message: "The email delivery could not be reconciled; no email was sent." });
+      return;
+    }
+    const result = data[0];
+    sendJson(res, 200, {
+      ok: true,
+      delivery: {
+        id: result.delivery_id,
+        status: result.status,
+        attempts: result.attempts,
+        maxAttempts: result.max_attempts,
+      },
+      auditId: result.audit_id,
+      message: decision === "mark_sent"
+        ? "Delivery marked sent from confirmed provider acceptance; no email was sent."
+        : "Delivery requeued after confirmed provider non-acceptance; it will be processed by the normal queue.",
+    });
+  } catch (error) {
+    console.error("Email delivery reconciliation failed:", JSON.stringify({ code: error?.code || "unknown" }));
+    sendJson(res, 409, { ok: false, message: "The email delivery could not be reconciled; no email was sent." });
+  }
 }
 
 async function loadPaymentNoticeDelivery(notificationId) {
@@ -7470,6 +7584,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/notification-email" && req.method === "POST") {
     await handleAdminNotificationEmail(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/notification-email/reconcile" && req.method === "POST") {
+    await handleAdminEmailDeliveryReconcile(req, res);
     return;
   }
 

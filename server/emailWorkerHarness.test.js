@@ -155,6 +155,8 @@ function createState(overrides = {}) {
     queueUpdates: [],
     rpcCalls: [],
     fetchCalls: [],
+    fetchError: null,
+    updateError: null,
     fetchResponse: { ok: true, status: 201, json: async () => ({ messageId: "brevo-fictional-message-001" }) },
     notificationError: null,
     ...overrides.state,
@@ -176,6 +178,7 @@ function createQuery(state, table, operation = "read") {
       const id = filters.find(([column]) => column === "id")?.[1];
       const reference = filters.find(([column]) => column === "provider_reference")?.[1];
       if (table === "notification_email_deliveries" && operation === "update") {
+        if (state.updateError) return { data: null, error: state.updateError };
         const token = filters.find(([column]) => column === "lock_token")?.[1];
         const status = filters.find(([column]) => column === "status")?.[1];
         const job = state.jobs.find((row) => row.id === id && row.lock_token === token && row.status === status);
@@ -195,6 +198,7 @@ function createQuery(state, table, operation = "read") {
         return resolve({ data: state.orderItems.filter((item) => item.order_id === orderId), error: null });
       }
       if (table === "notification_email_deliveries" && operation === "update") {
+        if (state.updateError) return resolve({ data: null, error: state.updateError });
         const id = filters.find(([column]) => column === "id")?.[1];
         const token = filters.find(([column]) => column === "lock_token")?.[1];
         const status = filters.find(([column]) => column === "status")?.[1];
@@ -253,6 +257,7 @@ function buildHarness(state, {
     supabaseAdmin: supabaseAvailable ? createSupabaseMock(state) : null,
     fetch: async (...args) => {
       state.fetchCalls.push(args);
+      if (state.fetchError) throw state.fetchError;
       return state.fetchResponse;
     },
     clean: (value) => (value == null ? "" : String(value).trim()),
@@ -469,6 +474,35 @@ test("temporary Brevo failure schedules a retry", async () => {
   assert.equal(update.status, "failed");
   assert.equal(update.attempts, 1);
   assert.ok(Date.parse(update.next_attempt_at) > Date.now());
+});
+
+test("ambiguous provider outcome remains retryable without an immediate second send", async () => {
+  const state = createState({
+    state: { fetchError: Object.assign(new Error("provider timeout"), { name: "AbortError" }) },
+  });
+  state.jobs.push(lockedJob(state));
+  const { drainNotificationEmailQueue } = buildHarness(state);
+  const result = await drainNotificationEmailQueue();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.processed, 1);
+  assert.equal(state.fetchCalls.length, 1);
+  assert.equal(state.queueUpdates[0].values.status, "manual_review");
+  assert.equal(state.jobs[0].status, "manual_review");
+  assert.equal(state.jobs[0].attempts, 1);
+});
+
+test("provider acceptance with a failed sent-state update is surfaced as uncertain", async () => {
+  const state = createState({ state: { updateError: { code: "PGRST000", message: "database unavailable" } } });
+  state.jobs.push(lockedJob(state));
+  const { drainNotificationEmailQueue } = buildHarness(state);
+  const result = await drainNotificationEmailQueue();
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "delivery_update_failed");
+  assert.equal(result.processed, 0);
+  assert.equal(state.fetchCalls.length, 1);
+  assert.equal(state.jobs[0].status, "processing");
 });
 
 test("missing receipt context remains failed and retryable at queue level", async () => {
