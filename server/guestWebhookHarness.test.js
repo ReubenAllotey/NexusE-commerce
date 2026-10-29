@@ -440,7 +440,7 @@ test("account provisioning failure preserves the verified payment and order conf
     successfulEvent("ref-fictional-001"),
   );
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.statusCode, 503);
   assert.equal(state.payments[0].status, "successful");
   assert.equal(state.orders[0].user_id, null);
   assert.equal(state.notifications.length, 1);

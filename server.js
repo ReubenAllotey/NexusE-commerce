@@ -3135,6 +3135,111 @@ async function ensureGuestAccountSetupNotification(order = null) {
   return { ok: true, duplicate: error?.code === "23505" };
 }
 
+const guestAccountSetupReconciliationInFlight = new Map();
+
+async function reconcileGuestAccountSetupForOrder(orderId) {
+  const cleanOrderId = clean(orderId);
+  if (!cleanOrderId) {
+    return { ok: false, code: "order_required", message: "An order is required." };
+  }
+
+  const existingWork = guestAccountSetupReconciliationInFlight.get(cleanOrderId);
+  if (existingWork) return existingWork;
+
+  const work = (async () => {
+    const orderResult = await loadOrderBundle(cleanOrderId);
+    if (!orderResult.ok || !orderResult.order) {
+      return { ok: false, code: "order_unavailable", message: orderResult.message || "The order could not be loaded." };
+    }
+
+    const { data: payment, error: paymentError } = await supabaseAdmin
+      .from("payments")
+      .select("id, order_id, user_id, payment_purpose, provider_reference, status, amount, amount_minor, currency, paid_at")
+      .eq("order_id", cleanOrderId)
+      .eq("payment_purpose", "order")
+      .eq("status", "successful")
+      .order("paid_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (paymentError) {
+      return { ok: false, code: "payment_lookup_failed", message: "Unable to load the persisted successful payment." };
+    }
+    if (!payment) {
+      return { ok: false, code: "payment_not_verified", message: "The order has no persisted successful product payment." };
+    }
+
+    let currentOrder = orderResult.order;
+    let guestAccount = null;
+
+    if (!clean(currentOrder.user_id)) {
+      const email = clean(currentOrder.customer_email || currentOrder.guest_email).toLowerCase();
+      if (!isValidQueuedEmailAddress(email)) {
+        return { ok: false, code: "guest_email_missing", message: "The paid guest order has no valid customer email." };
+      }
+
+      try {
+        guestAccount = await provisionGuestAccountAfterVerifiedPayment(
+          email,
+          clean(currentOrder.customer_name || currentOrder.guest_full_name) || email.split("@")[0],
+        );
+      } catch (error) {
+        console.error("Guest account setup reconciliation deferred:", error?.message || "Unknown account error");
+        return { ok: false, code: "provisioning_retryable", retryable: true, message: "Guest account provisioning is temporarily unavailable; retry this reconciliation." };
+      }
+
+      const linkedUserId = getVerifiedGuestAccountId(email, guestAccount);
+      if (!linkedUserId) {
+        const existingUser = guestAccount?.user;
+        const existingMetadata = existingUser?.user_metadata ?? {};
+        const isSystemGuest = Boolean(
+          guestAccount?.created
+            || guestAccount?.profile?.account_type === "guest"
+            || existingMetadata.account_type === "guest"
+            || existingMetadata.must_change_password === true,
+        );
+
+        if (existingUser && !isSystemGuest) {
+          return { ok: true, skipped: true, reason: "existing_registered_account", payment, order: currentOrder };
+        }
+
+        return { ok: false, code: "guest_account_not_ready", retryable: true, message: "The guest account is not ready to be linked; retry this reconciliation." };
+      }
+
+      const linkedOrder = await updateGuestOrderBundle(cleanOrderId, { user_id: linkedUserId });
+      currentOrder = linkedOrder.order;
+      if (!clean(payment.user_id)) {
+        await updatePaymentRow(payment.id, { user_id: linkedUserId });
+      }
+    }
+
+    const notificationResult = await ensureGuestAccountSetupNotification(currentOrder);
+    if (!notificationResult.ok) {
+      return {
+        ok: false,
+        code: "notification_retryable",
+        retryable: true,
+        message: notificationResult.message || "The account setup notification could not be queued; retry this reconciliation.",
+      };
+    }
+
+    return {
+      ok: true,
+      skipped: Boolean(notificationResult.skipped),
+      duplicate: Boolean(notificationResult.duplicate),
+      payment,
+      order: currentOrder,
+    };
+  })();
+
+  guestAccountSetupReconciliationInFlight.set(cleanOrderId, work);
+  try {
+    return await work;
+  } finally {
+    guestAccountSetupReconciliationInFlight.delete(cleanOrderId);
+  }
+}
+
 async function sendNotificationEmailForRow(notification, delivery = {}) {
   const userId = clean(notification?.user_id);
   let profile = null;
@@ -3924,6 +4029,81 @@ async function handleAdminOrderPaymentNotice(req, res) {
       ? "Payment reminder saved and email queued for delivery."
       : "Payment reminder saved; email delivery status is being processed.",
   });
+}
+
+async function handleAdminGuestAccountSetupReconcile(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can reconcile guest account setup." });
+    return;
+  }
+
+  if (!supabaseAdmin) {
+    sendJson(res, 503, { ok: false, message: "Guest account reconciliation is not configured." });
+    return;
+  }
+
+  const body = normalizePayload(await readJsonBody(req));
+  const orderId = clean(body.orderId);
+  const orderNumber = clean(body.orderNumber);
+  if (!orderId && !orderNumber) {
+    sendJson(res, 400, { ok: false, message: "An order ID or order number is required." });
+    return;
+  }
+
+  const { data: order, error: orderError } = await supabaseAdmin
+    .from("orders")
+    .select("id")
+    .eq(orderId ? "id" : "order_number", orderId || orderNumber)
+    .maybeSingle();
+  if (orderError) {
+    sendJson(res, 500, { ok: false, message: "Unable to load the order for account reconciliation." });
+    return;
+  }
+  if (!order) {
+    sendJson(res, 404, { ok: false, message: "Order not found." });
+    return;
+  }
+
+  try {
+    const result = await reconcileGuestAccountSetupForOrder(order.id);
+    if (!result.ok) {
+      sendJson(res, result.code === "payment_not_verified" || result.code === "guest_email_missing" ? 409 : 503, {
+        ok: false,
+        code: result.code,
+        retryable: Boolean(result.retryable),
+        message: result.message,
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      skipped: Boolean(result.skipped),
+      duplicate: Boolean(result.duplicate),
+      payment: result.payment,
+      order: result.order,
+      message: result.skipped
+        ? "No account setup notification was required for this order."
+        : result.duplicate
+          ? "The account setup notification already exists."
+          : "The account setup notification was saved and queued through the existing notification system.",
+    });
+  } catch (error) {
+    console.error("Guest account setup reconciliation failed:", error?.message || "Unknown error");
+    sendJson(res, 503, {
+      ok: false,
+      code: "reconciliation_retryable",
+      retryable: true,
+      message: "Guest account setup reconciliation could not be completed; retry it later.",
+    });
+  }
 }
 
 async function handleAdminPaymentReconcile(req, res) {
@@ -5833,6 +6013,7 @@ async function handleVerify(req, res, reference) {
           user: null,
           profile: null,
           eligible: false,
+          requiresSetup: true,
           message: "Your payment was verified. We will send your order confirmation to your checkout email.",
         };
       }
@@ -5840,6 +6021,7 @@ async function handleVerify(req, res, reference) {
       const guestCustomerName = clean(guestAccount.profile?.full_name) || guestName;
       const guestCustomerEmail = clean(guestAccount.profile?.email) || guestEmail;
       const linkedUserId = getVerifiedGuestAccountId(guestEmail, guestAccount);
+      const accountSetupDeferred = Boolean(guestAccount.requiresSetup && !linkedUserId);
       const guestOrderType = normalizeAvailabilityType(expectedCheckout.availabilityType || "ready_stock");
       const guestOrderStatus = guestOrderType === "preorder" ? "preorder_received" : "processing";
       const guestEstimatedArrival = clean(
@@ -5895,6 +6077,13 @@ async function handleVerify(req, res, reference) {
       });
 
       await ensureOrderConfirmationNotification(updatedPayment, orderBundle.order);
+      if (accountSetupDeferred) {
+        sendJson(res, 503, {
+          ok: false,
+          message: "The payment was verified, but guest account setup is pending and can be retried safely.",
+        });
+        return;
+      }
       const accountSetupResult = await ensureGuestAccountSetupNotification(orderBundle.order);
       if (!accountSetupResult.ok) {
         throw new Error(accountSetupResult.message || "Unable to queue the guest account setup email.");
@@ -6516,6 +6705,7 @@ async function handleWebhook(req, res) {
           );
           const verifiedPayment = await getPaymentByReference(reference);
           let orderResult = await loadOrderBundle(paymentRow.order_id);
+          let provisioningDeferred = false;
           if (!orderResult.ok) {
             sendJson(res, 500, {
               ok: false,
@@ -6545,6 +6735,7 @@ async function handleWebhook(req, res) {
                 "Guest account provisioning deferred after webhook payment:",
                 accountError?.message || "Unknown account error",
               );
+              provisioningDeferred = true;
             }
 
             const linkedUserId = getVerifiedGuestAccountId(persistedGuestEmail, guestAccount);
@@ -6570,6 +6761,7 @@ async function handleWebhook(req, res) {
                 return;
               }
             }
+
           }
 
           const notificationResult = await ensureOrderConfirmationNotification(
@@ -6580,6 +6772,13 @@ async function handleWebhook(req, res) {
             sendJson(res, 500, {
               ok: false,
               message: notificationResult.message || "Unable to queue the order confirmation notification.",
+            });
+            return;
+          }
+          if (provisioningDeferred) {
+            sendJson(res, 503, {
+              ok: false,
+              message: "The payment was verified, but guest account setup is pending and can be retried safely.",
             });
             return;
           }
@@ -7262,6 +7461,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/payments/reconcile" && req.method === "POST") {
     await handleAdminPaymentReconcile(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/guest-account-setup/reconcile" && req.method === "POST") {
+    await handleAdminGuestAccountSetupReconcile(req, res);
     return;
   }
 
