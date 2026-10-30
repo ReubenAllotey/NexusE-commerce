@@ -28282,6 +28282,18 @@ body[data-theme="dark"] .admin-dashboard-metric:hover {
   box-shadow: 0 18px 38px rgba(2, 6, 23, 0.38);
 }
 
+/* Keep currency KPIs compact and readable without changing their accounting. */
+.admin-dashboard-metric--financial strong {
+  max-width: 100%;
+  font-size: clamp(1.5rem, 2.1vw, 2.125rem);
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .admin-dashboard-metric {
     transition: none;

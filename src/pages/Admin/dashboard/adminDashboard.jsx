@@ -14,12 +14,12 @@ import { getOrderStatusLabel } from "../../Profile/ordersStorage";
 import { useProducts } from "../../Products/productData";
 import { getCategoryMetrics, useCategoryRecords } from "../../../shared/categoryStorage";
 
-function MetricCard({ title, value, subtitle, tone = "blue", to, ariaLabel }) {
+function MetricCard({ title, value, subtitle, tone = "blue", to, ariaLabel, financial = false }) {
   return (
     <Link
       to={to}
       aria-label={ariaLabel}
-      className={`admin-dashboard-metric admin-dashboard-metric--${tone}`}
+      className={`admin-dashboard-metric admin-dashboard-metric--${tone}${financial ? " admin-dashboard-metric--financial" : ""}`}
     >
       <span>{title}</span>
       <strong>{value}</strong>
@@ -221,6 +221,7 @@ function AdminDashboard({
               value={formatMoney(orderMetrics.verifiedProductRevenue)}
               subtitle="Verified successful product payments only."
               tone="green"
+              financial
               to="/admin/orders"
               ariaLabel="View verified product revenue"
             />
@@ -229,6 +230,7 @@ function AdminDashboard({
               value={formatMoney(orderMetrics.totalOrderValue)}
               subtitle="Product amounts due, not received revenue."
               tone="slate"
+              financial
               to="/admin/orders"
               ariaLabel="View total order value"
             />
@@ -237,6 +239,7 @@ function AdminDashboard({
               value={formatMoney(orderMetrics.outstandingProductPayments)}
               subtitle="Unsettled product payment balance."
               tone="amber"
+              financial
               to="/admin/orders"
               ariaLabel="View outstanding product payments"
             />
@@ -245,6 +248,7 @@ function AdminDashboard({
               value={formatMoney(orderMetrics.verifiedShippingPayments)}
               subtitle="Verified shipping payments received."
               tone="blue"
+              financial
               to="/admin/orders"
               ariaLabel="View verified shipping payments"
             />
@@ -253,6 +257,7 @@ function AdminDashboard({
               value={formatMoney(orderMetrics.outstandingConfirmedShipping)}
               subtitle="Confirmed shipping balance still due."
               tone="slate"
+              financial
               to="/admin/orders"
               ariaLabel="View outstanding shipping payments"
             />
