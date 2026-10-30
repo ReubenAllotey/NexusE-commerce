@@ -801,7 +801,7 @@ function PaymentCheckout({
         };
       } else {
         let resolvedShippingAddressId = shippingAddress?.id ?? "";
-        if (resolvedShippingAddressId && typeof onSaveAddress === "function") {
+        if (authUser && typeof onSaveAddress === "function") {
           const addressResult = await onSaveAddress({
             ...shippingAddress,
             id: resolvedShippingAddressId,

@@ -132,7 +132,7 @@ function resolveCartRows(cartItems = [], productLookup = new Map()) {
     .filter(Boolean);
 }
 
-function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSaveAddress = async () => ({ ok: false }) }) {
+function ShippingAddress({ addresses = [], cartItems = [], authUser = null }) {
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -310,7 +310,8 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
     };
 
     const nextFieldErrors = {};
-    if (!payload.region || !GHANA_REGIONS.includes(payload.region)) nextFieldErrors.region = "Please select a region.";
+    if (!payload.region) nextFieldErrors.region = "Please select a region.";
+    else if (!GHANA_REGIONS.includes(payload.region)) nextFieldErrors.region = "Please select a valid Ghana region.";
     if (!payload.city) nextFieldErrors.city = "Please enter your delivery location.";
 
     if (Object.keys(nextFieldErrors).length > 0) {
@@ -356,17 +357,15 @@ function ShippingAddress({ addresses = [], cartItems = [], authUser = null, onSa
         return;
       }
 
-      const saveResult = await onSaveAddress(payload);
-
-      if (saveResult?.ok && saveResult?.address) {
-        const savedAddress = saveResult.address;
-        setFormError("");
-        setFieldErrors({});
-        persistAndContinue(savedAddress);
-        return;
-      }
-
-      setFormError(saveResult?.message || "Please review the address details.");
+      // Keep this stage as a temporary checkout draft. The authenticated
+      // checkout stage adds the required customer fields before persistence.
+      setFormError("");
+      setFieldErrors({});
+      persistAndContinue({
+        ...payload,
+        fullName: "",
+        phoneNumber: "",
+      });
     } catch (error) {
       setFormError(error?.message || "Please review the address details.");
     } finally {
