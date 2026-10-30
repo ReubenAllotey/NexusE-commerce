@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import { loadAdminSession } from "../Auth/adminAuthStorage";
 import { formatMoney, formatShortDate } from "../adminHelpers";
 import { loadAdminBatches } from "../../../shared/batchStorage";
+import { downloadBatchSummaryPdf } from "./batchSummaryPdf";
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -58,29 +59,8 @@ function getOrderNumber(order) {
   return order?.orderNumber || order?.id || "Order";
 }
 
-function downloadCsv(rows, batchNumber) {
-  const headings = ["Batch", "Product Name", "SKU/Slug", "Variant Details", "Availability", "Quantity", "Unit Price", "Total Value", "Orders"];
-  const lines = rows.map((row) => [
-    batchNumber,
-    row.name,
-    row.slug,
-    formatVariantDetails(row.options),
-    availabilityLabel(row.availabilityType),
-    row.quantity,
-    row.unitPrice == null ? "Mixed historical prices" : row.unitPrice.toFixed(2),
-    row.totalValue.toFixed(2),
-    row.orders.map((order) => getOrderNumber(order)).join("; "),
-  ]);
-  const csv = [headings, ...lines]
-    .map((line) => line.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
-    .join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `nexus-batch-${String(batchNumber).replace(/[^a-z0-9-_]/gi, "-")}-summary.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+function PdfDownloadIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 2.75h8.5L19 7.25v14H6z" /><path d="M14.5 2.75v4.5H19M8.5 15.25h2.25a1.5 1.5 0 0 0 0-3H8.5v5.5M14 17.75v-5.5h1.75a2.75 2.75 0 0 1 0 5.5H14" /></svg>;
 }
 
 function BatchSummaryPage({ orders = [] }) {
@@ -134,6 +114,7 @@ function BatchSummaryPage({ orders = [] }) {
           const current = grouped.get(key) ?? {
             key,
             name: item.name || "Unnamed product",
+            sku: item.sku || item.SKU || item.productSku || item.product_sku || item.slug || "",
             slug: item.slug || "",
             image: item.image || item.imageUrl || item.image_url || "",
             options,
@@ -150,6 +131,9 @@ function BatchSummaryPage({ orders = [] }) {
           if (!current.unitPrices.some((value) => value === unitPrice)) current.unitPrices.push(unitPrice);
           if (!current.image && (item.image || item.imageUrl || item.image_url)) {
             current.image = item.image || item.imageUrl || item.image_url;
+          }
+          if (!current.sku && (item.sku || item.SKU || item.productSku || item.product_sku || item.slug)) {
+            current.sku = item.sku || item.SKU || item.productSku || item.product_sku || item.slug;
           }
           if (!current.orders.some((entry) => entry.id === order.id)) current.orders.push(order);
           const contribution = current.contributions.find((entry) => entry.order.id === order.id);
@@ -189,6 +173,16 @@ function BatchSummaryPage({ orders = [] }) {
     orders: batchOrders.length,
     value: allRows.reduce((sum, row) => sum + row.totalValue, 0),
   }), [allRows, batchOrders.length]);
+  const exportMetrics = useMemo(() => ({
+    products: rows.length,
+    units: rows.reduce((sum, row) => sum + row.quantity, 0),
+    orders: new Set(rows.flatMap((row) => row.orders.map((order) => order.id))).size,
+    value: rows.reduce((sum, row) => sum + row.totalValue, 0),
+  }), [rows]);
+  const filterDescription = [
+    availabilityFilter === "all" ? "All availability" : availabilityLabel(availabilityFilter),
+    query.trim() ? `Search: ${query.trim()}` : "No search filter",
+  ].join(" | ");
 
   if (!session) return <Navigate to="/admin/login" replace />;
 
@@ -201,8 +195,9 @@ function BatchSummaryPage({ orders = [] }) {
             <h1>Batch Summary</h1>
             <span>See exactly what needs to be sourced for the selected order batch.</span>
           </div>
-          <button type="button" className="admin-orders-header__button" onClick={() => downloadCsv(rows, activeBatch || "unselected")} disabled={!activeBatch || rows.length === 0}>
-            Export CSV
+          <button type="button" className="admin-orders-header__button" onClick={() => downloadBatchSummaryPdf({ batchNumber: activeBatch, rows, metrics: exportMetrics, filters: filterDescription })} disabled={!activeBatch || rows.length === 0}>
+            <PdfDownloadIcon />
+            Export PDF
           </button>
         </header>
 

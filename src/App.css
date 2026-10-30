@@ -13244,7 +13244,18 @@ body[data-theme="dark"] .location-picker__selected {
   color: #ffffff;
   text-decoration: none;
   font-weight: 800;
+  gap: 0.45rem;
   box-shadow: 0 16px 28px rgba(23, 55, 122, 0.16);
+}
+
+.admin-orders-header__button svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .admin-orders-header__button:disabled {
