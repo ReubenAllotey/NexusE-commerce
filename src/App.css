@@ -18349,12 +18349,14 @@ body[data-theme="dark"] .admin-product-form__modal input {
   align-items: center;
   justify-content: center;
   min-height: 2.2rem;
+  width: 9rem;
   max-width: 100%;
   padding: 0 0.7rem;
   border-radius: 0.65rem;
   font-size: 0.78rem;
   font-weight: 800;
   line-height: 1.2;
+  white-space: nowrap;
   text-align: center;
 }
 
@@ -18447,6 +18449,7 @@ body[data-theme="dark"] .admin-notifications-developer-tools { background: rgba(
   .admin-notifications-row td:nth-child(5)::before { content: "Date"; }
   .admin-notifications-row td:nth-child(6)::before { content: "Action"; }
   .admin-notifications-row td:nth-child(6) { grid-column: 1 / -1; }
+  .admin-notifications-action { width: 100%; }
   .admin-notifications-developer-tools { grid-template-columns: 1fr; }
   .admin-notifications-dev-button { justify-self: start; }
 }

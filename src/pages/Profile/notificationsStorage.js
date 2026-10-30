@@ -360,6 +360,7 @@ function mapNotificationRow(row = {}, context = {}) {
     batchNumber: clean(shipment?.batchNumber),
     paymentId: clean(row.payment_id),
     paymentReference: clean(payment?.providerReference),
+    paymentStatus: clean(payment?.status),
     actionUrl: action.actionUrl,
     actionLabel: action.actionLabel,
     actionDescription: action.actionDescription,

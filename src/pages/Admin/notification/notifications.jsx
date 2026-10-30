@@ -6,6 +6,7 @@ import {
   getNotificationCategoryLabel,
   getNotificationsForUser,
 } from "../../Profile/notificationsStorage";
+import { resolveAdminNotificationAction } from "./adminNotificationActions";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -217,6 +218,7 @@ function AdminNotificationsPage({
                   filteredNotifications.map((notification) => {
                     const isUnread = !(notification.isRead ?? notification.read);
                     const category = getNotificationCategory(notification);
+                    const adminAction = resolveAdminNotificationAction(notification);
 
                     return (
                       <tr key={notification.id} className={`admin-notifications-row${isUnread ? " is-unread" : ""}`}>
@@ -241,17 +243,21 @@ function AdminNotificationsPage({
                           <small>{notification.actionDescription || "Supabase notification"}</small>
                         </td>
                         <td>
-                            <div className="admin-notifications-actions">
-                            {notification.actionUrl ? (
+                          <div className="admin-notifications-actions">
+                            {adminAction.actionUrl ? (
                               <Link
-                                to={notification.actionUrl}
+                                to={adminAction.actionUrl}
                                 className="admin-notifications-action admin-notifications-action--primary"
+                                aria-label={`${adminAction.actionLabel}: ${notification.title || "notification"}`}
                               >
-                                {notification.actionLabel || "Open"}
+                                {adminAction.actionLabel}
                               </Link>
                             ) : (
-                              <span className="admin-notifications-action admin-notifications-action--ghost">
-                                No link
+                              <span
+                                className="admin-notifications-action admin-notifications-action--ghost"
+                                title={adminAction.actionDescription}
+                              >
+                                {adminAction.actionLabel}
                               </span>
                             )}
                           </div>
