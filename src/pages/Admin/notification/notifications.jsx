@@ -30,6 +30,7 @@ function NotificationIcon({ name, size = 18 }) {
     orders: <><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8 9h8M8 13h5M8 17h3" /></>,
     shipping: <><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></>,
     unread: <><circle cx="12" cy="12" r="8" /><path d="M12 8v4l2.5 2" /></>,
+    eye: <><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.25" /></>,
   };
 
   return (
@@ -250,11 +251,12 @@ function AdminNotificationsPage({
                                 className="admin-notifications-action admin-notifications-action--primary"
                                 aria-label={`${adminAction.actionLabel}: ${notification.title || "notification"}`}
                               >
+                                <NotificationIcon name="eye" size={15} />
                                 {adminAction.actionLabel}
                               </Link>
                             ) : (
                               <span
-                                className="admin-notifications-action admin-notifications-action--ghost"
+                                className="admin-notifications-action--none"
                                 title={adminAction.actionDescription}
                               >
                                 {adminAction.actionLabel}
