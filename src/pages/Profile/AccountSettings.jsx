@@ -363,7 +363,14 @@ function AccountSettings({ authUser = null, onUpdateAuthUser = () => {} }) {
       onUpdateAuthUser(nextProfile);
       setPasswordMessage("Password updated successfully.");
     } catch (passwordError) {
-      setError(passwordError.message || "Unable to update your password right now.");
+      const errorMessage = String(passwordError?.message || "");
+      if (/different from the old password/i.test(errorMessage)) {
+        setError("Choose a new password that is different from your previous password.");
+      } else if (passwordError instanceof TypeError || /failed to fetch/i.test(errorMessage)) {
+        setError("Your password may have been updated, but the account update could not be confirmed. Please try again.");
+      } else {
+        setError("Unable to update your password right now. Please try again.");
+      }
     } finally {
       setIsUpdatingPassword(false);
     }

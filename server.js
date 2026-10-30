@@ -2224,24 +2224,50 @@ async function handleChangePassword(req, res) {
     return;
   }
 
+  const profileResult = await supabaseAdmin
+    .from("profiles")
+    .select("id, must_change_password, account_type, role, status")
+    .eq("id", authResult.user.id)
+    .maybeSingle();
+
+  if (profileResult.error || !profileResult.data) {
+    sendJson(res, 500, {
+      ok: false,
+      message: "Password updated, but we could not verify the account password requirement.",
+    });
+    return;
+  }
+
+  if (profileResult.data.must_change_password !== true) {
+    sendJson(res, 200, {
+      ok: true,
+      cleared: false,
+      message: "Your password was updated successfully.",
+      profile: profileResult.data,
+    });
+    return;
+  }
+
   const clearResult = await supabaseAdmin
     .from("profiles")
     .update({ must_change_password: false })
     .eq("id", authResult.user.id)
-    .select("id, must_change_password")
+    .eq("must_change_password", true)
+    .select("id, must_change_password, account_type, role, status")
     .maybeSingle();
 
-  if (clearResult.error) {
+  if (clearResult.error || !clearResult.data) {
     sendJson(res, 500, {
       ok: false,
-      message: clearResult.error.message || "Password updated, but we could not clear the password requirement flag.",
+      message: "Password updated, but we could not complete the guest account setup.",
     });
     return;
   }
 
   sendJson(res, 200, {
     ok: true,
-    message: "Your password requirement was cleared successfully.",
+    cleared: true,
+    message: "Your password and guest account setup were completed successfully.",
     profile: clearResult.data ?? null,
   });
 }

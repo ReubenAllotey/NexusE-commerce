@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -34,6 +34,7 @@ function PasswordSetup() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const authPasswordUpdatedRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -171,12 +172,15 @@ function PasswordSetup() {
         throw new Error(INVALID_RESET_MESSAGE);
       }
 
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
+      if (!authPasswordUpdatedRef.current) {
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: newPassword,
+        });
 
-      if (updateError) {
-        throw updateError;
+        if (updateError) {
+          throw updateError;
+        }
+        authPasswordUpdatedRef.current = true;
       }
 
       const { data: refreshedSession } = await supabase.auth.getSession();
@@ -203,12 +207,20 @@ function PasswordSetup() {
         newPassword: "",
         confirmPassword: "",
       });
+      authPasswordUpdatedRef.current = false;
       setMessage("Your password has been set successfully.");
       setTimeout(() => {
         navigate("/profile/dashboard", { replace: true });
       }, 800);
     } catch (setupError) {
-      setError(setupError.message || "Unable to finish password setup right now.");
+      const errorMessage = String(setupError?.message || "");
+      if (/different from the old password/i.test(errorMessage)) {
+        setError("Choose a new password that is different from your previous password.");
+      } else if (setupError instanceof TypeError || /failed to fetch/i.test(errorMessage)) {
+        setError("Your password may have been updated, but account setup could not be confirmed. Please try again.");
+      } else {
+        setError("Unable to finish password setup right now. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
