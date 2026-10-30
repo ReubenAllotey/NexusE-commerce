@@ -3284,7 +3284,7 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
   if (userId) {
     const { data, error } = await supabaseAdmin
       .from("profiles")
-      .select("full_name, email")
+      .select("full_name, email, account_type, role, status")
       .eq("id", userId)
       .maybeSingle();
 
@@ -3365,6 +3365,14 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
     const queuedEmail = clean(delivery.recipientEmail).toLowerCase();
     if (!isValidQueuedEmailAddress(authEmail) || profileEmail !== authEmail || (queuedEmail && queuedEmail !== authEmail)) {
       return { ok: false, message: "The guest account recipient could not be verified; the email will be retried." };
+    }
+
+    const metadata = authResult?.user?.user_metadata ?? {};
+    const isGuestAccount = profile.account_type === "guest"
+      || metadata.account_type === "guest"
+      || metadata.must_change_password === true;
+    if (!isGuestAccount || profile.role !== "customer" || profile.status !== "active") {
+      return { ok: false, permanent: true, message: "The account is not eligible for guest setup delivery." };
     }
 
     const redirectTo = `${appUrl.replace(/\/+$/, "")}/account/set-password`;
