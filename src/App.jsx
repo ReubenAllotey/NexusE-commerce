@@ -796,6 +796,7 @@ function AppShell({
               ordersLoading={ordersLoading}
               ordersError={ordersError}
               authUser={authUser}
+              authReady={authReady}
               siteBanner={siteBanner}
               onUpdateOrder={onUpdateOrder}
               onClearCart={onClearCart}
@@ -811,6 +812,7 @@ function AppShell({
               ordersLoading={ordersLoading}
               ordersError={ordersError}
               authUser={authUser}
+              authReady={authReady}
               siteBanner={siteBanner}
               onUpdateOrder={onUpdateOrder}
               onClearCart={onClearCart}

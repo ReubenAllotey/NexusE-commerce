@@ -1322,6 +1322,7 @@ function PaymentStatusPage({
   ordersLoading = false,
   ordersError = "",
   authUser = null,
+  authReady = false,
   onUpdateOrder = () => {},
   onClearCart = () => {},
 }) {
@@ -1394,7 +1395,7 @@ function PaymentStatusPage({
   }, []);
 
   useEffect(() => {
-    if (!reference || !authUser?.id) {
+    if (!authReady || !reference || !authUser?.id) {
       setReceiptRecord(null);
       setReceiptError("");
       setReceiptLoading(false);
@@ -1427,7 +1428,7 @@ function PaymentStatusPage({
     return () => {
       isMounted = false;
     };
-  }, [authUser?.id, reference]);
+  }, [authReady, authUser?.id, reference]);
 
   async function verifyPayment() {
     if (!reference) {
@@ -1593,7 +1594,7 @@ function PaymentStatusPage({
   }
 
   useEffect(() => {
-    if (!reference || variant === "failed") {
+    if (!authReady || !reference || variant === "failed") {
       return undefined;
     }
 
@@ -1618,7 +1619,7 @@ function PaymentStatusPage({
     removePaymentTokenFromUrl();
     void verifyPayment();
     return undefined;
-  }, [reference, session?.status, variant, verificationState]);
+  }, [authReady, reference, session?.status, variant, verificationState]);
 
   if (ordersLoading) {
     return (
@@ -1681,6 +1682,11 @@ function PaymentStatusPage({
       return;
     }
 
+    if (!authUser?.id) {
+      handleGuestNext();
+      return;
+    }
+
     navigate("/profile/orders");
   };
 
@@ -1688,11 +1694,18 @@ function PaymentStatusPage({
     if (!paymentReference || typeof window === "undefined") return;
 
     try {
-      const accessToken = authUser?.id ? (await getAccessToken()).accessToken : "";
+      const tokenResult = authUser?.id ? await getAccessToken() : { ok: true, accessToken: "" };
+      if (!tokenResult.ok && !session?.guestAccessToken && !callbackPaymentToken) {
+        throw new Error("Please sign in again to download your receipt.");
+      }
+      const accessToken = tokenResult.accessToken;
       const response = await fetch(`/api/receipts/${encodeURIComponent(paymentReference)}/pdf`, {
         headers: {
           Accept: "application/pdf",
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(session?.guestAccessToken
+            ? { "X-Guest-Checkout-Token": session.guestAccessToken }
+            : {}),
           ...(paymentPurpose === "shipping-balance" && callbackPaymentToken
             ? { "X-Shipping-Payment-Token": callbackPaymentToken }
             : {}),

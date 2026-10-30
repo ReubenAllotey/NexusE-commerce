@@ -6624,8 +6624,11 @@ async function handleReceiptPdf(req, res, reference) {
   const shippingToken = clean(req.headers["x-shipping-payment-token"] || req.headers["x-payment-reminder-token"]);
   const guestShippingAccess = paymentRow.payment_purpose === "shipping"
     && verifyShippingPaymentReminderToken(shippingToken, paymentRow.order_id);
+  const guestCheckoutToken = clean(req.headers["x-guest-checkout-token"]);
+  const guestCheckoutAccess = paymentRow.payment_purpose === "order"
+    && verifyGuestCheckoutAccessToken(guestCheckoutToken, cleanReference, paymentRow.order_id);
   const authResult = await getAuthenticatedUser(req).catch(() => ({ ok: false, user: null }));
-  if ((!authResult.ok || !authResult.user) && !guestShippingAccess) {
+  if ((!authResult.ok || !authResult.user) && !guestShippingAccess && !guestCheckoutAccess) {
     sendJson(res, 401, { ok: false, message: "Please sign in to view this receipt." });
     return;
   }
@@ -6634,7 +6637,7 @@ async function handleReceiptPdf(req, res, reference) {
     ? await loadProfile(authResult.user.id).catch(() => null)
     : null;
   const isAdmin = profileResult?.profile ? isActiveAdminProfile(profileResult.profile) : false;
-  if (!guestShippingAccess && !isAdmin && clean(paymentRow.user_id) !== clean(authResult.user?.id)) {
+  if (!guestShippingAccess && !guestCheckoutAccess && !isAdmin && clean(paymentRow.user_id) !== clean(authResult.user?.id)) {
     sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
     return;
   }
@@ -6648,7 +6651,7 @@ async function handleReceiptPdf(req, res, reference) {
 
   const orderUserId = clean(orderResult.order.customerId ?? orderResult.order.customer_id ?? orderResult.order.userId ?? orderResult.order.user_id);
 
-  if (!guestShippingAccess && !isAdmin && (!orderUserId || orderUserId !== authResult.user?.id)) {
+  if (!guestShippingAccess && !guestCheckoutAccess && !isAdmin && (!orderUserId || orderUserId !== authResult.user?.id)) {
     sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
     return;
   }
