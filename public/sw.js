@@ -1,4 +1,4 @@
-const STATIC_CACHE = "nexus-static-v1";
+const STATIC_CACHE = "nexus-static-v2";
 
 function safeNotificationUrl(value) {
   try {
@@ -17,7 +17,12 @@ self.addEventListener("install", () => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(
+      keys.filter((key) => key !== STATIC_CACHE && key.startsWith("nexus-static-"))
+        .map((key) => caches.delete(key)),
+    )).then(() => self.clients.claim()),
+  );
 });
 
 self.addEventListener("push", (event) => {
@@ -31,8 +36,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title || "Nexus Import Hub", {
       body: payload.body || "You have a new Nexus notification.",
-      icon: payload.icon || "/nexus-pwa-192.png",
-      badge: payload.badge || "/nexus-pwa-192.png",
+      icon: payload.icon || "/nexus-symbol-pwa-192-1.png",
+      badge: payload.badge || "/nexus-symbol-pwa-192-1.png",
       data: { url: safeNotificationUrl(payload.url) },
       tag: payload.tag || "nexus-notification-unknown",
     }),
