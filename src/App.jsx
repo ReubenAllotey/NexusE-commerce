@@ -17,6 +17,7 @@ import ShippingAddress from "./pages/ShippingAddress/ShippingAddress";
 import WishlistPage from "./pages/wishlist/wishlist";
 import Signup from "./pages/register/signup";
 import Login from "./pages/register/login";
+import ForgotPassword from "./pages/register/ForgotPassword";
 import PasswordSetup from "./pages/register/PasswordSetup";
 import AdminLogin from "./pages/Admin/Auth/adminLogin";
 import AdminLayout from "./pages/Admin/AdminLayout";
@@ -903,6 +904,7 @@ function AppShell({
           element={<Signup onSignup={onSignup} />}
         />
         <Route path="/register/login" element={<Login onLogin={onLogin} />} />
+        <Route path="/register/forgot-password" element={<ForgotPassword />} />
         <Route path="/account/set-password" element={<PasswordSetup />} />
       </Routes>
       <CustomerOnboarding authReady={authReady} authUser={authUser} />

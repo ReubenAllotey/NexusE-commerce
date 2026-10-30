@@ -62,6 +62,11 @@ function PasswordSetup() {
       const hasRecoveryPayload = Boolean(
         authCode || tokenHash || hashAccessToken || hashRefreshToken || hashType,
       );
+      if (hasRecoveryPayload) {
+        // Remove recovery payloads before any async work so expired or invalid
+        // links are not retained in the address bar or browser history.
+        window.history.replaceState({}, document.title, "/account/set-password");
+      }
       let sessionResult = null;
       let sessionError = null;
 
@@ -103,10 +108,6 @@ function PasswordSetup() {
         setError(INVALID_RESET_MESSAGE);
         setIsLoading(false);
         return;
-      }
-
-      if (hasRecoveryPayload) {
-        window.history.replaceState({}, document.title, "/account/set-password");
       }
 
       applySession(sessionResult?.session ?? null);
@@ -219,7 +220,7 @@ function PasswordSetup() {
         <div className="auth-card__header">
           <p>Password setup</p>
           <h1>Create your password</h1>
-          <span>Use the secure link from your email to set a password for your guest order account.</span>
+          <span>Use the secure link from your email to set or reset your Nexus Import Hub password.</span>
         </div>
 
         {isLoading ? <div className="auth-card__notice">Loading your secure password setup session...</div> : null}

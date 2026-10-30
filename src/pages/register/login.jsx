@@ -308,7 +308,7 @@ function Login() {
                 <input type="checkbox" />
                 <span>Remember me</span>
               </label>
-              <a href="#footer">Forgot password?</a>
+              <Link to="/register/forgot-password">Forgot password?</Link>
             </div>
 
             {error ? <p className="auth-form__error">{error}</p> : null}
