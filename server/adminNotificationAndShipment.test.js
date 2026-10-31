@@ -10,6 +10,7 @@ const appSource = fs.readFileSync(path.join(root, "src/App.jsx"), "utf8");
 const notificationPage = fs.readFileSync(path.join(root, "src/pages/Admin/notification/notifications.jsx"), "utf8");
 const storageSource = fs.readFileSync(path.join(root, "src/shared/shipmentStorage.js"), "utf8");
 const archiveMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261031_0055_admin_notification_archive.sql"), "utf8");
+const shipmentRecreationMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261031_0056_recreate_archived_shipment_tracks.sql"), "utf8");
 
 test("admin notification mutations require active admin routes and preserve history", () => {
   assert.match(serverSource, /handleAdminNotificationStatus/);
@@ -53,4 +54,13 @@ test("shipment saves remain admin-only RPC operations with duplicate-submit guar
   assert.match(page, /disabled=\{saving\}/);
   assert.match(page, /setSaving\(true\)/);
   assert.match(page, /setError\(result\.message\)/);
+});
+
+test("shipment recreation isolates archived Air and Sea progress without weakening active rollback checks", () => {
+  assert.match(shipmentRecreationMigration, /drop constraint if exists shipment_tracks_batch_freight_unique/i);
+  assert.match(shipmentRecreationMigration, /where archived_at is null/i);
+  assert.match(shipmentRecreationMigration, /st\.archived_at is null/);
+  assert.match(shipmentRecreationMigration, /Backward shipment progress is not allowed/);
+  assert.match(shipmentRecreationMigration, /shipment_track_events/);
+  assert.match(shipmentRecreationMigration, /grant execute on function public\.save_shipment_track\(jsonb\) to authenticated/);
 });
