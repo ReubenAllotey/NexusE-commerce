@@ -103,6 +103,16 @@ test("Manage Steps payload matches the stage RPC contract and preserves forward-
   assert.match(shipmentStagesMigration, /grant execute on function public\.save_shipment_track_stages\(uuid, jsonb\) to authenticated/);
 });
 
+test("display-only fallback stages never masquerade as persisted UUIDs", () => {
+  assert.match(storageSource, /id: "",\s*stage_key: step\.key/);
+  assert.match(storageSource, /id: clean\(stage\?\.id\),/);
+  assert.doesNotMatch(storageSource, /\$\{clean\(track\.id\)\}-stage-/);
+  assert.match(shipmentPage, /id: stage\.id \|\| null/);
+  assert.match(shipmentPage, /key=\{stage\.id \|\| stage\.key/);
+  assert.match(shipmentStagesMigration, /\(v_stage->>'id'\)::uuid/);
+  assert.match(shipmentStagesMigration, /where id = v_stage_id and shipment_track_id = p_track_id/);
+});
+
 test("Air and Sea tracks remain independently selectable and archived history stays excluded", () => {
   assert.match(shipmentPage, /track\.freightType === "air"/);
   assert.match(shipmentPage, /track\.freightType === "sea"/);

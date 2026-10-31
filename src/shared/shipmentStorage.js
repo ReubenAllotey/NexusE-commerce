@@ -236,7 +236,9 @@ function mapTrackStages(stages = [], track = {}) {
   const source = Array.isArray(stages) && stages.length > 0
     ? stages
     : fallback.map((step, index) => ({
-        id: `${clean(track.id)}-${step.key}`,
+        // These are display-only stages until the RPC persists them. Never
+        // present a client-generated value as a database UUID.
+        id: "",
         stage_key: step.key,
         stage_name: step.label,
         description: "",
@@ -246,7 +248,7 @@ function mapTrackStages(stages = [], track = {}) {
       }));
 
   return source.map((stage, index) => ({
-    id: clean(stage?.id) || `${clean(track.id)}-stage-${index}`,
+    id: clean(stage?.id),
     key: clean(stage?.stageKey ?? stage?.stage_key) || `stage-${index + 1}`,
     label: clean(stage?.stageName ?? stage?.stage_name ?? stage?.label) || `Stage ${index + 1}`,
     description: clean(stage?.description),
