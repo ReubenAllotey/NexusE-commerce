@@ -46,6 +46,27 @@ function formatSupabaseError(error, fallback) {
     .join(" ") || fallback;
 }
 
+export function formatShipmentOperationError(error, fallback) {
+  const raw = formatSupabaseError(error, fallback);
+  const message = raw.toLowerCase();
+  if (message.includes("only active administrators") || message.includes("permission denied") || message.includes("not authorized")) {
+    return "You do not have permission to update this shipment.";
+  }
+  if (message.includes("batch") && (message.includes("required") || message.includes("does not exist") || message.includes("not found"))) {
+    return "The selected shipment batch could not be found.";
+  }
+  if (message.includes("invalid shipment") || message.includes("invalid shipment track status") || message.includes("status and step")) {
+    return "This tracking status is not supported.";
+  }
+  if (message.includes("duplicate") || message.includes("unique constraint") || message.includes("already exists")) {
+    return "A tracking update with these details already exists.";
+  }
+  if (message.includes("failed to fetch") || message.includes("network") || message.includes("fetch")) {
+    return "Unable to connect to the server. Please check your connection and try again.";
+  }
+  return fallback;
+}
+
 function normalizeKey(value) {
   return clean(value).toLowerCase();
 }
@@ -353,7 +374,7 @@ export async function saveShipmentTrack(payload = {}) {
   });
 
   if (error) {
-    return { ok: false, message: error.message || "Unable to save shipment tracking.", tracks: [] };
+    return { ok: false, message: formatShipmentOperationError(error, "The tracking update could not be saved. Please try again."), tracks: [] };
   }
 
   const rows = Array.isArray(data?.tracks) ? data.tracks : [];
@@ -372,7 +393,7 @@ export async function saveShipmentTrackStages(trackId, stages = []) {
     });
 
     if (error) {
-      return { ok: false, message: formatSupabaseError(error, "Unable to save shipment stages.") };
+      return { ok: false, message: formatShipmentOperationError(error, "The tracking update could not be saved. Please try again.") };
     }
 
     return {
@@ -381,7 +402,7 @@ export async function saveShipmentTrackStages(trackId, stages = []) {
       raw: data,
     };
   } catch (error) {
-    return { ok: false, message: formatSupabaseError(error, "Unable to save shipment stages.") };
+    return { ok: false, message: formatShipmentOperationError(error, "Unable to connect to the server. Please check your connection and try again.") };
   }
 }
 
@@ -389,7 +410,7 @@ export async function archiveShipmentTrack(trackId) {
   const { data, error } = await supabase.rpc("archive_shipment_track", { p_track_id: trackId });
 
   if (error) {
-    return { ok: false, message: error.message || "Unable to archive shipment track." };
+    return { ok: false, message: formatShipmentOperationError(error, "The shipment track could not be saved. Please try again.") };
   }
 
   return { ok: true, track: data ?? null };

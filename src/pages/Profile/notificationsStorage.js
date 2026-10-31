@@ -494,13 +494,17 @@ export async function loadNotifications({ authUser = null } = {}) {
     .from("notifications")
     .select(
       "id, user_id, category, title, message, order_id, shipment_id, payment_id, action_url, action_label, action_description, source_type, source_key, is_read, read_at, created_at",
-    )
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false });
+    );
 
   if (!isAdmin) {
     query = query.eq("user_id", currentUser.id);
+  } else {
+    query = query.is("admin_deleted_at", null);
   }
+
+  query = query
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
 
   const { data, error } = await query;
 
@@ -512,6 +516,40 @@ export async function loadNotifications({ authUser = null } = {}) {
     ok: true,
     notifications: await hydrateNotificationRows(Array.isArray(data) ? data : [], currentUser),
   };
+}
+
+async function callAdminNotificationMutation(path, payload) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+
+  if (sessionError || !accessToken) {
+    return { ok: false, message: "Your administrator session has expired. Please sign in again." };
+  }
+
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    return response.ok && body?.ok
+      ? body
+      : { ok: false, message: body?.message || "Unable to update the notification." };
+  } catch {
+    return { ok: false, message: "Unable to connect to the server. Please try again." };
+  }
+}
+
+export function updateAdminNotification(notificationId, isRead) {
+  return callAdminNotificationMutation("/api/admin/notifications/status", {
+    notificationId,
+    isRead: Boolean(isRead),
+  });
+}
+
+export function archiveAdminNotification(notificationId) {
+  return callAdminNotificationMutation("/api/admin/notifications/archive", { notificationId });
 }
 
 export async function createNotification(payload = {}, { authUser = null } = {}) {

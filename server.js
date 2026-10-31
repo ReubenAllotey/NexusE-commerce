@@ -3918,6 +3918,78 @@ async function handleSmtpDiagnostic(req, res) {
   }
 }
 
+async function handleAdminNotificationStatus(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: "Please sign in to continue." });
+    return;
+  }
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can update notifications." });
+    return;
+  }
+  const body = normalizePayload(await readJsonBody(req));
+  const notificationId = clean(body.notificationId);
+  if (!notificationId || typeof body.isRead !== "boolean") {
+    sendJson(res, 400, { ok: false, message: "A notification and read status are required." });
+    return;
+  }
+  const { data, error } = await supabaseAdmin
+    .from("notifications")
+    .update({ is_read: body.isRead })
+    .eq("id", notificationId)
+    .is("admin_deleted_at", null)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("Admin notification status update failed:", error.message);
+    sendJson(res, 500, { ok: false, message: "The notification could not be updated." });
+    return;
+  }
+  if (!data) {
+    sendJson(res, 404, { ok: false, message: "The notification could not be found." });
+    return;
+  }
+  sendJson(res, 200, { ok: true, notification: data });
+}
+
+async function handleAdminNotificationArchive(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: "Please sign in to continue." });
+    return;
+  }
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can archive notifications." });
+    return;
+  }
+  const body = normalizePayload(await readJsonBody(req));
+  const notificationId = clean(body.notificationId);
+  if (!notificationId) {
+    sendJson(res, 400, { ok: false, message: "A notification is required." });
+    return;
+  }
+  const { data, error } = await supabaseAdmin
+    .from("notifications")
+    .update({ admin_deleted_at: new Date().toISOString() })
+    .eq("id", notificationId)
+    .is("admin_deleted_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("Admin notification archive failed:", error.message);
+    sendJson(res, 500, { ok: false, message: "The notification could not be archived." });
+    return;
+  }
+  if (!data) {
+    sendJson(res, 404, { ok: false, message: "The notification could not be found." });
+    return;
+  }
+  sendJson(res, 200, { ok: true, notificationId: data.id });
+}
+
 async function handleAdminNotificationEmail(req, res) {
   const authResult = await getAuthenticatedUser(req);
   if (!authResult.ok || !authResult.user) {
@@ -7621,6 +7693,16 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/notification-email" && req.method === "POST") {
     await handleAdminNotificationEmail(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/notifications/status" && req.method === "POST") {
+    await handleAdminNotificationStatus(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/notifications/archive" && req.method === "POST") {
+    await handleAdminNotificationArchive(req, res);
     return;
   }
 

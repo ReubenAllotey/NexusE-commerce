@@ -31,6 +31,7 @@ function NotificationIcon({ name, size = 18 }) {
     shipping: <><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></>,
     unread: <><circle cx="12" cy="12" r="8" /><path d="M12 8v4l2.5 2" /></>,
     eye: <><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z" /><circle cx="12" cy="12" r="2.25" /></>,
+    trash: <><path d="M4 7h16" /><path d="M9 7V4h6v3M7 7l1 13h8l1-13" /><path d="M10 11v5M14 11v5" /></>,
   };
 
   return (
@@ -60,6 +61,8 @@ function AdminNotificationsPage({
   notificationsError = "",
   authUser = null,
   onRefreshNotifications = async () => {},
+  onUpdateNotification = async () => ({ ok: false, message: "Notification updates are unavailable." }),
+  onArchiveNotification = async () => ({ ok: false, message: "Notification archiving is unavailable." }),
 }) {
   const session = loadAdminSession() ?? authUser;
   const handleRefreshNotifications = async () => {
@@ -68,6 +71,8 @@ function AdminNotificationsPage({
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [readFilter, setReadFilter] = useState("all");
+  const [processingId, setProcessingId] = useState("");
+  const [feedback, setFeedback] = useState({ type: "", message: "" });
 
   if (!session) {
     return <Navigate to="/admin/login" replace />;
@@ -126,6 +131,25 @@ function AdminNotificationsPage({
     (item) => getNotificationCategory(item) === "shipping",
   ).length;
   const hasActiveFilters = Boolean(searchTerm.trim()) || categoryFilter !== "all" || readFilter !== "all";
+
+  const handleReadToggle = async (notification) => {
+    if (processingId) return;
+    setProcessingId(notification.id);
+    setFeedback({ type: "", message: "" });
+    const nextRead = !(notification.isRead ?? notification.read);
+    const result = await onUpdateNotification(notification.id, nextRead);
+    setFeedback({ type: result.ok ? "success" : "error", message: result.ok ? `Notification marked ${nextRead ? "read" : "unread"}.` : result.message });
+    setProcessingId("");
+  };
+
+  const handleArchive = async (notification) => {
+    if (processingId || !window.confirm("Hide this notification from the admin inbox? Its history and delivery records will be preserved.")) return;
+    setProcessingId(notification.id);
+    setFeedback({ type: "", message: "" });
+    const result = await onArchiveNotification(notification.id);
+    setFeedback({ type: result.ok ? "success" : "error", message: result.ok ? "Notification removed from the admin inbox." : result.message });
+    setProcessingId("");
+  };
 
   return (
     <main className="admin-notifications-page">
@@ -201,6 +225,7 @@ function AdminNotificationsPage({
           ) : notificationsError ? (
             <p className="admin-notifications-state admin-notifications-state--error">{notificationsError}</p>
           ) : null}
+          {feedback.message ? <p className={`admin-notifications-state admin-notifications-state--${feedback.type}`}>{feedback.message}</p> : null}
 
           <div className="admin-notifications-table-wrap">
             <table className="admin-notifications-table">
@@ -262,6 +287,26 @@ function AdminNotificationsPage({
                                 {adminAction.actionLabel}
                               </span>
                             )}
+                            <button
+                              type="button"
+                              className="admin-notifications-action admin-notifications-action--secondary"
+                              onClick={() => handleReadToggle(notification)}
+                              disabled={Boolean(processingId)}
+                              aria-label={`${isUnread ? "Mark read" : "Mark unread"}: ${notification.title || "notification"}`}
+                            >
+                              {isUnread ? "Mark read" : "Mark unread"}
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-notifications-action admin-notifications-action--danger"
+                              onClick={() => handleArchive(notification)}
+                              disabled={Boolean(processingId)}
+                              aria-label={`Delete ${notification.title || "notification"}`}
+                              title="Remove from admin inbox"
+                            >
+                              <NotificationIcon name="trash" size={15} />
+                              <span className="admin-notifications-action__sr-only">Delete</span>
+                            </button>
                           </div>
                         </td>
                       </tr>

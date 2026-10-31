@@ -18272,6 +18272,11 @@ body[data-theme="dark"] .admin-product-form__modal input {
   color: #be123c;
 }
 
+.admin-notifications-state--success {
+  background: rgba(22, 128, 90, 0.1);
+  color: #126b4d;
+}
+
 .admin-notifications-table-wrap {
   min-width: 0;
   margin-top: 1rem;
@@ -18377,6 +18382,55 @@ body[data-theme="dark"] .admin-product-form__modal input {
 .admin-notifications-action--primary:focus-visible {
   outline: 3px solid rgba(2, 64, 205, 0.28);
   outline-offset: 2px;
+}
+
+.admin-notifications-action--secondary,
+.admin-notifications-action--danger {
+  border-color: rgba(148, 163, 184, 0.3);
+  background: #ffffff;
+  color: #355070;
+  cursor: pointer;
+}
+
+.admin-notifications-action--secondary:hover:not(:disabled) {
+  border-color: #0240cd;
+  color: #0240cd;
+  background: rgba(2, 64, 205, 0.06);
+}
+
+.admin-notifications-action--danger {
+  width: 2.4rem;
+  padding: 0;
+  color: #b42318;
+}
+
+.admin-notifications-action--danger:hover:not(:disabled) {
+  border-color: rgba(180, 35, 24, 0.3);
+  background: rgba(180, 35, 24, 0.07);
+}
+
+.admin-notifications-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.admin-notifications-action__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+body[data-theme="dark"] .admin-notifications-action--secondary,
+body[data-theme="dark"] .admin-notifications-action--danger {
+  background: #17243a;
+  color: #d8e3f5;
+  border-color: rgba(148, 163, 184, 0.28);
 }
 
 .admin-notifications-action--none {

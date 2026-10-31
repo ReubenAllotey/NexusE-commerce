@@ -53,6 +53,8 @@ import {
   loadNotifications,
   markNotificationAsRead,
   markAllNotificationsRead,
+  updateAdminNotification,
+  archiveAdminNotification,
 } from "./pages/Profile/notificationsStorage";
 import {
   clearSessionUser,
@@ -604,6 +606,8 @@ function AppShell({
                 notificationsError={notificationsError}
                 authUser={authUser}
                 onRefreshNotifications={onRefreshNotifications}
+                onUpdateNotification={handleAdminNotificationRead}
+                onArchiveNotification={handleAdminNotificationArchive}
               />,
             )}
           />
@@ -1541,6 +1545,26 @@ function App() {
       );
     }
 
+    return result;
+  };
+
+  const handleAdminNotificationRead = async (notificationId, isRead = true) => {
+    const result = await updateAdminNotification(notificationId, isRead);
+    if (result.ok && result.notification) {
+      setNotifications((current) => current.map((notification) =>
+        notification.id === result.notification.id
+          ? { ...notification, ...result.notification }
+          : notification,
+      ));
+    }
+    return result;
+  };
+
+  const handleAdminNotificationArchive = async (notificationId) => {
+    const result = await archiveAdminNotification(notificationId);
+    if (result.ok) {
+      setNotifications((current) => current.filter((notification) => notification.id !== notificationId));
+    }
     return result;
   };
 
