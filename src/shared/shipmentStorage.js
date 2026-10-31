@@ -55,6 +55,15 @@ export function formatShipmentOperationError(error, fallback) {
   if (message.includes("batch") && (message.includes("required") || message.includes("does not exist") || message.includes("not found"))) {
     return "The selected shipment batch could not be found.";
   }
+  if (message.includes("shipment stages must be completed sequentially")) {
+    return "Complete shipment stages in order. Finish earlier stages before later stages.";
+  }
+  if (message.includes("shipment stage does not belong to this track")) {
+    return "The selected shipment stage does not belong to this shipment.";
+  }
+  if (message.includes("delivery-confirmation stage is required")) {
+    return "Complete a delivery confirmation stage before marking the shipment delivered.";
+  }
   if (message.includes("invalid shipment") || message.includes("invalid shipment track status") || message.includes("status and step")) {
     return "This tracking status is not supported.";
   }
@@ -358,6 +367,22 @@ export async function loadAdminShipmentTracks() {
 }
 
 export async function saveShipmentTrack(payload = {}) {
+  if (clean(payload.id)) {
+    const { data, error } = await supabase.rpc("update_shipment_track_details", {
+      p_track_id: payload.id,
+      p_headline: payload.headline ?? "",
+      p_announcement: payload.announcement ?? payload.body ?? "",
+      p_estimated_departure: payload.estimatedDeparture ?? payload.estimated_departure ?? null,
+      p_estimated_arrival: payload.estimatedArrival ?? payload.estimated_arrival ?? null,
+    });
+
+    if (error) {
+      return { ok: false, message: formatShipmentOperationError(error, "The tracking update could not be saved. Please try again."), tracks: [] };
+    }
+
+    return { ok: true, tracks: [mapNewShipmentTrack(data)], raw: data };
+  }
+
   const { data, error } = await supabase.rpc("save_shipment_track", {
     payload: {
       id: payload.id || null,
