@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
+const appSource = fs.readFileSync(path.join(root, "src/App.jsx"), "utf8");
 const notificationPage = fs.readFileSync(path.join(root, "src/pages/Admin/notification/notifications.jsx"), "utf8");
 const storageSource = fs.readFileSync(path.join(root, "src/shared/shipmentStorage.js"), "utf8");
 const archiveMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261031_0055_admin_notification_archive.sql"), "utf8");
@@ -19,6 +20,15 @@ test("admin notification mutations require active admin routes and preserve hist
   assert.match(notificationPage, /window\.confirm\("Hide this notification/);
   assert.match(notificationPage, /Mark read/);
   assert.match(notificationPage, /Mark unread/);
+});
+
+test("admin notification handlers are declared in App and passed through AppShell", () => {
+  assert.match(appSource, /const handleAdminNotificationRead = async/);
+  assert.match(appSource, /const handleAdminNotificationArchive = async/);
+  assert.match(appSource, /onUpdateNotification,\s*onArchiveNotification,/s);
+  assert.match(appSource, /onUpdateNotification=\{handleAdminNotificationRead\}/);
+  assert.match(appSource, /onArchiveNotification=\{handleAdminNotificationArchive\}/);
+  assert.doesNotMatch(appSource, /onUpdateNotification=\{handleAdminNotificationRead\}[\s\S]*function AppShell/);
 });
 
 test("notification archive migration adds an admin-only soft-delete marker", () => {

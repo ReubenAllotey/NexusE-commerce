@@ -382,6 +382,8 @@ function AppShell({
   onClearCart,
   onCreateNotification,
   onRefreshNotifications,
+  onUpdateNotification,
+  onArchiveNotification,
   onReplaceOrders,
   onRefreshOrders,
   onMarkNotificationRead,
@@ -606,8 +608,8 @@ function AppShell({
                 notificationsError={notificationsError}
                 authUser={authUser}
                 onRefreshNotifications={onRefreshNotifications}
-                onUpdateNotification={handleAdminNotificationRead}
-                onArchiveNotification={handleAdminNotificationArchive}
+                onUpdateNotification={onUpdateNotification}
+                onArchiveNotification={onArchiveNotification}
               />,
             )}
           />
@@ -1968,6 +1970,8 @@ function App() {
         onClearCart={handleClearCart}
         onCreateNotification={handleCreateNotification}
         onRefreshNotifications={handleRefreshNotifications}
+        onUpdateNotification={handleAdminNotificationRead}
+        onArchiveNotification={handleAdminNotificationArchive}
         onReplaceOrders={setOrders}
         onRefreshOrders={refreshOrders}
         onMarkNotificationRead={handleMarkNotificationRead}
