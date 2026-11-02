@@ -131,6 +131,14 @@ function verifyShippingPaymentReminderToken(token, orderId) {
   return verifyGuestCheckoutAccessToken(token, "shipping-payment-reminder", orderId);
 }
 
+function createShippingReceiptAccessToken(orderId, paymentReference) {
+  return createGuestCheckoutAccessToken(`shipping-receipt:${clean(paymentReference)}`, orderId);
+}
+
+function verifyShippingReceiptAccessToken(token, paymentReference, orderId) {
+  return verifyGuestCheckoutAccessToken(token, `shipping-receipt:${clean(paymentReference)}`, orderId);
+}
+
 function getPublicAppUrl() {
   return (clean(process.env.PUBLIC_APP_URL || process.env.APP_URL) || "https://nexuse-commerce.onrender.com").replace(/\/+$/, "");
 }
@@ -6598,6 +6606,7 @@ async function handleVerify(req, res, reference) {
         order: orderBundle?.order ?? null,
         items: orderBundle?.items ?? [],
         shippingPayment: true,
+        shippingReceiptToken: createShippingReceiptAccessToken(paymentRow.order_id, cleanReference),
         alreadyFinalized: Boolean(finalizedShipping?.already_finalized || finalizedShipping?.alreadyFinalized),
       });
       return;
@@ -6821,31 +6830,28 @@ async function handleReceiptList(req, res) {
   });
 }
 
-async function handleReceiptPdf(req, res, reference) {
+async function getReceiptAccessContext(req, reference) {
   const cleanReference = clean(reference);
 
   if (!cleanReference) {
-    sendJson(res, 400, { ok: false, message: "A receipt reference is required." });
-    return;
+    return { ok: false, status: 400, message: "A receipt reference is required." };
   }
 
   const paymentRow = await getPaymentByReference(cleanReference);
 
   if (!paymentRow || !isSuccessfulPayment(paymentRow)) {
-    sendJson(res, 404, { ok: false, message: "Receipt not found." });
-    return;
+    return { ok: false, status: 404, message: "Receipt not found." };
   }
 
-  const shippingToken = clean(req.headers["x-shipping-payment-token"] || req.headers["x-payment-reminder-token"]);
+  const shippingReceiptToken = clean(req.headers["x-shipping-receipt-token"]);
   const guestShippingAccess = paymentRow.payment_purpose === "shipping"
-    && verifyShippingPaymentReminderToken(shippingToken, paymentRow.order_id);
+    && verifyShippingReceiptAccessToken(shippingReceiptToken, cleanReference, paymentRow.order_id);
   const guestCheckoutToken = clean(req.headers["x-guest-checkout-token"]);
   const guestCheckoutAccess = paymentRow.payment_purpose === "order"
     && verifyGuestCheckoutAccessToken(guestCheckoutToken, cleanReference, paymentRow.order_id);
   const authResult = await getAuthenticatedUser(req).catch(() => ({ ok: false, user: null }));
   if ((!authResult.ok || !authResult.user) && !guestShippingAccess && !guestCheckoutAccess) {
-    sendJson(res, 401, { ok: false, message: "Please sign in to view this receipt." });
-    return;
+    return { ok: false, status: 401, message: "Please sign in to view this receipt." };
   }
 
   const profileResult = authResult.user
@@ -6853,23 +6859,94 @@ async function handleReceiptPdf(req, res, reference) {
     : null;
   const isAdmin = profileResult?.profile ? isActiveAdminProfile(profileResult.profile) : false;
   if (!guestShippingAccess && !guestCheckoutAccess && !isAdmin && clean(paymentRow.user_id) !== clean(authResult.user?.id)) {
-    sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
-    return;
+    return { ok: false, status: 403, message: "You do not have permission to access this receipt." };
   }
 
   const orderResult = await loadOrderBundle(paymentRow.order_id);
 
   if (!orderResult.ok || !orderResult.order) {
-    sendJson(res, 404, { ok: false, message: orderResult.message || "Receipt not found." });
-    return;
+    return { ok: false, status: 404, message: orderResult.message || "Receipt not found." };
   }
 
   const orderUserId = clean(orderResult.order.customerId ?? orderResult.order.customer_id ?? orderResult.order.userId ?? orderResult.order.user_id);
 
   if (!guestShippingAccess && !guestCheckoutAccess && !isAdmin && (!orderUserId || orderUserId !== authResult.user?.id)) {
-    sendJson(res, 403, { ok: false, message: "You do not have permission to access this receipt." });
+    return { ok: false, status: 403, message: "You do not have permission to access this receipt." };
+  }
+
+  if (guestCheckoutAccess || guestShippingAccess) {
+    if (clean(paymentRow.user_id) && clean(paymentRow.user_id) !== orderUserId) {
+      return { ok: false, status: 403, message: "You do not have permission to access this receipt." };
+    }
+
+    if (orderUserId) {
+      const guestProfile = await loadProfile(orderUserId).catch(() => null);
+      if (!guestProfile?.ok || guestProfile.profile?.account_type !== "guest") {
+        return { ok: false, status: 403, message: "You do not have permission to access this receipt." };
+      }
+    } else if (!clean(orderResult.order.customerEmail || orderResult.order.guest_email)) {
+      return { ok: false, status: 403, message: "You do not have permission to access this receipt." };
+    }
+  }
+
+  return {
+    ok: true,
+    cleanReference,
+    paymentRow,
+    orderResult,
+    authResult,
+    isAdmin,
+    guestShippingAccess,
+    guestCheckoutAccess,
+  };
+}
+
+function mapReceiptResponse(paymentRow, orderResult) {
+  const order = mapOrderBundle(orderResult.order, orderResult.items)?.order ?? {};
+  return {
+    id: paymentRow.id,
+    paymentReference: paymentRow.provider_reference,
+    orderId: paymentRow.order_id,
+    orderNumber: order.orderNumber,
+    paymentMethod: paymentRow.payment_method,
+    paymentNetwork: paymentRow.payment_network,
+    paymentPhoneNumber: paymentRow.payment_phone_number,
+    paymentStatus: "Successful",
+    paymentTone: "completed",
+    amountPaid: getPaymentAmountCedis(paymentRow),
+    currency: clean(paymentRow.currency) || "GHS",
+    orderStatus: order.status,
+    items: order.items ?? [],
+    createdAt: paymentRow.paid_at ?? paymentRow.created_at,
+    updatedAt: paymentRow.updated_at,
+  };
+}
+
+async function handleReceiptJson(req, res, reference) {
+  const context = await getReceiptAccessContext(req, reference);
+  if (!context.ok) {
+    sendJson(res, context.status, { ok: false, message: context.message });
     return;
   }
+
+  sendJson(res, 200, { ok: true, receipt: mapReceiptResponse(context.paymentRow, context.orderResult) });
+}
+
+async function handleReceiptPdf(req, res, reference) {
+  const context = await getReceiptAccessContext(req, reference);
+  if (!context.ok) {
+    sendJson(res, context.status, { ok: false, message: context.message });
+    return;
+  }
+
+  const {
+    cleanReference,
+    paymentRow,
+    orderResult,
+    authResult,
+    isAdmin,
+    guestShippingAccess,
+  } = context;
 
   let receiptOrders = [orderResult];
   const checkoutGroupId = clean(orderResult.order.checkout_group_id);
@@ -7876,6 +7953,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/receipts" && req.method === "GET") {
     await handleReceiptList(req, res);
+    return;
+  }
+
+  if (pathname.startsWith("/api/receipts/") && req.method === "GET" && !pathname.endsWith("/pdf")) {
+    await handleReceiptJson(req, res, pathname.replace("/api/receipts/", ""));
     return;
   }
 

@@ -876,6 +876,7 @@ function PaymentCheckout({
           paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
           paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
           paymentPurpose: isShippingBalancePayment ? "shipping-balance" : "order",
+          shippingPaymentToken: isShippingBalancePayment ? paymentIntent.token : "",
           shippingBalanceDue: isShippingBalancePayment ? summaryTotal : 0,
           status: "initiated",
           paystackAccessCode: accessCode,
@@ -1351,26 +1352,16 @@ function PaymentStatusPage({
     [orders, reference, session?.orderId, session?.orderNumber],
   );
 
-  const [resolvedVariant, setResolvedVariant] = useState(
-    session?.status === "successful" && variant === "success"
-      ? "success"
-      : session?.status === "failed" && variant === "failed"
-        ? "failed"
-        : variant,
-  );
-  const [verificationState, setVerificationState] = useState(
-    session?.status === "successful" && variant === "success"
-      ? "success"
-      : session?.status === "failed" && variant === "failed"
-        ? "failed"
-        : "idle",
-  );
+  const [resolvedVariant, setResolvedVariant] = useState(variant === "failed" ? "failed" : "pending");
+  const [verificationState, setVerificationState] = useState("idle");
   const [verificationError, setVerificationError] = useState("");
   const [guestCredentials, setGuestCredentials] = useState(null);
   const [guestMessage, setGuestMessage] = useState("");
   const [receiptRecord, setReceiptRecord] = useState(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [receiptError, setReceiptError] = useState("");
+  const [verifiedOrderStatus, setVerifiedOrderStatus] = useState("");
+  const [shippingReceiptToken, setShippingReceiptToken] = useState(() => clean(session?.shippingReceiptToken));
 
   const amount = receiptRecord?.amountPaid
     ?? (paymentPurpose === "shipping-balance"
@@ -1395,7 +1386,11 @@ function PaymentStatusPage({
   }, []);
 
   useEffect(() => {
-    if (!authReady || !reference || !authUser?.id) {
+    const guestAccessToken = paymentPurpose === "shipping-balance" ? "" : clean(session?.guestAccessToken);
+    const activeShippingReceiptToken = paymentPurpose === "shipping-balance"
+      ? clean(shippingReceiptToken || session?.shippingReceiptToken)
+      : "";
+    if (!authReady || !reference || (!authUser?.id && !guestAccessToken && !activeShippingReceiptToken)) {
       setReceiptRecord(null);
       setReceiptError("");
       setReceiptLoading(false);
@@ -1407,13 +1402,18 @@ function PaymentStatusPage({
     setReceiptError("");
 
     const loadReceipt = async () => {
-      const result = await loadPaymentReceipt(reference, { authUser });
+      const result = await loadPaymentReceipt(reference, {
+        authUser,
+        guestAccessToken,
+        shippingReceiptToken: activeShippingReceiptToken,
+      });
 
       if (!isMounted) {
         return;
       }
 
       if (result.ok) {
+        setReceiptError("");
         setReceiptRecord(result.receipt ?? null);
       } else {
         setReceiptRecord(null);
@@ -1428,7 +1428,7 @@ function PaymentStatusPage({
     return () => {
       isMounted = false;
     };
-  }, [authReady, authUser?.id, reference]);
+  }, [authReady, authUser?.id, paymentPurpose, reference, callbackPaymentToken, session?.guestAccessToken, session?.shippingPaymentToken, session?.shippingReceiptToken, shippingReceiptToken]);
 
   async function verifyPayment() {
     if (!reference) {
@@ -1466,6 +1466,9 @@ function PaymentStatusPage({
       if (serverOrder && typeof onUpdateOrder === "function") {
         onUpdateOrder(serverOrder.id, serverOrder);
       }
+      if (serverOrder?.status) {
+        setVerifiedOrderStatus(serverOrder.status);
+      }
 
       if (normalizedStatus === "success") {
         if (paymentPurpose !== "shipping-balance") {
@@ -1498,11 +1501,19 @@ function PaymentStatusPage({
             paymentReference: paymentReference || serverPayment?.paymentReference || session?.paymentReference,
             status: "successful",
             paymentGatewayStatus: normalizedStatus,
+            shippingReceiptToken: paymentPurpose === "shipping-balance"
+              ? clean(result?.shippingReceiptToken || session?.shippingReceiptToken)
+              : "",
+            orderStatus: serverOrder?.status ?? activeOrder?.status ?? session?.orderStatus ?? "",
             updatedAt: new Date().toISOString(),
           },
           checkoutOwnerKey,
         );
+        if (paymentPurpose === "shipping-balance" && result?.shippingReceiptToken) {
+          setShippingReceiptToken(clean(result.shippingReceiptToken));
+        }
 
+        setReceiptError("");
         if (serverPayment && !receiptRecord) {
           setReceiptRecord({
             id: serverPayment.id ?? "",
@@ -1598,18 +1609,6 @@ function PaymentStatusPage({
       return undefined;
     }
 
-    if (session?.status === "successful" && variant === "success") {
-      setResolvedVariant("success");
-      setVerificationState("success");
-      return undefined;
-    }
-
-    if (session?.status === "failed" && variant === "failed") {
-      setResolvedVariant("failed");
-      setVerificationState("failed");
-      return undefined;
-    }
-
     if (verificationState !== "idle") {
       return undefined;
     }
@@ -1619,7 +1618,7 @@ function PaymentStatusPage({
     removePaymentTokenFromUrl();
     void verifyPayment();
     return undefined;
-  }, [authReady, reference, session?.status, variant, verificationState]);
+  }, [authReady, reference, session?.guestAccessToken, variant, verificationState]);
 
   if (ordersLoading) {
     return (
@@ -1648,6 +1647,7 @@ function PaymentStatusPage({
   }
 
   const displayVariant = resolvedVariant;
+  const canShowOrderDetails = verificationState === "success" || Boolean(authUser?.id && activeOrder);
   const heading =
     displayVariant === "success"
       ? paymentPurpose === "shipping-balance"
@@ -1694,8 +1694,11 @@ function PaymentStatusPage({
     if (!paymentReference || typeof window === "undefined") return;
 
     try {
+          const activeShippingReceiptToken = paymentPurpose === "shipping-balance"
+            ? clean(shippingReceiptToken || session?.shippingReceiptToken)
+        : "";
       const tokenResult = authUser?.id ? await getAccessToken() : { ok: true, accessToken: "" };
-      if (!tokenResult.ok && !session?.guestAccessToken && !callbackPaymentToken) {
+          if (!tokenResult.ok && !session?.guestAccessToken && !activeShippingReceiptToken) {
         throw new Error("Please sign in again to download your receipt.");
       }
       const accessToken = tokenResult.accessToken;
@@ -1703,11 +1706,11 @@ function PaymentStatusPage({
         headers: {
           Accept: "application/pdf",
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          ...(session?.guestAccessToken
+          ...(paymentPurpose !== "shipping-balance" && session?.guestAccessToken
             ? { "X-Guest-Checkout-Token": session.guestAccessToken }
             : {}),
-          ...(paymentPurpose === "shipping-balance" && callbackPaymentToken
-            ? { "X-Shipping-Payment-Token": callbackPaymentToken }
+          ...(activeShippingReceiptToken
+            ? { "X-Shipping-Receipt-Token": activeShippingReceiptToken }
             : {}),
         },
       });
@@ -1805,7 +1808,7 @@ function PaymentStatusPage({
 
         {receiptError ? <p className="payment-error">{receiptError}</p> : null}
 
-        <div className="payment-status-card__summary">
+        {canShowOrderDetails ? <div className="payment-status-card__summary">
           <div>
             <span>Order Number</span>
             <strong>{orderNumber}</strong>
@@ -1828,9 +1831,9 @@ function PaymentStatusPage({
           </div>
           <div>
             <span>Order Status</span>
-            <strong>{receiptRecord?.orderStatus ?? activeOrder?.status ?? session?.status ?? "pending_payment"}</strong>
+            <strong>{receiptRecord?.orderStatus ?? verifiedOrderStatus ?? activeOrder?.status ?? session?.orderStatus ?? "Awaiting confirmation"}</strong>
           </div>
-        </div>
+        </div> : null}
 
         {verificationError ? <p className="payment-error">{verificationError}</p> : null}
 

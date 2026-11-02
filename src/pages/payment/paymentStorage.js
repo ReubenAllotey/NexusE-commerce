@@ -3,6 +3,7 @@ import { getPaymentAmountCedis } from "../../shared/paymentAmount";
 
 // Temporary checkout state only. It is scoped to the signed-in user and cleared on logout.
 const PAYMENT_SESSION_KEY = "nexus-payment-session";
+const PAYMENT_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // Temporary shipping draft for the current authenticated user only.
 const CHECKOUT_DRAFT_KEY = "nexus-checkout-shipping-address";
 
@@ -243,6 +244,12 @@ export function loadPaymentSession(ownerUserId = "") {
   const session = readJson(storage, PAYMENT_SESSION_KEY, null);
 
   if (!session || typeof session !== "object" || Array.isArray(session)) {
+    return null;
+  }
+
+  const sessionTimestamp = Date.parse(session.updatedAt || session.createdAt || "");
+  if (Number.isFinite(sessionTimestamp) && Date.now() - sessionTimestamp > PAYMENT_SESSION_MAX_AGE_MS) {
+    storage.removeItem(PAYMENT_SESSION_KEY);
     return null;
   }
 
@@ -509,11 +516,43 @@ export async function loadInvoiceHistory({ authUser = null } = {}) {
   };
 }
 
-export async function loadPaymentReceipt(reference, { authUser = null } = {}) {
+export async function loadPaymentReceipt(reference, {
+  authUser = null,
+  guestAccessToken = "",
+  shippingReceiptToken = "",
+} = {}) {
   const receiptReference = clean(reference);
 
   if (!receiptReference) {
     return { ok: true, receipt: null };
+  }
+
+  const guestToken = clean(guestAccessToken);
+  const shippingToken = clean(shippingReceiptToken);
+  if (guestToken || shippingToken) {
+    const response = await fetch(`/api/receipts/${encodeURIComponent(receiptReference)}`, {
+      headers: {
+        Accept: "application/json",
+        ...(guestToken ? { "X-Guest-Checkout-Token": guestToken } : {}),
+        ...(shippingToken ? { "X-Shipping-Receipt-Token": shippingToken } : {}),
+      },
+    });
+    let body = {};
+    try {
+      body = await response.json();
+    } catch {
+      body = {};
+    }
+
+    if (!response.ok || body?.ok === false) {
+      return {
+        ok: false,
+        message: body?.message || "Unable to load the receipt right now.",
+        receipt: null,
+      };
+    }
+
+    return { ok: true, receipt: body.receipt ?? null };
   }
 
   const userResult = authUser?.id

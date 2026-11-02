@@ -202,9 +202,9 @@ test("shipping success amount display uses the shipping principal, not the order
 
 test("shipping receipt access is scoped to a valid guest token and remains authenticated for registered users", () => {
   assert.match(serverSource, /guestShippingAccess = paymentRow\.payment_purpose === "shipping"/);
-  assert.match(serverSource, /verifyShippingPaymentReminderToken\(shippingToken, paymentRow\.order_id\)/);
-  assert.match(serverSource, /X-Shipping-Payment-Token|x-shipping-payment-token/);
-  assert.match(paymentSource, /X-Shipping-Payment-Token/);
+  assert.match(serverSource, /verifyShippingReceiptAccessToken\(shippingReceiptToken, cleanReference, paymentRow\.order_id\)/);
+  assert.match(serverSource, /X-Shipping-Receipt-Token|x-shipping-receipt-token/);
+  assert.match(paymentSource, /X-Shipping-Receipt-Token/);
 });
 
 test("successful shipping reconciliation recalculates locked item accounting without touching product payment", () => {
@@ -343,7 +343,8 @@ test("the success route does not claim payment success before backend verificati
   const verifyStart = paymentSource.indexOf("async function verifyPayment", statusStart);
   const statusSource = paymentSource.slice(statusStart, verifyStart);
 
-  assert.match(statusSource, /session\?\.status === "successful" && variant === "success"/);
+  assert.match(statusSource, /useState\(variant === "failed" \? "failed" : "pending"\)/);
+  assert.doesNotMatch(statusSource, /session\?\.status === "successful" && variant === "success"/);
   assert.doesNotMatch(statusSource, /setResolvedVariant\(variant\)/);
   assert.match(paymentSource, /setResolvedVariant\("success"\)/);
   assert.match(paymentSource, /setVerificationState\("error"\)/);

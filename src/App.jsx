@@ -1109,8 +1109,6 @@ function App() {
 
         clearSessionUser();
         clearAdminSession();
-        clearPaymentSession();
-        clearCheckoutDraft();
         setAuthSession(null);
         setAuthUser(null);
         setAuthError("");

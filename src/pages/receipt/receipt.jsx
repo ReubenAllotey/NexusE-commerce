@@ -62,39 +62,6 @@ function buildReceiptText(receipt) {
   return lines.join("\n");
 }
 
-function buildSessionReceipt(session = {}) {
-  if (!session || typeof session !== "object") {
-    return null;
-  }
-
-  const items = Array.isArray(session.cartRows)
-    ? session.cartRows.map((row) => ({
-        key: row.key ?? row.product?.slug ?? row.product?.name,
-        name: row.product?.name ?? "Unnamed product",
-        quantity: row.quantity ?? 1,
-        lineSubtotal: Number(row.lineSubtotal) || 0,
-        lineShipping: Number(row.lineShipping) || 0,
-      }))
-    : [];
-
-  if (!session.paymentReference && items.length === 0) {
-    return null;
-  }
-
-  return {
-    paymentReference: session.paymentReference ?? "PAY-PENDING",
-    orderNumber: session.orderNumber ?? "ORD-PENDING",
-    paymentMethod: session.paymentMethod ?? "mobile-money",
-    paymentNetwork: session.paymentNetwork ?? "",
-    paymentPhoneNumber: session.paymentPhoneNumber ?? "",
-    paymentStatus: session.status === "successful" ? "Successful" : session.status === "failed" ? "Failed" : "Pending",
-    amountPaid: Number(session.amount ?? session.totals?.totalPrice ?? 0),
-    orderStatus: session.status === "successful" ? "processing" : session.status === "failed" ? "cancelled" : "pending",
-    items,
-    createdAt: session.createdAt ?? new Date().toISOString(),
-  };
-}
-
 function ReceiptLoading() {
   return (
     <main className="receipt-page">
@@ -194,7 +161,11 @@ function Receipt() {
     });
 
     const loadReceipt = async () => {
-      const result = await loadPaymentReceipt(receiptReference, { authUser });
+      const result = await loadPaymentReceipt(receiptReference, {
+        authUser,
+        guestAccessToken: session?.paymentPurpose === "shipping-balance" ? "" : session?.guestAccessToken,
+        shippingReceiptToken: session?.paymentPurpose === "shipping-balance" ? session?.shippingReceiptToken : "",
+      });
 
       if (!active) {
         return;
@@ -205,17 +176,6 @@ function Receipt() {
           loading: false,
           error: "",
           receipt: result.receipt ?? null,
-        });
-        return;
-      }
-
-      const fallbackReceipt = buildSessionReceipt(session);
-
-      if (fallbackReceipt) {
-        setReceiptState({
-          loading: false,
-          error: "",
-          receipt: fallbackReceipt,
         });
         return;
       }
@@ -293,10 +253,17 @@ function Receipt() {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token ?? "";
+      const isShippingPayment = session?.paymentPurpose === "shipping-balance";
       const response = await fetch(`/api/receipts/${encodeURIComponent(receiptReference)}/pdf`, {
         headers: {
           Accept: "application/pdf",
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(!isShippingPayment && session?.guestAccessToken
+            ? { "X-Guest-Checkout-Token": session.guestAccessToken }
+            : {}),
+          ...(isShippingPayment && session?.shippingReceiptToken
+            ? { "X-Shipping-Receipt-Token": session.shippingReceiptToken }
+            : {}),
         },
       });
 
