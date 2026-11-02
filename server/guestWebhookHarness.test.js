@@ -76,6 +76,8 @@ const deployedFunctions = [
   "ensureOrderConfirmationNotification",
   "ensureShippingPaymentConfirmationNotification",
   "ensureGuestAccountSetupNotification",
+  "normalizeGuestPhone",
+  "syncGuestProfilePhone",
   "provisionGuestAccountAfterVerifiedPayment",
   "getVerifiedGuestAccountId",
   "parsePaystackMetadata",
@@ -218,6 +220,7 @@ function createHarnessState(overrides = {}) {
     guestAccountEmail: "test.customer@example.invalid",
     profileUnavailable: false,
     orderUpdates: [],
+    reconcileCalls: 0,
     ...overrides.state,
   };
 }
@@ -291,6 +294,33 @@ function buildWebhookModule(state) {
     syncCheckoutPaymentStatus: async (orderId, status, amount, allocate) => {
       state.orderSyncs.push({ orderId, status, amount, allocate });
       return { order: state.orders.find((order) => order.id === orderId), items: state.orderItems };
+    },
+    reconcileGuestAccountSetupForOrder: async (orderId) => {
+      state.reconcileCalls += 1;
+      const order = state.orders.find((row) => row.id === orderId);
+      if (state.accountProvisioning === "failure") {
+        return { ok: false, retryable: true, message: "Guest account provisioning is temporarily unavailable." };
+      }
+      if (state.accountProvisioning === "existing" || order?.user_id !== state.guestAccountUserId) {
+        return { ok: true, skipped: true, reason: "existing_registered_account" };
+      }
+      if (!order?.user_id) {
+        return { ok: true, skipped: true };
+      }
+      if (state.profileUnavailable) {
+        return { ok: false, retryable: true, message: "The guest account is not ready for setup delivery." };
+      }
+      const existing = state.notifications.find(
+        (notification) => notification.source_type === "account_setup"
+          && notification.source_key === `account-setup:${orderId}`,
+      );
+      if (existing) return { ok: true, duplicate: true };
+      state.notifications.push({
+        ...context.buildGuestAccountSetupNotification(order),
+        source_type: "account_setup",
+        source_key: `account-setup:${orderId}`,
+      });
+      return { ok: true };
     },
     sendJson: (response, statusCode, payload) => response.finish(statusCode, payload),
   };
@@ -412,7 +442,7 @@ test("browser verification uses the same post-payment provisioning entry point",
   assert.ok(start >= 0 && end > start);
   assert.match(
     serverSource.slice(start, end),
-    /provisionGuestAccountAfterVerifiedPayment\(guestEmail, guestName\)/,
+    /provisionGuestAccountAfterVerifiedPayment\(\s*guestEmail,\s*guestName,\s*normalizeGuestPhone\(/,
   );
 });
 
@@ -472,7 +502,7 @@ test("account setup remains retryable when the linked guest profile is temporari
     successfulEvent("ref-fictional-001"),
   );
 
-  assert.equal(response.statusCode, 500);
+  assert.equal(response.statusCode, 503);
   assert.equal(state.payments[0].status, "successful");
   assert.equal(state.orders[0].user_id, state.guestAccountUserId);
   assert.equal(state.notifications.filter((notification) => notification.source_type === "account_setup").length, 0);

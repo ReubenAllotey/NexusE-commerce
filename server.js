@@ -969,7 +969,25 @@ async function findProfileByEmail(email) {
   return data ?? null;
 }
 
-async function createGuestAuthAccount(email, fullName) {
+function normalizeGuestPhone(value) {
+  return clean(value).replace(/[^\d+]/g, "");
+}
+
+async function syncGuestProfilePhone(userId, phoneNumber) {
+  const cleanUserId = clean(userId);
+  const normalizedPhone = normalizeGuestPhone(phoneNumber);
+  if (!cleanUserId || !normalizedPhone || !supabaseAdmin) return null;
+
+  const { data, error } = await supabaseAdmin.rpc("sync_guest_customer_phone", {
+    p_user_id: cleanUserId,
+    p_phone_number: normalizedPhone,
+  });
+
+  if (error) throw error;
+  return data ?? null;
+}
+
+async function createGuestAuthAccount(email, fullName, phoneNumber = "") {
   if (!supabaseAdmin) {
     throw new Error("Supabase server credentials are missing.");
   }
@@ -997,6 +1015,7 @@ async function createGuestAuthAccount(email, fullName) {
   const password = buildTemporaryPassword();
 
   const createGuestUser = async () => {
+    const normalizedPhone = normalizeGuestPhone(phoneNumber);
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email: cleanEmail,
       password,
@@ -1005,6 +1024,7 @@ async function createGuestAuthAccount(email, fullName) {
         full_name: cleanName,
         account_type: "guest",
         must_change_password: true,
+        ...(normalizedPhone ? { phone_number: normalizedPhone } : {}),
       },
     });
 
@@ -1091,7 +1111,7 @@ async function createGuestAuthAccount(email, fullName) {
 
 // Keep account provisioning behind one post-verification entry point so the
 // browser and webhook paths use the same Auth race handling and safeguards.
-async function provisionGuestAccountAfterVerifiedPayment(email, fullName) {
+async function provisionGuestAccountAfterVerifiedPayment(email, fullName, phoneNumber = "") {
   const cleanEmail = clean(email).toLowerCase();
   if (!cleanEmail || !isValidQueuedEmailAddress(cleanEmail)) {
     return {
@@ -1104,7 +1124,19 @@ async function provisionGuestAccountAfterVerifiedPayment(email, fullName) {
     };
   }
 
-  return createGuestAuthAccount(cleanEmail, fullName);
+  const result = await createGuestAuthAccount(cleanEmail, fullName, phoneNumber);
+  const userId = clean(result?.user?.id);
+  const normalizedPhone = normalizeGuestPhone(phoneNumber);
+  if (userId && normalizedPhone) {
+    try {
+      await syncGuestProfilePhone(userId, normalizedPhone);
+      result.profile = await loadProfileById(userId);
+    } catch (error) {
+      // Account and payment success must not depend on a recoverable profile sync.
+      console.error("Guest phone profile synchronization deferred:", error?.message || "Unknown profile error");
+    }
+  }
+  return result;
 }
 
 function getVerifiedGuestAccountId(orderEmail, guestAccount = null) {
@@ -1144,7 +1176,7 @@ async function loadProfileById(userId) {
 
   const { data, error } = await supabaseAdmin
     .from("profiles")
-    .select("id, full_name, email, phone_number, photo_url, date_of_birth, gender, role, account_type, status, created_at, updated_at")
+    .select("id, full_name, email, phone_number, photo_url, date_of_birth, gender, role, account_type, status, must_change_password, created_at, updated_at")
     .eq("id", cleanUserId)
     .maybeSingle();
 
@@ -3140,18 +3172,25 @@ async function ensureGuestAccountSetupNotification(order = null) {
   const userId = clean(order?.user_id);
   if (!orderId || !userId) return { ok: true, skipped: true };
 
-  const profile = await loadProfileById(userId);
-  const { data: authResult, error: authError } = await supabaseAdmin.auth.admin.getUserById(userId);
-  if (authError) throw authError;
-  const metadata = authResult?.user?.user_metadata ?? {};
-  const isGuestAccount = profile?.account_type === "guest"
-    || metadata.account_type === "guest"
-    || metadata.must_change_password === true;
-  if (!isGuestAccount) return { ok: true, skipped: true };
-
-  if (!profile) {
-    return { ok: false, message: "The guest account profile is not ready; the setup email will be retried." };
+  let profile;
+  let authResult;
+  try {
+    profile = await loadProfileById(userId);
+    const authLookup = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (authLookup.error) throw authLookup.error;
+    authResult = authLookup.data;
+  } catch (error) {
+    console.error("Guest account setup eligibility check deferred:", error?.message || "Unknown account error");
+    return { ok: false, retryable: true, message: "The guest account is not ready for setup delivery; the email will be retried." };
   }
+  const metadata = authResult?.user?.user_metadata ?? {};
+  if (!profile) {
+    return { ok: false, retryable: true, message: "The guest account profile is not ready; the setup email will be retried." };
+  }
+  const isGuestAccount = profile?.account_type === "guest"
+    && profile?.must_change_password === true
+    && metadata.account_type === "guest";
+  if (!isGuestAccount) return { ok: true, skipped: true };
 
   const authEmail = clean(authResult?.user?.email).toLowerCase();
   const profileEmail = clean(profile?.email).toLowerCase();
@@ -3171,6 +3210,47 @@ async function ensureGuestAccountSetupNotification(order = null) {
   }
 
   return { ok: true, duplicate: error?.code === "23505" };
+}
+
+async function authorizeLinkedGuestAccountSetupAccess(order, reference, accessToken) {
+  const orderId = clean(order?.id);
+  const userId = clean(order?.user_id);
+  if (!orderId || !userId || !verifyGuestCheckoutAccessToken(accessToken, reference, orderId)) {
+    return { ok: false, message: "This guest checkout session is no longer available. Please restart checkout." };
+  }
+
+  let profile;
+  let authUser;
+  try {
+    profile = await loadProfileById(userId);
+    const authLookup = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (authLookup.error) throw authLookup.error;
+    authUser = authLookup.data?.user ?? null;
+  } catch (error) {
+    console.error("Linked guest account authorization deferred:", error?.message || "Unknown account error");
+    return { ok: false, message: "The guest account could not be verified. Please try again." };
+  }
+
+  const orderEmail = clean(order.customer_email || order.guest_email).toLowerCase();
+  const profileEmail = clean(profile?.email).toLowerCase();
+  const authEmail = clean(authUser?.email).toLowerCase();
+  const metadata = authUser?.user_metadata ?? {};
+  const isEligibleGuest = profile?.id === userId
+    && authUser?.id === userId
+    && profile?.account_type === "guest"
+    && profile?.role === "customer"
+    && profile?.status === "active"
+    && profile?.must_change_password === true
+    && metadata.account_type === "guest"
+    && isValidQueuedEmailAddress(orderEmail)
+    && orderEmail === profileEmail
+    && orderEmail === authEmail;
+
+  if (!isEligibleGuest) {
+    return { ok: false, message: "This guest checkout session is no longer available. Please restart checkout." };
+  }
+
+  return { ok: true, order, profile, authUser };
 }
 
 const guestAccountSetupReconciliationInFlight = new Map();
@@ -3220,6 +3300,12 @@ async function reconcileGuestAccountSetupForOrder(orderId) {
         guestAccount = await provisionGuestAccountAfterVerifiedPayment(
           email,
           clean(currentOrder.customer_name || currentOrder.guest_full_name) || email.split("@")[0],
+          normalizeGuestPhone(
+            currentOrder.phone_number
+              || currentOrder.customer_phone
+              || currentOrder.shipping_address_snapshot?.phoneNumber
+              || currentOrder.shipping_address_snapshot?.phone_number,
+          ),
         );
       } catch (error) {
         console.error("Guest account setup reconciliation deferred:", error?.message || "Unknown account error");
@@ -3284,7 +3370,7 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
   if (userId) {
     const { data, error } = await supabaseAdmin
       .from("profiles")
-      .select("full_name, email, account_type, role, status")
+      .select("full_name, email, account_type, role, status, must_change_password")
       .eq("id", userId)
       .maybeSingle();
 
@@ -3369,8 +3455,8 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
 
     const metadata = authResult?.user?.user_metadata ?? {};
     const isGuestAccount = profile.account_type === "guest"
-      || metadata.account_type === "guest"
-      || metadata.must_change_password === true;
+      && profile.must_change_password === true
+      && metadata.account_type === "guest";
     if (!isGuestAccount || profile.role !== "customer" || profile.status !== "active") {
       return { ok: false, permanent: true, message: "The account is not eligible for guest setup delivery." };
     }
@@ -6046,7 +6132,16 @@ async function handleVerify(req, res, reference) {
   const paystackData = upstreamData?.data ?? {};
   const metadata = parsePaystackMetadata(paystackData.metadata).value;
   const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
-  const isGuestCheckout = Boolean(metadata.guestCheckout);
+  const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
+  const hasPersistedGuestAccess = Boolean(
+    paymentRow?.order_id
+      && verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow.order_id),
+  );
+  const isGuestCheckout = Boolean(metadata.guestCheckout) || hasPersistedGuestAccess;
+  const isPersistedGuestOrderRecovery = Boolean(
+    hasPersistedGuestAccess
+      && normalizePaymentStatus(paymentRow.status) === "successful",
+  );
   const isPaymentReminder = Boolean(metadata.paymentReminder)
     || clean(metadata.paymentPurpose).toLowerCase() === "order-balance"
     || Boolean(
@@ -6061,8 +6156,7 @@ async function handleVerify(req, res, reference) {
     }
   }
 
-  if (isGuestCheckout) {
-    const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
+  if (isGuestCheckout || isPersistedGuestOrderRecovery) {
     if (!verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow?.order_id || metadata.orderId)) {
       sendJson(res, 401, { ok: false, message: "This guest checkout session is no longer available. Please restart checkout." });
       return;
@@ -6092,6 +6186,47 @@ async function handleVerify(req, res, reference) {
       sendJson(res, 500, {
         ok: false,
         message: "Supabase server credentials are missing from the server environment.",
+      });
+      return;
+    }
+
+    if (isPersistedGuestOrderRecovery) {
+      const orderResult = await loadOrderBundle(paymentRow.order_id);
+      if (!orderResult.ok) {
+        sendJson(res, 500, {
+          ok: false,
+          message: orderResult.message || "Unable to load the completed guest order.",
+        });
+        return;
+      }
+
+      const guestAccess = await authorizeLinkedGuestAccountSetupAccess(
+        orderResult.order,
+        cleanReference,
+        guestAccessToken,
+      );
+      if (!guestAccess.ok) {
+        sendJson(res, 403, { ok: false, message: guestAccess.message });
+        return;
+      }
+
+      await ensureOrderConfirmationNotification(paymentRow, orderResult.order);
+      const accountSetupResult = await reconcileGuestAccountSetupForOrder(paymentRow.order_id);
+      if (!accountSetupResult.ok) {
+        sendJson(res, 503, {
+          ok: false,
+          message: accountSetupResult.message || "The payment was verified, but guest account setup is pending and can be retried safely.",
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        data: paystackData,
+        payment: paymentRow,
+        order: mapOrderBundle(orderResult.order, orderResult.items).order,
+        items: orderResult.items,
+        accountSetupRecovered: true,
       });
       return;
     }
@@ -6127,11 +6262,11 @@ async function handleVerify(req, res, reference) {
       }
 
       await ensureOrderConfirmationNotification(completedPayment, orderResult.order);
-      const accountSetupResult = await ensureGuestAccountSetupNotification(orderResult.order);
+      const accountSetupResult = await reconcileGuestAccountSetupForOrder(paymentRow.order_id);
       if (!accountSetupResult.ok) {
-        sendJson(res, 500, {
+        sendJson(res, 503, {
           ok: false,
-          message: accountSetupResult.message || "Unable to queue the guest account setup email.",
+          message: accountSetupResult.message || "The payment was verified, but guest account setup is pending and can be retried safely.",
         });
         return;
       }
@@ -6222,7 +6357,11 @@ async function handleVerify(req, res, reference) {
 
     try {
       try {
-        guestAccount = await provisionGuestAccountAfterVerifiedPayment(guestEmail, guestName);
+        guestAccount = await provisionGuestAccountAfterVerifiedPayment(
+          guestEmail,
+          guestName,
+          normalizeGuestPhone(metadata.phoneNumber || metadata.phone_number),
+        );
       } catch (accountError) {
         // Payment and order confirmation must not depend on account creation.
         // The guest remains unlinked until they complete a secure account flow.
@@ -6240,7 +6379,6 @@ async function handleVerify(req, res, reference) {
       const guestCustomerName = clean(guestAccount.profile?.full_name) || guestName;
       const guestCustomerEmail = clean(guestAccount.profile?.email) || guestEmail;
       const linkedUserId = getVerifiedGuestAccountId(guestEmail, guestAccount);
-      const accountSetupDeferred = Boolean(guestAccount.requiresSetup && !linkedUserId);
       const guestOrderType = normalizeAvailabilityType(expectedCheckout.availabilityType || "ready_stock");
       const guestOrderStatus = guestOrderType === "preorder" ? "preorder_received" : "processing";
       const guestEstimatedArrival = clean(
@@ -6296,16 +6434,13 @@ async function handleVerify(req, res, reference) {
       });
 
       await ensureOrderConfirmationNotification(updatedPayment, orderBundle.order);
-      if (accountSetupDeferred) {
+      const accountSetupResult = await reconcileGuestAccountSetupForOrder(paymentRow.order_id);
+      if (!accountSetupResult.ok) {
         sendJson(res, 503, {
           ok: false,
-          message: "The payment was verified, but guest account setup is pending and can be retried safely.",
+          message: accountSetupResult.message || "The payment was verified, but guest account setup is pending and can be retried safely.",
         });
         return;
-      }
-      const accountSetupResult = await ensureGuestAccountSetupNotification(orderBundle.order);
-      if (!accountSetupResult.ok) {
-        throw new Error(accountSetupResult.message || "Unable to queue the guest account setup email.");
       }
 
       sendJson(res, 200, {
@@ -6927,7 +7062,6 @@ async function handleWebhook(req, res) {
           );
           const verifiedPayment = await getPaymentByReference(reference);
           let orderResult = await loadOrderBundle(paymentRow.order_id);
-          let provisioningDeferred = false;
           if (!orderResult.ok) {
             sendJson(res, 500, {
               ok: false,
@@ -6949,6 +7083,12 @@ async function handleWebhook(req, res) {
               guestAccount = await provisionGuestAccountAfterVerifiedPayment(
                 persistedGuestEmail,
                 persistedGuestName,
+                normalizeGuestPhone(
+                  orderResult.order?.phone_number
+                    || orderResult.order?.customer_phone
+                    || orderResult.order?.shipping_address_snapshot?.phoneNumber
+                    || orderResult.order?.shipping_address_snapshot?.phone_number,
+                ),
               );
             } catch (accountError) {
               // Account setup is recoverable. Never reverse a verified payment
@@ -6957,7 +7097,6 @@ async function handleWebhook(req, res) {
                 "Guest account provisioning deferred after webhook payment:",
                 accountError?.message || "Unknown account error",
               );
-              provisioningDeferred = true;
             }
 
             const linkedUserId = getVerifiedGuestAccountId(persistedGuestEmail, guestAccount);
@@ -6997,16 +7136,9 @@ async function handleWebhook(req, res) {
             });
             return;
           }
-          if (provisioningDeferred) {
-            sendJson(res, 503, {
-              ok: false,
-              message: "The payment was verified, but guest account setup is pending and can be retried safely.",
-            });
-            return;
-          }
-          const accountSetupResult = await ensureGuestAccountSetupNotification(orderResult.order);
+          const accountSetupResult = await reconcileGuestAccountSetupForOrder(paymentRow.order_id);
           if (!accountSetupResult.ok) {
-            sendJson(res, 500, {
+            sendJson(res, 503, {
               ok: false,
               message: accountSetupResult.message || "Unable to queue the guest account setup email.",
             });

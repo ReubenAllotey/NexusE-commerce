@@ -11,6 +11,7 @@ import {
   buildShippingPaymentRequiredEmail,
   buildShipmentUpdateEmail,
 } from "./services/shipmentNotificationEmail.js";
+import { buildAccountSetupEmail } from "./services/accountSetupEmail.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverSource = fs.readFileSync(path.join(projectRoot, "server.js"), "utf8");
@@ -159,6 +160,19 @@ function createState(overrides = {}) {
     updateError: null,
     fetchResponse: { ok: true, status: 201, json: async () => ({ messageId: "brevo-fictional-message-001" }) },
     notificationError: null,
+    profile: {
+      full_name: "Guest Customer",
+      email: "guest@example.invalid",
+      account_type: "guest",
+      role: "customer",
+      status: "active",
+      must_change_password: true,
+    },
+    authUser: {
+      id: "guest-user-fictional-001",
+      email: "guest@example.invalid",
+      user_metadata: { account_type: "guest", must_change_password: true },
+    },
     ...overrides.state,
   };
 }
@@ -187,6 +201,7 @@ function createQuery(state, table, operation = "read") {
         return { data: job ? { id: job.id } : null, error: null };
       }
       if (table === "orders") return { data: state.orders.find((row) => row.id === id) ?? null, error: null };
+      if (table === "profiles") return { data: state.profile ?? null, error: null };
       if (table === "payments") return { data: state.payments.find((row) => row.id === id || row.provider_reference === reference) ?? null, error: null };
       if (table === "notifications") return { data: state.notifications.find((row) => row.id === id) ?? null, error: null };
       if (table === "notification_email_deliveries") return { data: state.jobs[0] ?? null, error: null };
@@ -215,6 +230,15 @@ function createQuery(state, table, operation = "read") {
 
 function createSupabaseMock(state) {
   return {
+    auth: {
+      admin: {
+        getUserById: async () => ({ data: { user: state.authUser }, error: null }),
+        generateLink: async () => ({
+          data: { properties: { action_link: "https://example.invalid/recovery" } },
+          error: null,
+        }),
+      },
+    },
     from(table) {
       return createQuery(state, table);
     },
@@ -284,6 +308,7 @@ function buildHarness(state, {
     buildShippingPaymentConfirmationEmail,
     buildShippingPaymentRequiredEmail,
     buildShipmentUpdateEmail,
+    buildAccountSetupEmail,
     setTimeout,
     clearTimeout,
   };
@@ -370,6 +395,35 @@ test("missing order or payment context returns a retryable failure without calli
   assert.equal(result.permanent, undefined);
   assert.equal(state.fetchCalls.length, 0);
   assert.match(result.message, /retried/i);
+});
+
+test("account setup worker requires an active guest profile with a pending password", async () => {
+  const state = createState({ state: { profile: { ...createState().profile, must_change_password: false } } });
+  const { sendNotificationEmailForRow } = buildHarness(state, { emailQueueEnabled: "false" });
+  const result = await sendNotificationEmailForRow({
+    id: "notification-account-setup-001",
+    user_id: state.authUser.id,
+    source_type: "account_setup",
+    source_key: `account-setup:${state.orders[0].id}`,
+    order_id: state.orders[0].id,
+  }, { recipientEmail: state.profile.email });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.permanent, true);
+  assert.equal(state.fetchCalls.length, 0);
+
+  const eligibleState = createState();
+  const eligible = buildHarness(eligibleState, { emailQueueEnabled: "false" });
+  const eligibleResult = await eligible.sendNotificationEmailForRow({
+    id: "notification-account-setup-002",
+    user_id: eligibleState.authUser.id,
+    source_type: "account_setup",
+    source_key: `account-setup:${eligibleState.orders[0].id}`,
+    order_id: eligibleState.orders[0].id,
+  }, { recipientEmail: eligibleState.profile.email });
+
+  assert.equal(eligibleResult.ok, true);
+  assert.equal(eligibleState.fetchCalls.length, 1);
 });
 
 test("generic notifications keep the generic branded notification template", async () => {
