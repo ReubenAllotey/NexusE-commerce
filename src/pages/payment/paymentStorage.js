@@ -529,7 +529,10 @@ export async function loadPaymentReceipt(reference, {
 
   const guestToken = clean(guestAccessToken);
   const shippingToken = clean(shippingReceiptToken);
-  if (guestToken || shippingToken) {
+  // An unauthenticated guest may still have the server-managed HttpOnly
+  // recovery cookie from checkout. Let the server authorize that request;
+  // do not require a client-readable token before attempting it.
+  if (guestToken || shippingToken || !authUser?.id) {
     const response = await fetch(`/api/receipts/${encodeURIComponent(receiptReference)}`, {
       headers: {
         Accept: "application/json",

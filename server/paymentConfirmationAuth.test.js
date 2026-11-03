@@ -31,7 +31,7 @@ function extractFunction(source, name) {
 
 test("payment confirmation waits for Supabase auth restoration before verification and receipt loading", () => {
   assert.match(paymentSource, /authReady = false/);
-  assert.match(paymentSource, /if \(!authReady \|\| !reference \|\| \(!authUser\?\.id && !guestAccessToken && !activeShippingReceiptToken\)\)/);
+  assert.match(paymentSource, /if \(!authReady \|\| !reference \|\| \(!authUser\?\.id && !guestAccessToken && !activeShippingReceiptToken && verificationState !== "success"\)\)/);
   assert.match(paymentSource, /if \(!authReady \|\| !reference \|\| variant === "failed"\)/);
   assert.match(appSource, /authReady=\{authReady\}/);
   assert.doesNotMatch(appSource, /clearPaymentSession\(\);[\s\S]{0,80}setAuthSession\(null\)/);
@@ -81,6 +81,25 @@ test("guest receipt loading uses the existing signed token without putting it in
   assert.doesNotMatch(paymentSource.slice(storageStart, storageStart + 1200), /searchParams\.set\([^)]*guest/i);
 });
 
+test("guest checkout has a server-managed, reference-scoped recovery cookie", () => {
+  assert.match(serverSource, /GUEST_CHECKOUT_COOKIE_PREFIX/);
+  assert.match(serverSource, /createHash\("sha256"\)/);
+  assert.match(serverSource, /HttpOnly; Secure; SameSite=Lax/);
+  assert.match(serverSource, /Max-Age=\$\{GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS\}/);
+  assert.match(serverSource, /getGuestCheckoutCookieToken\(req, cleanReference\)/);
+  assert.match(serverSource, /Set-Cookie.*buildGuestCheckoutCookie/s);
+  assert.match(serverSource, /verifyGuestCheckoutAccessToken\(guestCheckoutToken, cleanReference, paymentRow\.order_id\)/);
+});
+
+test("successful payment synchronization failures are recoverable and not reported as payment failures", () => {
+  assert.match(serverSource, /paymentVerified: true/);
+  assert.match(serverSource, /orderSynchronization: "pending"/);
+  assert.match(serverSource, /errorCode: "order_sync_pending"/);
+  assert.match(paymentSource, /verificationState === "sync_pending"/);
+  assert.match(paymentSource, /No additional payment is required/);
+  assert.match(paymentSource, /Check Payment Status/);
+});
+
 test("guest receipt loader executes the token-authenticated JSON path", async () => {
   const requests = [];
   const context = {
@@ -124,6 +143,27 @@ test("shipping receipt loader sends only the shipping payment token", async () =
   });
   assert.equal(result.ok, true);
   assert.equal(requests[0].options.headers["X-Shipping-Receipt-Token"], "shipping-token");
+  assert.equal(requests[0].options.headers["X-Guest-Checkout-Token"], undefined);
+});
+
+test("guest receipt loader can defer authorization to the server-managed recovery cookie", async () => {
+  const requests = [];
+  const context = {
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return {
+        ok: true,
+        async json() {
+          return { ok: true, receipt: { orderId: "order-cookie-001" } };
+        },
+      };
+    },
+  };
+  vm.runInNewContext(`function clean(value) { return String(value ?? "").trim(); }\n${extractFunction(paymentStorageSource, "loadPaymentReceipt")}\nthis.load = loadPaymentReceipt;`, context);
+
+  const result = await context.load("PAY-cookie-001");
+  assert.equal(result.ok, true);
+  assert.equal(requests[0].url, "/api/receipts/PAY-cookie-001");
   assert.equal(requests[0].options.headers["X-Guest-Checkout-Token"], undefined);
 });
 

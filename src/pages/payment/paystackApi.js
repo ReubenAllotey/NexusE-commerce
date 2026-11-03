@@ -18,7 +18,11 @@ async function requestJson(url, options = {}) {
   const body = await readJson(response);
 
   if (!response.ok || body?.ok === false || body?.status === false) {
-    throw new Error(body?.error || body?.message || "Paystack request failed.");
+    const error = new Error(body?.error || body?.message || "Paystack request failed.");
+    error.code = body?.errorCode || body?.code || "";
+    error.paymentVerified = body?.paymentVerified === true;
+    error.orderSynchronization = body?.orderSynchronization || "";
+    throw error;
   }
 
   return body;

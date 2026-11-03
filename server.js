@@ -80,6 +80,38 @@ function clean(value) {
 }
 
 const GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS = 30 * 60;
+const GUEST_CHECKOUT_COOKIE_PREFIX = "nexus_guest_checkout_";
+
+function guestCheckoutCookieName(reference) {
+  return `${GUEST_CHECKOUT_COOKIE_PREFIX}${crypto
+    .createHash("sha256")
+    .update(clean(reference))
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
+function parseRequestCookies(req) {
+  return clean(req?.headers?.cookie)
+    .split(";")
+    .map((part) => part.trim().split("="))
+    .filter(([name, value]) => name && value)
+    .reduce((cookies, [name, ...parts]) => {
+      try {
+        cookies[name] = decodeURIComponent(parts.join("="));
+      } catch {
+        cookies[name] = "";
+      }
+      return cookies;
+    }, {});
+}
+
+function getGuestCheckoutCookieToken(req, reference) {
+  return clean(parseRequestCookies(req)[guestCheckoutCookieName(reference)]);
+}
+
+function buildGuestCheckoutCookie(reference, token) {
+  return `${guestCheckoutCookieName(reference)}=${encodeURIComponent(token)}; Max-Age=${GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+}
 
 function createGuestCheckoutAccessToken(reference, orderId) {
   const secret = clean(process.env.GUEST_CHECKOUT_ACCESS_SECRET) || paystackSecret;
@@ -5073,7 +5105,7 @@ async function getPaymentByReference(reference) {
   return data ?? null;
 }
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
@@ -5081,6 +5113,7 @@ function sendJson(res, statusCode, payload) {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, x-paystack-signature",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    ...extraHeaders,
   });
   res.end(body);
 }
@@ -5680,6 +5713,7 @@ async function handleInitialize(req, res) {
       status: "pending",
     });
 
+    const guestAccessToken = createGuestCheckoutAccessToken(reference, guestOrderRow.id);
     sendJson(res, 200, {
       ok: true,
       guestCheckout: {
@@ -5687,7 +5721,7 @@ async function handleInitialize(req, res) {
         orderId: guestOrderRow.id,
         orderNumber: guestOrderNumber,
         paymentReference: reference,
-        accessToken: createGuestCheckoutAccessToken(reference, guestOrderRow.id),
+        accessToken: guestAccessToken,
         authorizationUrl: checkoutData.authorization_url ?? "",
         accessCode: checkoutData.access_code ?? "",
         amountDueNow: checkout.amountDueNow,
@@ -5699,6 +5733,8 @@ async function handleInitialize(req, res) {
       ).order,
       payment: updatedGuestPayment,
       data: checkoutData,
+    }, {
+      "Set-Cookie": buildGuestCheckoutCookie(reference, guestAccessToken),
     });
     return;
   }
@@ -6108,7 +6144,7 @@ async function handleVerify(req, res, reference) {
 
   const paymentRow = await getPaymentByReference(cleanReference);
   if (paymentRow && !clean(paymentRow.user_id)) {
-    const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
+    const guestAccessToken = clean(req.headers["x-guest-checkout-token"]) || getGuestCheckoutCookieToken(req, cleanReference);
     const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
     const shippingPaymentToken = clean(req.headers["x-shipping-payment-token"]);
     if (!verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow.order_id)
@@ -6140,7 +6176,7 @@ async function handleVerify(req, res, reference) {
   const paystackData = upstreamData?.data ?? {};
   const metadata = parsePaystackMetadata(paystackData.metadata).value;
   const paymentReminderToken = clean(req.headers["x-payment-reminder-token"]);
-  const guestAccessToken = clean(req.headers["x-guest-checkout-token"]);
+  const guestAccessToken = clean(req.headers["x-guest-checkout-token"]) || getGuestCheckoutCookieToken(req, cleanReference);
   const hasPersistedGuestAccess = Boolean(
     paymentRow?.order_id
       && verifyGuestCheckoutAccessToken(guestAccessToken, cleanReference, paymentRow.order_id),
@@ -6199,6 +6235,19 @@ async function handleVerify(req, res, reference) {
     }
 
     if (isPersistedGuestOrderRecovery) {
+      try {
+        await syncCheckoutPaymentStatus(paymentRow.order_id, "paid", paymentRow.amount, false);
+      } catch (error) {
+        sendJson(res, 503, {
+          ok: false,
+          paymentVerified: true,
+          orderSynchronization: "pending",
+          message: "The payment was verified, but the order status could not be synchronized yet. Please check the payment status again; no additional payment is required.",
+          errorCode: "order_sync_pending",
+        });
+        return;
+      }
+
       const orderResult = await loadOrderBundle(paymentRow.order_id);
       if (!orderResult.ok) {
         sendJson(res, 500, {
@@ -6251,13 +6300,27 @@ async function handleVerify(req, res, reference) {
           paid_at: paystackData.paid_at ?? paymentRow.paid_at ?? new Date().toISOString(),
         });
       } catch {
-        // Keep the finalization flow moving for already-completed guest payments.
+        sendJson(res, 503, {
+          ok: false,
+          paymentVerified: true,
+          orderSynchronization: "pending",
+          message: "The payment was verified, but its final record could not be refreshed yet. Please check the payment status again; no additional payment is required.",
+          errorCode: "payment_record_pending",
+        });
+        return;
       }
 
       try {
         await syncCheckoutPaymentStatus(paymentRow.order_id, "paid", paymentRow.amount, false);
       } catch {
-        // Keep the finalization flow moving for already-completed guest payments.
+        sendJson(res, 503, {
+          ok: false,
+          paymentVerified: true,
+          orderSynchronization: "pending",
+          message: "The payment was verified, but the order status could not be synchronized yet. Please check the payment status again; no additional payment is required.",
+          errorCode: "order_sync_pending",
+        });
+        return;
       }
 
       const orderResult = await loadOrderBundle(paymentRow.order_id);
@@ -6846,7 +6909,10 @@ async function getReceiptAccessContext(req, reference) {
   const shippingReceiptToken = clean(req.headers["x-shipping-receipt-token"]);
   const guestShippingAccess = paymentRow.payment_purpose === "shipping"
     && verifyShippingReceiptAccessToken(shippingReceiptToken, cleanReference, paymentRow.order_id);
-  const guestCheckoutToken = clean(req.headers["x-guest-checkout-token"]);
+  const cookieGuestCheckoutToken = typeof getGuestCheckoutCookieToken === "function"
+    ? getGuestCheckoutCookieToken(req, cleanReference)
+    : "";
+  const guestCheckoutToken = clean(req.headers["x-guest-checkout-token"]) || cookieGuestCheckoutToken;
   const guestCheckoutAccess = paymentRow.payment_purpose === "order"
     && verifyGuestCheckoutAccessToken(guestCheckoutToken, cleanReference, paymentRow.order_id);
   const authResult = await getAuthenticatedUser(req).catch(() => ({ ok: false, user: null }));

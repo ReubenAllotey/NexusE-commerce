@@ -1390,7 +1390,7 @@ function PaymentStatusPage({
     const activeShippingReceiptToken = paymentPurpose === "shipping-balance"
       ? clean(shippingReceiptToken || session?.shippingReceiptToken)
       : "";
-    if (!authReady || !reference || (!authUser?.id && !guestAccessToken && !activeShippingReceiptToken)) {
+    if (!authReady || !reference || (!authUser?.id && !guestAccessToken && !activeShippingReceiptToken && verificationState !== "success")) {
       setReceiptRecord(null);
       setReceiptError("");
       setReceiptLoading(false);
@@ -1428,7 +1428,7 @@ function PaymentStatusPage({
     return () => {
       isMounted = false;
     };
-  }, [authReady, authUser?.id, paymentPurpose, reference, callbackPaymentToken, session?.guestAccessToken, session?.shippingPaymentToken, session?.shippingReceiptToken, shippingReceiptToken]);
+  }, [authReady, authUser?.id, paymentPurpose, reference, callbackPaymentToken, session?.guestAccessToken, session?.shippingPaymentToken, session?.shippingReceiptToken, shippingReceiptToken, verificationState]);
 
   async function verifyPayment() {
     if (!reference) {
@@ -1585,7 +1585,12 @@ function PaymentStatusPage({
       setVerificationState("failed");
     } catch (error) {
       setVerificationError(error instanceof Error ? error.message : "We could not verify this payment right now.");
-      setVerificationState("error");
+      if (error?.paymentVerified === true && error?.orderSynchronization === "pending") {
+        setResolvedVariant("pending");
+        setVerificationState("sync_pending");
+      } else {
+        setVerificationState("error");
+      }
     }
   }
 
@@ -1660,7 +1665,9 @@ function PaymentStatusPage({
           : "We are waiting for confirmation from your payment provider.";
 
   const message =
-    displayVariant === "success"
+    verificationState === "sync_pending"
+      ? "Your payment was verified, but we are still synchronizing the order. No additional payment is required. Use Check Payment Status to safely retry the synchronization."
+      : displayVariant === "success"
       ? paymentPurpose === "shipping-balance"
         ? "Your order has been updated and the remaining shipping balance has been recorded."
         : "Your order has been saved in your history and a receipt is ready."
