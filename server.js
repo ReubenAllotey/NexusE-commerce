@@ -6961,6 +6961,7 @@ async function getReceiptAccessContext(req, reference) {
     paymentRow,
     orderResult,
     authResult,
+    profileResult,
     isAdmin,
     guestShippingAccess,
     guestCheckoutAccess,
@@ -7010,6 +7011,7 @@ async function handleReceiptPdf(req, res, reference) {
     paymentRow,
     orderResult,
     authResult,
+    profileResult,
     isAdmin,
     guestShippingAccess,
   } = context;

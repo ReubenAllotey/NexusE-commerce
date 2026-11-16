@@ -28,40 +28,6 @@ function formatDate(value) {
   }).format(date);
 }
 
-function buildReceiptText(receipt) {
-  const lines = [
-    "Nexus Imports Receipt",
-    `Order Number: ${receipt.orderNumber}`,
-    `Payment Reference: ${receipt.paymentReference}`,
-    `Payment Method: ${receipt.paymentNetwork ? getMobileNetworkLabel(receipt.paymentNetwork) : getPaymentMethodLabel(receipt.paymentMethod)}`,
-    `Payment Status: ${receipt.paymentStatus}`,
-    `Amount Paid: ${formatGhanaCedis(receipt.amountPaid)}`,
-    `Order Status: ${receipt.orderStatus}`,
-    `Created: ${formatDate(receipt.createdAt)}`,
-    "",
-    "Items:",
-    ...(Array.isArray(receipt.items)
-      ? receipt.items.map(
-          (item) =>
-            `- ${item.name} x${item.quantity ?? 1} ${formatGhanaCedis((Number(item.lineSubtotal) || 0) + (Number(item.lineShipping) || 0))}`,
-        )
-      : []),
-  ];
-
-  if (receipt.shipment) {
-    lines.push(
-      "",
-      "Shipment:",
-      `- Batch Number: ${receipt.shipment.batchNumber}`,
-      `- Step: ${receipt.shipment.stepLabel || getShipmentStepLabel(receipt.shipment.currentStep ?? 0)}`,
-      `- Progress: ${getShipmentProgressPercent(receipt.shipment.currentStep ?? 0, receipt.shipment.currentStatus ?? "")}%`,
-      `- Status: ${receipt.shipment.currentStatusLabel}`,
-    );
-  }
-
-  return lines.join("\n");
-}
-
 function ReceiptLoading() {
   return (
     <main className="receipt-page">
@@ -281,17 +247,11 @@ function Receipt() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch {
-      const blob = new Blob([buildReceiptText(receiptRecord)], { type: "text/plain;charset=utf-8" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      link.href = url;
-      link.download = `${receiptRecord.orderNumber || "receipt"}.txt`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setReceiptState((current) => ({
+        ...current,
+        error: error instanceof Error ? error.message : "Unable to download the receipt right now.",
+      }));
     }
   };
 

@@ -54,6 +54,7 @@ test("guest receipt access remains order-scoped and token protected", () => {
   assert.match(serverSource, /clean\(paymentRow\.user_id\) !== clean\(authResult\.user\?\.id\)/);
   assert.match(serverSource, /async function handleReceiptJson/);
   assert.match(serverSource, /guestProfile\.profile\?\.account_type !== "guest"/);
+  assert.match(serverSource, /async function handleReceiptPdf[\s\S]*profileResult,\s*isAdmin/);
 });
 
 test("expired or invalid guest access remains rejected by the existing backend guard", () => {
@@ -172,4 +173,6 @@ test("receipt authorization failures cannot fall back to cached session details"
   assert.doesNotMatch(normalizedReceiptSource, /fallbackReceipt\s*=\s*authUser\?\.id/);
   assert.doesNotMatch(normalizedReceiptSource, /buildSessionReceipt\(session\)/);
   assert.match(normalizedReceiptSource, /setReceiptState\(\{[\s\S]*receipt: null[\s\S]*result\.message/);
+  assert.doesNotMatch(normalizedReceiptSource, /buildReceiptText/);
+  assert.match(normalizedReceiptSource, /setReceiptState\(\(current\) => \(\{[\s\S]*error: error instanceof Error/);
 });
