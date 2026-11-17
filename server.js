@@ -21,6 +21,7 @@ import {
 } from "./server/services/accountSetupEmail.js";
 import { validateReconciliationState } from "./server/services/paymentReconciliationState.js";
 import { buildAdminPaymentSummary } from "./server/services/adminPaymentSummary.js";
+import { buildReceiptPdfBuffer as buildBrandedReceiptPdfBuffer } from "./server/receiptPdf.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
@@ -5143,142 +5144,6 @@ function sendBuffer(res, statusCode, buffer, contentType = "application/octet-st
   res.end(payload);
 }
 
-function escapePdfText(value) {
-  return String(value ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/\r?\n/g, " ");
-}
-
-function wrapPdfText(value, maxLength = 72) {
-  const text = String(value ?? "").trim();
-  if (!text) {
-    return [""];
-  }
-
-  const words = text.split(/\s+/);
-  const lines = [];
-  let current = "";
-
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length > maxLength && current) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = next;
-    }
-  }
-
-  if (current) {
-    lines.push(current);
-  }
-
-  return lines.length > 0 ? lines : [text];
-}
-
-function buildReceiptPdfBuffer(receipt = {}, items = []) {
-  const paymentMethod = receipt.paymentNetwork || receipt.paymentMethod || "Paystack";
-  const variationText = (item) => {
-    const selected = item.selected_options;
-    if (selected && typeof selected === "object" && !Array.isArray(selected)) {
-      const values = Object.entries(selected)
-        .map(([key, value]) => `${key}: ${value}`)
-        .filter(Boolean);
-      if (values.length > 0) return values.join(" | ");
-    }
-    return [item.selected_color, item.selected_size].filter(Boolean).join(" | ") || "-";
-  };
-  const itemLines = (Array.isArray(items) ? items : []).flatMap((item) => [
-    `${item.product_name || item.name || "Item"} | ${variationText(item)} | Qty ${Math.max(Number(item.quantity) || 1, 1)} | Unit ${formatGhanaCedis(item.unit_price || 0)} | Total ${formatGhanaCedis(item.line_subtotal || 0)}`,
-  ]);
-  const lines = [
-    "NEXUS IMPORT HUB",
-    "Official Payment Receipt",
-    "",
-    `Receipt Number: ${receipt.receiptNumber || receipt.paymentReference || ""}`,
-    `Order Number: ${receipt.orderNumber || ""}`,
-    `Covered Orders: ${receipt.coveredOrderNumbers || receipt.orderNumber || ""}`,
-    `Order Date: ${receipt.orderDate || ""}`,
-    `Payment Date: ${receipt.createdAt || ""}`,
-    `Payment Reference: ${receipt.paymentReference || ""}`,
-    `Payment Method: ${paymentMethod}`,
-    `Payment Status: ${receipt.paymentStatus || "Paid"}`,
-    `Customer: ${receipt.customerName || "Customer"}`,
-    `Email: ${receipt.customerEmail || ""}`,
-    `Phone: ${receipt.customerPhone || ""}`,
-    `Delivery Location: ${receipt.deliveryLocation || "Not provided"}`,
-    "",
-    "Purchased Products",
-    "Product | Variation | Quantity | Unit Price | Total",
-    ...itemLines,
-    "",
-    `Product Subtotal: ${formatGhanaCedis(receipt.subtotal || 0)}`,
-    `Shipping Fee Charged: ${formatGhanaCedis(receipt.shippingFeeCharged || 0)}`,
-    `Shipping Amount Paid: ${formatGhanaCedis(receipt.shippingAmountPaid || 0)}`,
-    `Total Verified Payment: ${formatGhanaCedis(receipt.amountPaid || 0)}`,
-    `Outstanding Shipping Balance: ${formatGhanaCedis(receipt.outstandingShipping || 0)}`,
-    "",
-    "Thank you for shopping with Nexus Import Hub.",
-    "Shop Beyond Borders. We Handle the Rest.",
-    "https://nexuse-commerce.onrender.com/",
-    "This receipt confirms successful payment and does not by itself confirm delivery.",
-  ];
-  const expandedLines = lines.flatMap((line) => wrapPdfText(line, 88));
-  const pageSize = 46;
-  const pages = [];
-  for (let index = 0; index < expandedLines.length; index += pageSize) {
-    pages.push(expandedLines.slice(index, index + pageSize));
-  }
-
-  const objects = [];
-  const pageObjectIds = [];
-  const contentObjectIds = [];
-  const fontObjectId = 3;
-  const pagesObjectId = 2;
-  const catalogObjectId = 1;
-  const firstPageObjectId = 4;
-  const firstContentObjectId = firstPageObjectId + pages.length;
-
-  for (let index = 0; index < pages.length; index += 1) {
-    pageObjectIds.push(firstPageObjectId + index);
-    contentObjectIds.push(firstContentObjectId + index);
-  }
-
-  objects[catalogObjectId - 1] = `<< /Type /Catalog /Pages ${pagesObjectId} 0 R >>`;
-  objects[pagesObjectId - 1] = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
-  objects[fontObjectId - 1] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
-
-  pages.forEach((pageLines, pageIndex) => {
-    const contentLines = ["BT", "/F1 10 Tf"];
-    let currentY = 790;
-    pageLines.forEach((line) => {
-      contentLines.push(`1 0 0 1 42 ${currentY} Tm`);
-      contentLines.push(`(${escapePdfText(line)}) Tj`);
-      currentY -= 16;
-    });
-    contentLines.push("ET");
-    const contentStream = contentLines.join("\n");
-    objects[pageObjectIds[pageIndex] - 1] = `<< /Type /Page /Parent ${pagesObjectId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectIds[pageIndex]} 0 R >>`;
-    objects[contentObjectIds[pageIndex] - 1] = `<< /Length ${Buffer.byteLength(contentStream)} >>\nstream\n${contentStream}\nendstream`;
-  });
-
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(pdf));
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-  const xrefOffset = Buffer.byteLength(pdf);
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (let index = 1; index < offsets.length; index += 1) {
-    pdf += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-  return Buffer.from(pdf, "binary");
-}
-
 function readRequestBody(req, asText = false) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -6723,6 +6588,33 @@ function getReceiptPaymentPurpose(payment) {
   return "";
 }
 
+async function getSuccessfulShippingReceiptTotals(orderId, currentPaymentId) {
+  const { data: shippingPayments, error } = await supabaseAdmin
+    .from("payments")
+    .select("id, amount, amount_minor, status, payment_purpose")
+    .eq("order_id", orderId)
+    .eq("payment_purpose", "shipping");
+
+  if (error) {
+    console.error("[receipt] Unable to load successful shipping payment totals.");
+    throw new Error("Unable to calculate the shipping receipt totals.");
+  }
+
+  const successfulShippingPayments = (Array.isArray(shippingPayments) ? shippingPayments : [])
+    .filter((payment) => normalizePaymentStatus(payment.status) === "successful");
+  const totalShippingPaid = successfulShippingPayments.reduce(
+    (sum, payment) => sum + getPaymentAmountCedis(payment),
+    0,
+  );
+  const currentPayment = successfulShippingPayments.find((payment) => clean(payment.id) === clean(currentPaymentId));
+  const currentAmount = currentPayment ? getPaymentAmountCedis(currentPayment) : 0;
+
+  return {
+    totalShippingPaid,
+    previousShippingPaid: Math.max(totalShippingPaid - currentAmount, 0),
+  };
+}
+
 function normalizePaystackPaymentPurpose(value) {
   const purpose = clean(value).toLowerCase();
   if (["shipping", "shipping-balance"].includes(purpose)) return "shipping";
@@ -7049,8 +6941,22 @@ async function handleReceiptPdf(req, res, reference) {
     (sum, item) => sum + Math.max((Number(item.line_shipping) || 0) - (Number(item.shipping_paid_amount) || 0), 0),
     0,
   );
-  const pdfBuffer = buildReceiptPdfBuffer(
+  let previousShippingPaid = 0;
+  let totalShippingPaid = itemShippingPaid;
+  if (purpose === "shipping") {
+    try {
+      ({ previousShippingPaid, totalShippingPaid } = await getSuccessfulShippingReceiptTotals(
+        paymentRow.order_id,
+        paymentRow.id,
+      ));
+    } catch {
+      sendJson(res, 500, { ok: false, message: "Unable to prepare the shipping receipt right now." });
+      return;
+    }
+  }
+  const pdfBuffer = buildBrandedReceiptPdfBuffer(
     {
+      paymentPurpose: purpose,
       receiptNumber: cleanReference,
       orderNumber: receipt.orderNumber,
       coveredOrderNumbers: receiptOrders.map((bundle) => bundle.order.order_number).filter(Boolean).join(", "),
@@ -7065,12 +6971,14 @@ async function handleReceiptPdf(req, res, reference) {
       customerName: receipt.customerName,
       customerEmail: receipt.customerEmail,
       customerPhone: profileResult?.profile?.phone_number || "",
-      deliveryLocation: typeof receipt.shippingAddress === "string"
-        ? receipt.shippingAddress
-        : JSON.stringify(receipt.shippingAddress || "Not provided"),
+      shippingAddress: receipt.shippingAddress,
       subtotal: receipt.subtotal,
+      orderAmountDue: receipt.total,
+      remainingOrderBalance: receipt.amountDueNow,
       shippingFeeCharged: receipt.shippingTotal,
       shippingAmountPaid: purpose === "shipping" ? getPaymentAmountCedis(paymentRow) : itemShippingPaid || itemShippingCharged,
+      previousShippingPaid,
+      totalShippingPaid,
       outstandingShipping,
     },
     combinedItems,
