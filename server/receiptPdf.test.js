@@ -54,6 +54,10 @@ test("order receipt embeds the official logo and formats structured data", () =>
   assert.match(pdf, /Amasaman/);
   assert.match(pdf, /Greater Accra/);
   assert.match(pdf, /GHS 125\.50/);
+  assert.match(pdf, /Original Order Charge/);
+  assert.match(pdf, /Previous Order Payments/);
+  assert.match(pdf, /Total Order Payments/);
+  assert.match(pdf, /Total Shipping Paid/);
   assert.doesNotMatch(pdf, /shipping_address_snapshot/);
   assert.doesNotMatch(pdf, /\[object Object\]/);
 });
@@ -70,13 +74,43 @@ test("shipping receipt keeps shipping totals separate from product payments", ()
   }, items));
 
   assert.match(pdf, /OFFICIAL SHIPPING PAYMENT RECEIPT/);
-  assert.match(pdf, /Total shipping fee charged/);
-  assert.match(pdf, /Previous shipping payments/);
-  assert.match(pdf, /Current shipping payment/);
-  assert.match(pdf, /Total shipping paid to date/);
-  assert.match(pdf, /Remaining shipping balance/);
+  assert.match(pdf, /Total Shipping Fee/);
+  assert.match(pdf, /Previous Shipping Payments/);
+  assert.match(pdf, /Paid in This Transaction/);
+  assert.match(pdf, /Total Shipping Paid/);
+  assert.match(pdf, /Outstanding Shipping Balance/);
   assert.match(pdf, /GHS 5\.00/);
   assert.match(pdf, /GHS 10\.00/);
+});
+
+test("receipt header leaves deliberate space before the amount card", () => {
+  const pdf = asPdfText(buildReceiptPdfBuffer(baseReceipt, items));
+  assert.match(pdf, /42 680 511 48 re f/);
+  assert.match(pdf, /AMOUNT PAID IN THIS TRANSACTION/);
+});
+
+test("order receipt keeps partial product and shipping balances separate", () => {
+  const pdf = asPdfText(buildReceiptPdfBuffer({
+    ...baseReceipt,
+    shippingPaymentMode: "pay_later",
+    orderChargeLabel: "Original Product Charge",
+    subtotal: 2,
+    orderAmountDue: 2,
+    previousOrderPayments: 0,
+    amountPaid: 2,
+    totalOrderPayments: 2,
+    remainingOrderBalance: 0,
+    shippingFeeCharged: 3,
+    shippingAmountPaid: 3,
+    outstandingShipping: 0,
+  }, [{ ...items[0], line_subtotal: 2, unit_price: 2 }]));
+
+  assert.match(pdf, /Original Product Charge/);
+  assert.match(pdf, /Total Order Payments/);
+  assert.match(pdf, /Remaining Order Balance/);
+  assert.match(pdf, /GHS 0\.00/);
+  assert.match(pdf, /Total Shipping Fee/);
+  assert.match(pdf, /Outstanding Shipping Balance/);
 });
 
 test("long receipts paginate and repeat page metadata without raw address JSON", () => {

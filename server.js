@@ -6588,31 +6588,47 @@ function getReceiptPaymentPurpose(payment) {
   return "";
 }
 
-async function getSuccessfulShippingReceiptTotals(orderId, currentPaymentId) {
-  const { data: shippingPayments, error } = await supabaseAdmin
+async function getSuccessfulReceiptPaymentTotals(orderId, paymentPurpose, currentPaymentId) {
+  const { data: payments, error } = await supabaseAdmin
     .from("payments")
     .select("id, amount, amount_minor, status, payment_purpose")
     .eq("order_id", orderId)
-    .eq("payment_purpose", "shipping");
+    .eq("payment_purpose", paymentPurpose);
 
   if (error) {
-    console.error("[receipt] Unable to load successful shipping payment totals.");
-    throw new Error("Unable to calculate the shipping receipt totals.");
+    console.error(`[receipt] Unable to load successful ${paymentPurpose} payment totals.`);
+    throw new Error(`Unable to calculate the ${paymentPurpose} receipt totals.`);
   }
 
-  const successfulShippingPayments = (Array.isArray(shippingPayments) ? shippingPayments : [])
+  const successfulPayments = (Array.isArray(payments) ? payments : [])
     .filter((payment) => normalizePaymentStatus(payment.status) === "successful");
-  const totalShippingPaid = successfulShippingPayments.reduce(
+  const totalPaid = successfulPayments.reduce(
     (sum, payment) => sum + getPaymentAmountCedis(payment),
     0,
   );
-  const currentPayment = successfulShippingPayments.find((payment) => clean(payment.id) === clean(currentPaymentId));
+  const currentPayment = successfulPayments.find((payment) => clean(payment.id) === clean(currentPaymentId));
   const currentAmount = currentPayment ? getPaymentAmountCedis(currentPayment) : 0;
 
   return {
-    totalShippingPaid,
-    previousShippingPaid: Math.max(totalShippingPaid - currentAmount, 0),
+    totalPaid,
+    previousPaid: Math.max(totalPaid - currentAmount, 0),
   };
+}
+
+async function getSuccessfulShippingReceiptTotals(orderId, currentPaymentId) {
+  const totals = await getSuccessfulReceiptPaymentTotals(orderId, "shipping", currentPaymentId);
+  return {
+    totalShippingPaid: totals.totalPaid,
+    previousShippingPaid: totals.previousPaid,
+  };
+}
+
+function getReceiptProductCharge(order, shippingFee) {
+  const total = Math.max(Number(order?.total) || 0, 0);
+  const shipping = Math.max(Number(shippingFee) || 0, 0);
+  const mode = clean(order?.shipping_payment_mode).toLowerCase();
+  if (mode === "pay_later") return Math.max(total - shipping, 0);
+  return Math.max(Number(order?.amount_due_now ?? total) || 0, 0);
 }
 
 function normalizePaystackPaymentPurpose(value) {
@@ -6937,23 +6953,42 @@ async function handleReceiptPdf(req, res, reference) {
   const purpose = getReceiptPaymentPurpose(paymentRow);
   const itemShippingCharged = combinedItems.reduce((sum, item) => sum + (Number(item.line_shipping) || 0), 0);
   const itemShippingPaid = combinedItems.reduce((sum, item) => sum + (Number(item.shipping_paid_amount) || 0), 0);
-  const outstandingShipping = combinedItems.reduce(
-    (sum, item) => sum + Math.max((Number(item.line_shipping) || 0) - (Number(item.shipping_paid_amount) || 0), 0),
-    0,
-  );
+  const shippingFeeCharged = itemShippingCharged || Math.max(Number(receipt.shippingTotal) || 0, 0);
   let previousShippingPaid = 0;
-  let totalShippingPaid = itemShippingPaid;
-  if (purpose === "shipping") {
-    try {
+  let totalShippingPaid = 0;
+  let previousOrderPayments = 0;
+  let totalOrderPayments = 0;
+  try {
+    if (purpose === "shipping") {
       ({ previousShippingPaid, totalShippingPaid } = await getSuccessfulShippingReceiptTotals(
         paymentRow.order_id,
         paymentRow.id,
       ));
-    } catch {
-      sendJson(res, 500, { ok: false, message: "Unable to prepare the shipping receipt right now." });
-      return;
+    } else {
+      const orderTotals = await getSuccessfulReceiptPaymentTotals(paymentRow.order_id, "order", paymentRow.id);
+      previousOrderPayments = orderTotals.previousPaid;
+      totalOrderPayments = orderTotals.totalPaid;
+      const shippingTotals = await getSuccessfulShippingReceiptTotals(paymentRow.order_id, paymentRow.id);
+      previousShippingPaid = shippingTotals.previousShippingPaid;
+      totalShippingPaid = shippingTotals.totalShippingPaid;
     }
+  } catch {
+    sendJson(res, 500, {
+      ok: false,
+      message: purpose === "shipping"
+        ? "Unable to prepare the shipping receipt right now."
+        : "Unable to prepare the payment receipt right now.",
+    });
+    return;
   }
+  const separateShipping = clean(receiptOrder.shipping_payment_mode).toLowerCase() === "pay_later";
+  const orderAmountDue = getReceiptProductCharge(receiptOrder, shippingFeeCharged);
+  const orderChargeLabel = separateShipping ? "Original Product Charge" : "Original Order Charge";
+  const orderRemaining = Math.max(orderAmountDue - totalOrderPayments, 0);
+  const shippingAmountPaid = separateShipping ? totalShippingPaid : Math.min(itemShippingPaid, shippingFeeCharged);
+  const outstandingShipping = separateShipping
+    ? Math.max(shippingFeeCharged - totalShippingPaid, 0)
+    : Math.max(shippingFeeCharged - shippingAmountPaid, 0);
   const pdfBuffer = buildBrandedReceiptPdfBuffer(
     {
       paymentPurpose: purpose,
@@ -6973,10 +7008,13 @@ async function handleReceiptPdf(req, res, reference) {
       customerPhone: profileResult?.profile?.phone_number || "",
       shippingAddress: receipt.shippingAddress,
       subtotal: receipt.subtotal,
-      orderAmountDue: receipt.total,
-      remainingOrderBalance: receipt.amountDueNow,
-      shippingFeeCharged: receipt.shippingTotal,
-      shippingAmountPaid: purpose === "shipping" ? getPaymentAmountCedis(paymentRow) : itemShippingPaid || itemShippingCharged,
+      orderAmountDue,
+      orderChargeLabel,
+      previousOrderPayments,
+      totalOrderPayments,
+      remainingOrderBalance: orderRemaining,
+      shippingFeeCharged,
+      shippingAmountPaid,
       previousShippingPaid,
       totalShippingPaid,
       outstandingShipping,

@@ -41,12 +41,26 @@ function buildHarness(result) {
     "function clean(value) { return String(value ?? '').trim(); }",
     "function getPaymentAmountCedis(payment = {}) { const minor = Number(payment?.amount_minor); if (Number.isSafeInteger(minor) && payment?.amount_minor !== null && payment?.amount_minor !== undefined && clean(payment.amount_minor) !== '') return minor / 100; const amount = Number(payment?.amount); return Number.isFinite(amount) ? amount : 0; }",
     "function normalizePaymentStatus(status) { const value = clean(status).toLowerCase(); return ['success', 'successful', 'charge.success', 'transaction.success', 'paid'].includes(value) ? 'successful' : value; }",
+    extractFunction("getSuccessfulReceiptPaymentTotals"),
     extractFunction("getSuccessfulShippingReceiptTotals"),
     "this.calculate = getSuccessfulShippingReceiptTotals;",
   ].join("\n");
   vm.runInNewContext(script, context);
   return { calculate: context.calculate, messages };
 }
+
+test("pay-later receipt product charge excludes the separately billed shipping fee", () => {
+  const script = [
+    "function clean(value) { return String(value ?? '').trim(); }",
+    extractFunction("getReceiptProductCharge"),
+    "this.calculate = getReceiptProductCharge;",
+  ].join("\n");
+  const context = {};
+  vm.runInNewContext(script, context);
+
+  assert.equal(context.calculate({ total: 5, amount_due_now: 5, shipping_payment_mode: "pay_later" }, 3), 2);
+  assert.equal(context.calculate({ total: 5, amount_due_now: 5, shipping_payment_mode: "pay_now" }, 3), 5);
+});
 
 test("shipping totals include only successful shipping payments and count the current payment once", async () => {
   const harness = buildHarness({

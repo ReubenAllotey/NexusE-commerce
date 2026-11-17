@@ -262,7 +262,7 @@ function addText(page, value, options = {}) {
     page.commands.push(textCommand(line, options.x ?? 42, page.y, size, options.color ?? TEXT, options.font ?? "F1"));
     page.y -= leading;
   }
-  return lines.length * leading;
+  return page;
 }
 
 function addSection(page, title) {
@@ -271,6 +271,7 @@ function addSection(page, title) {
   page.commands.push(rectCommand(42, page.y - 5, 511, 20, LIGHT_BLUE));
   page.commands.push(textCommand(title, 52, page.y + 2, 10, NAVY, "F2"));
   page.y -= 27;
+  return page;
 }
 
 function addField(page, label, value, x, width) {
@@ -278,10 +279,11 @@ function addField(page, label, value, x, width) {
   page.commands.push(textCommand(label.toUpperCase(), x, page.y, 6.5, MUTED, "F2"));
   const lines = wrapText(value || "Not available", Math.max(12, Math.floor(width / 5.2)));
   lines.slice(0, 2).forEach((line, index) => page.commands.push(textCommand(line, x, page.y - 11 - index * 10, 8.5, TEXT)));
+  return page;
 }
 
 function addTable(page, items, title, shippingOnly = false) {
-  addSection(page, title);
+  page = addSection(page, title);
   const columns = shippingOnly
     ? [{ label: "Item", x: 52, width: 250 }, { label: "Qty", x: 330, width: 45 }, { label: "Amount", x: 420, width: 110 }]
     : [{ label: "Product / Variation", x: 52, width: 245 }, { label: "Qty", x: 315, width: 35 }, { label: "Unit Price", x: 365, width: 75 }, { label: "Total", x: 470, width: 70 }];
@@ -294,8 +296,7 @@ function addTable(page, items, title, shippingOnly = false) {
   header();
   const safeItems = Array.isArray(items) ? items : [];
   if (!safeItems.length) {
-    addText(page, "No purchased item details were saved with this receipt.", { size: 8.5, maxChars: 90 });
-    return;
+    return addText(page, "No purchased item details were saved with this receipt.", { size: 8.5, maxChars: 90 });
   }
   safeItems.forEach((item, index) => {
     const name = clean(item.product_name || item.name || "Item");
@@ -315,6 +316,7 @@ function addTable(page, items, title, shippingOnly = false) {
     }
     page.y -= height;
   });
+  return page;
 }
 
 export function buildReceiptPdfBuffer(receipt = {}, items = []) {
@@ -336,37 +338,38 @@ export function buildReceiptPdfBuffer(receipt = {}, items = []) {
   newPage();
   page.commands.push(textCommand(`Receipt No: ${receipt.receiptNumber || receipt.paymentReference || "Not available"}`, 360, 750, 7.5, MUTED));
   page.commands.push(textCommand(`Payment date: ${formatDate(receipt.createdAt)}`, 360, 738, 7.5, MUTED));
+  page.y -= 35;
   page.commands.push(rectCommand(42, page.y - 5, 511, 48, LIGHT_BLUE));
   page.commands.push(textCommand("AMOUNT PAID IN THIS TRANSACTION", 54, page.y + 27, 8, NAVY, "F2"));
   page.commands.push(textCommand(formatMoney(receipt.amountPaid), 54, page.y + 7, 18, NAVY, "F2"));
   page.y -= 65;
 
-  addSection(page, shipping ? "Shipping payment confirmation" : "Payment confirmation");
-  addField(page, "Payment method", receipt.paymentMethod || receipt.paymentNetwork || "Paystack", 52, 150);
-  addField(page, "Payment reference", receipt.paymentReference, 220, 180);
-  addField(page, "Status", "Successful", 430, 100);
+  page = addSection(page, shipping ? "Shipping payment confirmation" : "Payment confirmation");
+  page = addField(page, "Payment method", receipt.paymentMethod || receipt.paymentNetwork || "Paystack", 52, 150);
+  page = addField(page, "Payment reference", receipt.paymentReference, 220, 180);
+  page = addField(page, "Status", "Successful", 430, 100);
   page.y -= 38;
 
-  addSection(page, shipping ? "Related order and delivery" : "Order and customer details");
-  addField(page, "Order number", receipt.orderNumber, 52, 150);
-  addField(page, "Order date", formatDate(receipt.orderDate), 220, 150);
-  addField(page, "Customer", receipt.customerName || "Customer", 390, 150);
+  page = addSection(page, shipping ? "Related order and delivery" : "Order and customer details");
+  page = addField(page, "Order number", receipt.orderNumber, 52, 150);
+  page = addField(page, "Order date", formatDate(receipt.orderDate), 220, 150);
+  page = addField(page, "Customer", receipt.customerName || "Customer", 390, 150);
   page.y -= 38;
-  addField(page, "Email", receipt.customerEmail, 52, 230);
-  addField(page, "Phone", receipt.customerPhone, 310, 200);
+  page = addField(page, "Email", receipt.customerEmail, 52, 230);
+  page = addField(page, "Phone", receipt.customerPhone, 310, 200);
   page.y -= 38;
   const delivery = addressLines(receipt.shippingAddress ?? receipt.deliveryLocation);
-  addField(page, "Delivery information", delivery.join(" | "), 52, 500);
+  page = addField(page, "Delivery information", delivery.join(" | "), 52, 500);
   page.y -= 38;
 
   if (shipping) {
-    addSection(page, "Shipping charges");
+    page = addSection(page, "Shipping charges");
     const rows = [
-      ["Total shipping fee charged", formatMoney(receipt.shippingFeeCharged)],
-      ["Previous shipping payments", formatMoney(receipt.previousShippingPaid)],
-      ["Current shipping payment", formatMoney(receipt.amountPaid)],
-      ["Total shipping paid to date", formatMoney(receipt.totalShippingPaid)],
-      ["Remaining shipping balance", formatMoney(receipt.outstandingShipping)],
+      ["Total Shipping Fee", formatMoney(receipt.shippingFeeCharged)],
+      ["Previous Shipping Payments", formatMoney(receipt.previousShippingPaid)],
+      ["Paid in This Transaction", formatMoney(receipt.amountPaid)],
+      ["Total Shipping Paid", formatMoney(receipt.totalShippingPaid)],
+      ["Outstanding Shipping Balance", formatMoney(receipt.outstandingShipping)],
     ];
     rows.forEach(([label, value], index) => {
       page = page.ensureSpace(24);
@@ -376,19 +379,21 @@ export function buildReceiptPdfBuffer(receipt = {}, items = []) {
       page.y -= 20;
     });
     page.y -= 8;
-    addTable(page, items, "Related purchased items", true);
+    page = addTable(page, items, "Related purchased items", true);
   } else {
-    addTable(page, items, "Purchased products");
+    page = addTable(page, items, "Purchased products");
     page.y -= 8;
-    addSection(page, "Payment summary");
+    page = addSection(page, "Payment summary");
     const rows = [
       ["Product subtotal", formatMoney(receipt.subtotal)],
-      ["Order amount due", formatMoney(receipt.orderAmountDue ?? receipt.subtotal)],
-      ["Amount paid in this transaction", formatMoney(receipt.amountPaid)],
-      ["Remaining order balance", formatMoney(receipt.remainingOrderBalance)],
-      ["Shipping fee charged", formatMoney(receipt.shippingFeeCharged)],
-      ["Shipping amount paid", formatMoney(receipt.shippingAmountPaid)],
-      ["Outstanding shipping balance", formatMoney(receipt.outstandingShipping)],
+      [receipt.orderChargeLabel || "Original Order Charge", formatMoney(receipt.orderAmountDue ?? receipt.subtotal)],
+      ["Previous Order Payments", formatMoney(receipt.previousOrderPayments)],
+      ["Paid in This Transaction", formatMoney(receipt.amountPaid)],
+      ["Total Order Payments", formatMoney(receipt.totalOrderPayments)],
+      ["Remaining Order Balance", formatMoney(receipt.remainingOrderBalance)],
+      ["Total Shipping Fee", formatMoney(receipt.shippingFeeCharged)],
+      ["Total Shipping Paid", formatMoney(receipt.shippingAmountPaid)],
+      ["Outstanding Shipping Balance", formatMoney(receipt.outstandingShipping)],
     ];
     rows.forEach(([label, value], index) => {
       page = page.ensureSpace(24);
@@ -399,9 +404,9 @@ export function buildReceiptPdfBuffer(receipt = {}, items = []) {
     });
   }
   page.y -= 12;
-  addText(page, "This receipt confirms a verified payment. It does not by itself confirm delivery or completion of the order.", { size: 7.5, color: MUTED, maxChars: 100 });
-  addText(page, "Thank you for choosing Nexus Import Hub.", { size: 8.5, color: NAVY, font: "F2" });
-  addText(page, "https://nexuse-commerce.onrender.com/", { size: 7.5, color: BLUE });
+  page = addText(page, "This receipt confirms a verified payment. It does not by itself confirm delivery or completion of the order.", { size: 7.5, color: MUTED, maxChars: 100 });
+  page = addText(page, "Thank you for choosing Nexus Import Hub.", { size: 8.5, color: NAVY, font: "F2" });
+  page = addText(page, "https://nexuse-commerce.onrender.com/", { size: 7.5, color: BLUE });
 
   const totalPages = pages.length;
   pages.forEach((entry, index) => {
