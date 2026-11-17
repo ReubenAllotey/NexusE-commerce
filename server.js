@@ -21,6 +21,10 @@ import {
 } from "./server/services/accountSetupEmail.js";
 import { validateReconciliationState } from "./server/services/paymentReconciliationState.js";
 import { buildAdminPaymentSummary } from "./server/services/adminPaymentSummary.js";
+import {
+  evaluateShippingNoticeEligibility,
+  summarizeShippingNoticeResults,
+} from "./server/services/shippingNoticeEligibility.js";
 import { buildReceiptPdfBuffer as buildBrandedReceiptPdfBuffer } from "./server/receiptPdf.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -2494,6 +2498,607 @@ async function inspectShippingPaymentProviderState(paymentRow) {
     : { state: "invalid", message: validation.message };
 }
 
+function buildShippingNoticeValues(order, accounting) {
+  const recipientEmail = clean(order.customer_email || order.guest_email).toLowerCase();
+  const shippingPaymentUrl = buildShippingPaymentReminderUrl(order.id);
+  return {
+    user_id: order.user_id || null,
+    recipient_email: order.user_id ? null : recipientEmail,
+    recipient_name: order.customer_name || "Customer",
+    category: "shipping",
+    title: "Shipping Fee Payment Required",
+    message: `Shipping payment of ${formatGhanaCedis(accounting.outstandingShipping)} is required for order ${order.order_number || order.id}.`,
+    order_id: order.id,
+    payment_id: null,
+    source_type: "payment_status",
+    source_key: `shipping-payment-request:${order.id}`,
+    action_url: shippingPaymentUrl,
+    action_label: "Pay Shipping Fee",
+    action_description: "Complete the remaining shipping payment for this order.",
+    is_read: false,
+    read_at: null,
+  };
+}
+
+async function loadShippingNoticeRecipient(order) {
+  if (!order?.user_id) {
+    const email = clean(order?.customer_email || order?.guest_email).toLowerCase();
+    return {
+      valid: isValidQueuedEmailAddress(email),
+      email,
+      reason: isValidQueuedEmailAddress(email) ? "valid" : "missing_recipient",
+    };
+  }
+
+  const { data: profile, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id, email, role, status")
+    .eq("id", order.user_id)
+    .maybeSingle();
+  if (error) {
+    return { valid: false, reason: "recipient_lookup_failed", error };
+  }
+
+  const email = clean(profile?.email).toLowerCase();
+  const valid = profile?.id === order.user_id
+    && profile.role === "customer"
+    && profile.status === "active"
+    && isValidQueuedEmailAddress(email);
+  return { valid, email, reason: valid ? "valid" : "missing_recipient" };
+}
+
+function getShippingNoticeDeliveryState(notification, delivery) {
+  if (!notification) return { status: "pending", reason: "new_notice" };
+  if (!delivery) return { status: "missing_delivery", reason: "missing_delivery", notificationId: notification.id };
+  if (delivery.status === "pending") return { status: "already_pending", reason: "already_pending", notificationId: notification.id };
+  if (delivery.status === "processing") return { status: "already_processing", reason: "already_processing", notificationId: notification.id };
+  if (delivery.status === "sent") return { status: "already_sent", reason: "already_sent", notificationId: notification.id };
+  if (delivery.status === "failed") {
+    const terminal = Number(delivery.attempts) >= Number(delivery.max_attempts);
+    return {
+      status: terminal ? "permanent_failed" : "retryable_failed",
+      reason: terminal ? "permanent_failed" : "retryable_failed",
+      notificationId: notification.id,
+    };
+  }
+  return { status: "failed", reason: "unknown_delivery_state", notificationId: notification.id };
+}
+
+async function loadExistingShippingNoticeStates(orders) {
+  const sourceKeys = orders.map((order) => `shipping-payment-request:${order.id}`).filter(Boolean);
+  if (!sourceKeys.length) return new Map();
+
+  const { data: notifications, error: notificationError } = await supabaseAdmin
+    .from("notifications")
+    .select("id, order_id, source_key")
+    .eq("source_type", "payment_status")
+    .in("source_key", sourceKeys);
+  if (notificationError) throw notificationError;
+
+  const notificationRows = Array.isArray(notifications) ? notifications : [];
+  const notificationIds = notificationRows.map((notification) => notification.id).filter(Boolean);
+  const deliveries = notificationIds.length
+    ? await supabaseAdmin
+        .from("notification_email_deliveries")
+        .select("id, notification_id, status, attempts, max_attempts, next_attempt_at, last_error")
+        .in("notification_id", notificationIds)
+    : { data: [], error: null };
+  if (deliveries.error) throw deliveries.error;
+
+  const deliveriesByNotificationId = new Map(
+    (deliveries.data || []).map((delivery) => [delivery.notification_id, delivery]),
+  );
+  return new Map(notificationRows.map((notification) => [
+    notification.order_id,
+    getShippingNoticeDeliveryState(notification, deliveriesByNotificationId.get(notification.id)),
+  ]));
+}
+
+async function queueShippingPaymentNotice(order, accounting) {
+  const recipient = await loadShippingNoticeRecipient(order);
+  if (recipient.error) {
+    console.error("Shipping notice recipient lookup failed:", recipient.error.code || "unknown");
+    return {
+      ok: false,
+      status: "failed",
+      reason: "recipient_lookup_failed",
+      code: "recipient_lookup_failed",
+      message: "The shipping notice recipient could not be verified. No email was sent.",
+      accounting,
+    };
+  }
+  const eligibility = evaluateShippingNoticeEligibility(order, accounting, {
+    recipientValid: recipient.valid,
+  });
+  if (!eligibility.eligible) {
+    return { ok: true, queued: false, status: "skipped", ...eligibility, accounting };
+  }
+
+  const notificationValues = buildShippingNoticeValues(order, accounting);
+  const { data: inserted, error: notificationError } = await supabaseAdmin
+    .from("notifications")
+    .insert(notificationValues)
+    .select("*")
+    .maybeSingle();
+
+  if (notificationError && notificationError.code !== "23505") {
+    console.error("Shipping payment notification insertion failed:", notificationError.code || "unknown");
+    return {
+      ok: false,
+      status: "failed",
+      reason: "notification_queue_failed",
+      code: "notification_queue_failed",
+      message: "The shipping notice could not be queued. No email was sent.",
+      accounting,
+    };
+  }
+
+  const existingQuery = supabaseAdmin
+    .from("notifications")
+    .select("*")
+    .eq("source_type", "payment_status")
+    .eq("source_key", notificationValues.source_key)
+    .eq("order_id", order.id);
+  const existingResult = inserted
+    ? { data: inserted, error: null }
+    : await existingQuery.maybeSingle();
+
+  if (existingResult.error || !existingResult.data) {
+    console.error("Shipping payment notification lookup failed:", existingResult.error?.code || "missing_notification");
+    return {
+      ok: false,
+      status: "failed",
+      reason: "notification_lookup_failed",
+      code: "notification_queue_failed",
+      message: "The shipping notice could not be confirmed. No email was sent.",
+      accounting,
+    };
+  }
+
+  if (!inserted) {
+    const existingDelivery = await loadPaymentNoticeDelivery(existingResult.data.id);
+    if (existingDelivery.error) {
+      console.error("Shipping payment notification delivery lookup failed:", existingDelivery.error.code || "unknown");
+      return {
+        ok: false,
+        status: "failed",
+        reason: "delivery_lookup_failed",
+        code: "email_queue_unavailable",
+        message: "The existing shipping notice delivery could not be verified. No email was sent.",
+        accounting,
+      };
+    }
+    const existingState = getShippingNoticeDeliveryState(existingResult.data, existingDelivery.data);
+    return {
+      ok: true,
+      queued: false,
+      status: existingState.status,
+      reason: existingState.reason,
+      notification: existingResult.data,
+      accounting,
+      message: existingState.status === "missing_delivery"
+        ? "The existing shipping notice has no email delivery record. No duplicate notice was created."
+        : `The shipping notice is ${existingState.status.replaceAll("_", " ")}.`,
+    };
+  }
+
+  if (inserted) {
+    const deliveryResult = await loadPaymentNoticeDelivery(inserted.id);
+    if (deliveryResult.error || !deliveryResult.data) {
+      console.error("Shipping payment notification delivery was not created:", deliveryResult.error?.code || "missing_delivery");
+      return {
+        ok: false,
+        status: "failed",
+        reason: "email_queue_unavailable",
+        code: "email_queue_unavailable",
+        message: "The shipping notice was not queued for email delivery. No email was sent.",
+        accounting,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    queued: Boolean(inserted),
+    status: inserted ? "queued" : "already_queued",
+    reason: inserted ? "queued" : "already_queued",
+    notification: existingResult.data,
+    accounting,
+    message: inserted ? "Shipping notice saved and email queued for delivery." : "This notification was already created.",
+  };
+}
+
+async function loadBulkShippingNoticeCandidates() {
+  const pageSize = 100;
+  const candidates = [];
+  let cursor = null;
+  for (;;) {
+    let orderQuery = supabaseAdmin
+      .from("orders")
+      .select("id, order_number, user_id, customer_name, customer_email, guest_email, status, shipping_payment_mode, shipping_payment_status, created_at")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(pageSize);
+    orderQuery = cursor
+      ? orderQuery.or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.orderId})`)
+      : orderQuery.lte("created_at", new Date().toISOString());
+    const { data: orders, error: orderError } = await orderQuery;
+    if (orderError) throw orderError;
+    const page = Array.isArray(orders) ? orders : [];
+    if (!page.length) break;
+    candidates.push(...await buildBulkShippingNoticeCandidates(page));
+    if (page.length < pageSize) break;
+    const last = page.at(-1);
+    if (!last?.created_at || !last?.id) break;
+    cursor = { createdAt: last.created_at, orderId: last.id };
+  }
+  return candidates;
+}
+
+async function buildBulkShippingNoticeCandidates(orders) {
+  const orderIds = orders.map((order) => order.id).filter(Boolean);
+  const { data: items, error: itemError } = await supabaseAdmin
+    .from("order_items")
+    .select("order_id, line_shipping, shipping_paid_amount, shipping_fee_status")
+    .in("order_id", orderIds);
+  if (itemError) throw itemError;
+
+  const itemsByOrderId = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const rows = itemsByOrderId.get(item.order_id) || [];
+    rows.push(item);
+    itemsByOrderId.set(item.order_id, rows);
+  }
+
+  const registeredIds = orders.map((order) => order.user_id).filter(Boolean);
+  const profiles = registeredIds.length
+    ? await supabaseAdmin
+        .from("profiles")
+        .select("id, email, role, status")
+        .in("id", registeredIds)
+    : { data: [], error: null };
+  if (profiles.error) throw profiles.error;
+  const profileById = new Map((profiles.data || []).map((profile) => [profile.id, profile]));
+  const existingStates = await loadExistingShippingNoticeStates(orders);
+
+  return orders.map((order) => {
+    const accounting = getServerShippingAccounting(itemsByOrderId.get(order.id) || []);
+    const profile = order.user_id ? profileById.get(order.user_id) : null;
+    const recipientEmail = order.user_id
+      ? clean(profile?.email).toLowerCase()
+      : clean(order.customer_email || order.guest_email).toLowerCase();
+    const recipientValid = order.user_id
+      ? profile?.id === order.user_id
+        && profile.role === "customer"
+        && profile.status === "active"
+        && isValidQueuedEmailAddress(recipientEmail)
+      : isValidQueuedEmailAddress(recipientEmail);
+    const eligibility = evaluateShippingNoticeEligibility(order, accounting, { recipientValid });
+    const existingState = existingStates.get(order.id);
+    return {
+      order,
+      accounting,
+      ...eligibility,
+      ...(eligibility.eligible && existingState && existingState.reason !== "new_notice"
+        ? { eligible: false, reason: existingState.reason, message: `Existing shipping notice is ${existingState.status.replaceAll("_", " ")}.` }
+        : {}),
+      existingState,
+      customerKey: clean(order.user_id) || recipientEmail,
+    };
+  });
+}
+
+async function loadBulkJob(jobId, idempotencyKey = "") {
+  let query = supabaseAdmin.from("bulk_shipping_notice_jobs").select("*");
+  query = jobId ? query.eq("id", jobId) : query.eq("idempotency_key", idempotencyKey);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function loadBulkJobStatus(job) {
+  const { data: items, error } = await supabaseAdmin
+    .from("bulk_shipping_notice_job_items")
+    .select("status, outstanding_shipping, last_error")
+    .eq("job_id", job.id);
+  if (error) throw error;
+  const rows = Array.isArray(items) ? items : [];
+  const count = (status) => rows.filter((row) => row.status === status).length;
+  const pending = count("pending");
+  const processing = count("processing");
+  const hasMore = !job.scan_complete || pending > 0 || processing > 0;
+  return {
+    id: job.id,
+    idempotencyKey: job.idempotency_key,
+    status: hasMore ? job.status : "complete",
+    scanComplete: Boolean(job.scan_complete),
+    discoveredOrders: rows.length,
+    eligibleOrders: count("pending") + count("processing") + count("queued"),
+    pending,
+    processing,
+    totalOutstandingShipping: rows.reduce(
+      (sum, row) => sum + Math.max(Math.round((Number(row.outstanding_shipping) || 0) * 100), 0),
+      0,
+    ) / 100,
+    queued: count("queued"),
+    alreadyPending: count("already_pending"),
+    alreadyProcessing: count("already_processing"),
+    alreadySent: count("already_sent"),
+    retryableFailed: count("retryable_failed"),
+    permanentlyFailed: count("permanent_failed"),
+    missingDelivery: count("missing_delivery"),
+    skipped: count("skipped"),
+    failed: count("failed"),
+    hasMore,
+  };
+}
+
+async function createBulkShippingNoticeJob(idempotencyKey, adminId) {
+  const { data, error } = await supabaseAdmin
+    .from("bulk_shipping_notice_jobs")
+    .insert({ idempotency_key: idempotencyKey, created_by: adminId })
+    .select("*")
+    .maybeSingle();
+  if (!error) return { job: data, created: true };
+  if (error.code !== "23505") throw error;
+  const existing = await loadBulkJob(null, idempotencyKey);
+  if (!existing) throw new Error("The bulk job already exists but could not be loaded.");
+  return { job: existing, created: false };
+}
+
+async function loadActiveBulkShippingNoticeJobs(adminId) {
+  const { data, error } = await supabaseAdmin
+    .from("bulk_shipping_notice_jobs")
+    .select("*")
+    .eq("created_by", adminId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+
+  const jobs = [];
+  for (const job of Array.isArray(data) ? data : []) {
+    const status = await loadBulkJobStatus(job);
+    if (status.hasMore && !["complete", "failed"].includes(status.status)) {
+      jobs.push(status);
+    }
+  }
+  return jobs;
+}
+
+async function scanBulkShippingNoticeJob(job) {
+  const pageSize = 100;
+  let query = supabaseAdmin
+    .from("orders")
+    .select("id, order_number, user_id, customer_name, customer_email, guest_email, status, shipping_payment_mode, shipping_payment_status, created_at")
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(pageSize);
+  if (job.cursor_created_at && job.cursor_order_id) {
+    query = query.or(`created_at.lt.${job.cursor_created_at},and(created_at.eq.${job.cursor_created_at},id.lt.${job.cursor_order_id})`);
+  } else {
+    query = query.lte("created_at", job.created_at);
+  }
+  const { data: orders, error } = await query;
+  if (error) throw error;
+  const page = Array.isArray(orders) ? orders : [];
+  if (!page.length) {
+    return { rows: [], cursor: null, complete: true };
+  }
+  const rows = await buildBulkShippingNoticeCandidates(page);
+  const last = page.at(-1);
+  return {
+    rows,
+    cursor: last ? { createdAt: last.created_at, orderId: last.id } : null,
+    complete: page.length < pageSize,
+  };
+}
+
+async function persistBulkJobItems(job, rows) {
+  if (!rows.length) return;
+  const values = rows.map((row) => ({
+    job_id: job.id,
+    order_id: row.order.id,
+    status: row.eligible ? "pending" : row.reason === "already_pending" || row.reason === "already_processing"
+      ? row.reason
+      : row.reason === "already_sent" || row.reason === "retryable_failed" || row.reason === "permanent_failed" || row.reason === "missing_delivery"
+        ? row.reason
+        : "skipped",
+    reason: row.reason,
+    outstanding_shipping: Math.max(Number(row.accounting?.outstandingShipping) || 0, 0),
+    notification_id: row.existingState?.notificationId || null,
+    last_error: row.eligible ? null : row.message || null,
+  }));
+  const { error } = await supabaseAdmin
+    .from("bulk_shipping_notice_job_items")
+    .upsert(values, { onConflict: "job_id,order_id", ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+async function updateBulkJobCursor(job, scan) {
+  const values = {
+    cursor_created_at: scan.cursor?.createdAt || null,
+    cursor_order_id: scan.cursor?.orderId || null,
+    scan_complete: scan.complete,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabaseAdmin
+    .from("bulk_shipping_notice_jobs")
+    .update(values)
+    .eq("id", job.id)
+    .eq("lock_token", job.lock_token);
+  if (error) throw error;
+}
+
+async function updateBulkJobItem(item, result) {
+  const finalStatus = result.status === "queued"
+    ? "queued"
+    : ["already_pending", "already_processing", "already_sent", "retryable_failed", "permanent_failed", "missing_delivery"].includes(result.status)
+      ? result.status
+      : result.status === "skipped" ? "skipped" : "failed";
+  const { error } = await supabaseAdmin
+    .from("bulk_shipping_notice_job_items")
+    .update({
+      status: finalStatus,
+      reason: result.reason || finalStatus,
+      notification_id: result.notification?.id || item.notification_id || null,
+      last_error: result.ok ? null : result.message || "Unable to queue this shipping notice.",
+      locked_at: null,
+      lock_token: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", item.id)
+    .eq("status", "processing")
+    .eq("lock_token", item.lock_token);
+  if (error) throw error;
+}
+
+async function processBulkShippingNoticeJob(jobId) {
+  const { data: claimedJobs, error: claimError } = await supabaseAdmin.rpc("claim_bulk_shipping_notice_job", {
+    p_job_id: jobId,
+    p_lease_seconds: 300,
+  });
+  if (claimError) throw claimError;
+  const job = Array.isArray(claimedJobs) ? claimedJobs[0] : null;
+  if (!job) {
+    const existing = await loadBulkJob(jobId);
+    return existing ? await loadBulkJobStatus(existing) : null;
+  }
+
+  try {
+    if (!job.scan_complete) {
+      const scan = await scanBulkShippingNoticeJob(job);
+      await persistBulkJobItems(job, scan.rows);
+      await updateBulkJobCursor(job, scan);
+    }
+
+    const { data: items, error: itemClaimError } = await supabaseAdmin.rpc("claim_bulk_shipping_notice_items", {
+      p_job_id: job.id,
+      p_limit: 25,
+      p_lease_seconds: 300,
+    });
+    if (itemClaimError) throw itemClaimError;
+    for (const item of items || []) {
+      let result;
+      try {
+        const refreshed = await loadShippingPaymentDetails(item.order_id);
+        result = refreshed.ok
+          ? await queueShippingPaymentNotice(refreshed.order, refreshed.accounting)
+          : { ok: true, status: "skipped", reason: "order_not_found", message: refreshed.message };
+      } catch (error) {
+        console.error("Bulk shipping notice item failed:", error?.code || "unknown");
+        result = { ok: false, status: "failed", reason: "item_failed", message: "Unable to queue this shipping notice." };
+      }
+      await updateBulkJobItem(item, result);
+    }
+  } finally {
+    await supabaseAdmin
+      .from("bulk_shipping_notice_jobs")
+      .update({ locked_at: null, lock_token: null, status: "partial", updated_at: new Date().toISOString() })
+      .eq("id", job.id)
+      .eq("lock_token", job.lock_token);
+  }
+
+  const current = await loadBulkJob(jobId);
+  if (current) {
+    const currentStatus = await loadBulkJobStatus(current);
+    if (!currentStatus.hasMore) {
+      await supabaseAdmin
+        .from("bulk_shipping_notice_jobs")
+        .update({ status: "complete", updated_at: new Date().toISOString() })
+        .eq("id", jobId);
+      return { ...currentStatus, status: "complete", hasMore: false };
+    }
+  }
+  return current ? await loadBulkJobStatus(current) : null;
+}
+
+async function handleAdminBulkShippingPaymentNotices(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    sendJson(res, 403, { ok: false, message: "Only active administrators can send shipping payment notices." });
+    return;
+  }
+
+  const body = await readJsonBody(req);
+  const action = clean(body?.action).toLowerCase();
+  if (!['preview', 'queue', 'process', 'status', 'list'].includes(action)) {
+    sendJson(res, 400, { ok: false, message: "Choose preview, queue, process, status, or list for the bulk shipping notices." });
+    return;
+  }
+
+  if (action === "list") {
+    try {
+      sendJson(res, 200, {
+        ok: true,
+        jobs: await loadActiveBulkShippingNoticeJobs(authResult.user.id),
+      });
+    } catch (error) {
+      console.error("Bulk shipping notice job list failed:", error?.code || "unknown");
+      sendJson(res, 503, { ok: false, message: "Unable to load unfinished bulk shipping notice jobs." });
+    }
+    return;
+  }
+
+  if (action === "preview") {
+    let candidates;
+    try {
+      candidates = await loadBulkShippingNoticeCandidates();
+    } catch (error) {
+      console.error("Bulk shipping notice candidate load failed:", error?.code || "unknown");
+      sendJson(res, 503, { ok: false, message: "Unable to calculate the current shipping notice preview." });
+      return;
+    }
+    const summary = summarizeShippingNoticeResults(candidates);
+    sendJson(res, 200, {
+      ok: true,
+      scope: "all_eligible_orders",
+      idempotencyKey: crypto.randomUUID(),
+      summary,
+      orders: candidates.filter((candidate) => candidate.eligible).map((candidate) => ({
+        id: candidate.order.id,
+        orderNumber: candidate.order.order_number || candidate.order.id,
+        customerName: candidate.order.customer_name || "Customer",
+        outstandingShipping: candidate.accounting.outstandingShipping,
+      })),
+    });
+    return;
+  }
+
+  const bodyJobId = clean(body?.jobId);
+  const idempotencyKey = clean(body?.idempotencyKey);
+  if (action === "queue" && (!idempotencyKey || idempotencyKey.length > 128)) {
+    sendJson(res, 400, { ok: false, message: "A valid bulk operation idempotency key is required." });
+    return;
+  }
+  if (action !== "queue" && !bodyJobId && !idempotencyKey) {
+    sendJson(res, 400, { ok: false, message: "A bulk job ID or idempotency key is required." });
+    return;
+  }
+
+  try {
+    let job;
+    if (action === "queue") {
+      job = (await createBulkShippingNoticeJob(idempotencyKey, authResult.user.id)).job;
+    } else {
+      job = await loadBulkJob(bodyJobId, idempotencyKey);
+    }
+    if (!job) {
+      sendJson(res, 404, { ok: false, message: "Bulk shipping notice job not found." });
+      return;
+    }
+    const status = action === "status" ? await loadBulkJobStatus(job) : await processBulkShippingNoticeJob(job.id);
+    sendJson(res, 200, { ok: true, job: status });
+  } catch (error) {
+    console.error("Bulk shipping notice job failed:", error?.code || "unknown");
+    sendJson(res, 503, { ok: false, message: "The bulk shipping notice job could not be completed; no direct email was sent." });
+  }
+}
+
 async function handleAdminShippingPaymentNotice(req, res) {
   const authResult = await getAuthenticatedUser(req);
   if (!authResult.ok || !authResult.user) {
@@ -2527,17 +3132,6 @@ async function handleAdminShippingPaymentNotice(req, res) {
     sendJson(res, 404, { ok: false, message: "Order not found." });
     return;
   }
-  const recipientEmail = clean(order.customer_email || order.guest_email).toLowerCase();
-  if (!order.user_id && !isValidQueuedEmailAddress(recipientEmail)) {
-    sendJson(res, 409, { ok: false, message: "This guest order does not have an eligible customer email address." });
-    return;
-  }
-
-  if (isCancelledOrder(order)) {
-    sendJson(res, 409, { ok: false, message: "Cancelled orders cannot receive shipping payment notices." });
-    return;
-  }
-
   const { data: items, error: itemError } = await supabaseAdmin
     .from("order_items")
     .select("line_shipping, shipping_paid_amount, shipping_fee_status")
@@ -2548,97 +3142,39 @@ async function handleAdminShippingPaymentNotice(req, res) {
   }
 
   const accounting = getServerShippingAccounting(items);
-  if (accounting.status !== "unpaid" && accounting.status !== "partial") {
-    sendJson(res, 409, {
-      ok: false,
-      message: accounting.status === "pending"
-        ? "Shipping is still being calculated for this order."
-        : accounting.status === "paid" ? "This shipping balance is already paid." : "This order has no shipping balance.",
-      accounting,
-    });
+  const recipient = await loadShippingNoticeRecipient(order);
+  if (recipient.error) {
+    console.error("Shipping notice recipient lookup failed:", recipient.error.code || "unknown");
+    sendJson(res, 503, { ok: false, message: "Unable to verify the shipping notice recipient.", accounting });
     return;
   }
-
-  if (order.shipping_payment_mode && !["pay_now", "pay_later"].includes(clean(order.shipping_payment_mode).toLowerCase())) {
-    sendJson(res, 409, { ok: false, message: "This order has an unsupported shipping payment mode." });
+  const directEligibility = evaluateShippingNoticeEligibility(order, accounting, {
+    recipientValid: recipient.valid,
+  });
+  if (!directEligibility.eligible) {
+    sendJson(res, 409, { ok: false, message: directEligibility.message, accounting });
     return;
   }
-
-  const sourceKey = `shipping-payment-request:${order.id}`;
-  const shippingPaymentUrl = buildShippingPaymentReminderUrl(order.id);
-  const notificationValues = {
-    user_id: order.user_id || null,
-    recipient_email: order.user_id ? null : recipientEmail,
-    recipient_name: order.customer_name || "Customer",
-    category: "shipping",
-    title: "Shipping Fee Payment Required",
-    message: `Shipping payment of ${formatGhanaCedis(accounting.outstandingShipping)} is required for order ${order.order_number || order.id}.`,
-    order_id: order.id,
-    payment_id: null,
-    source_type: "payment_status",
-    source_key: sourceKey,
-    action_url: shippingPaymentUrl,
-    action_label: "Pay Shipping Fee",
-    action_description: "Complete the remaining shipping payment for this order.",
-    is_read: false,
-    read_at: null,
-  };
-
-  const { data: inserted, error: notificationError } = await supabaseAdmin
-    .from("notifications")
-    .insert(notificationValues)
-    .select("*")
-    .maybeSingle();
-
-  if (notificationError && notificationError.code !== "23505") {
-    console.error("Shipping payment notification insertion failed:", notificationError.code || "unknown");
-    sendJson(res, 503, {
-      ok: false,
-      code: "notification_queue_failed",
-      message: "The shipping notice could not be queued. No email was sent.",
-    });
+  const result = await queueShippingPaymentNotice(order, accounting);
+  if (!result.ok) {
+    const unavailableReasons = new Set([
+      "notification_queue_failed",
+      "email_queue_unavailable",
+      "notification_lookup_failed",
+      "delivery_lookup_failed",
+      "recipient_lookup_failed",
+    ]);
+    sendJson(res, unavailableReasons.has(result.reason) ? 503 : 409, result);
     return;
   }
-
-  const existingQuery = supabaseAdmin
-    .from("notifications")
-    .select("*")
-    .eq("source_type", "payment_status")
-    .eq("source_key", sourceKey);
-  const existing = inserted ?? (await (order.user_id
-    ? existingQuery.eq("user_id", order.user_id)
-    : existingQuery.eq("recipient_email", recipientEmail)).maybeSingle()).data;
-
-  if (inserted) {
-    const deliveryResult = await loadPaymentNoticeDelivery(inserted.id);
-    if (deliveryResult.error || !deliveryResult.data) {
-      console.error(
-        "Shipping payment notification delivery was not created:",
-        deliveryResult.error?.code || "missing_delivery",
-      );
-      sendJson(res, 503, {
-        ok: false,
-        code: "email_queue_unavailable",
-        message: "The shipping notice was not queued for email delivery. No email was sent.",
-        notification: existing ?? null,
-        accounting,
-      });
-      return;
-    }
-  }
-
-  const email = inserted
-    ? { ok: true, queued: true, message: "Email queued for delivery." }
-    : { ok: true, skipped: true, message: "This notification was already created." };
-
-  sendJson(res, 200, {
+  sendJson(res, result.status === "skipped" ? 409 : 200, {
     ok: true,
-    notification: existing ?? null,
+    notification: result.notification ?? null,
     accounting,
-    email,
-    message: email.ok && !email.skipped
-      ? email.queued ? "Shipping notice saved and email queued for delivery." : "Shipping notice sent via profile notifications and email."
-      : "Shipping notice already exists in the customer profile.",
+    email: result.queued
+      ? { ok: true, queued: true, message: "Email queued for delivery." }
+      : { ok: true, skipped: true, status: result.status, reason: result.reason, message: result.message },
+    message: result.message,
   });
 }
 
@@ -7834,7 +8370,8 @@ async function handleStatic(req, res, pathname) {
   sendText(res, 404, "Not Found");
 }
 
-const server = http.createServer(async (req, res) => {
+export function createHttpServer() {
+  return http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const { pathname } = requestUrl;
 
@@ -7891,6 +8428,11 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/admin/shipping-payment-notice" && req.method === "POST") {
     await handleAdminShippingPaymentNotice(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/shipping-payment-notices/bulk" && req.method === "POST") {
+    await handleAdminBulkShippingPaymentNotices(req, res);
     return;
   }
 
@@ -8011,9 +8553,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   sendText(res, 405, "Method Not Allowed");
-});
+  });
+}
 
-server.listen(PORT, "0.0.0.0", () => {
+const server = createHttpServer();
+
+if (process.env.NEXUS_DISABLE_LISTEN !== "1") {
+  server.listen(PORT, "0.0.0.0", () => {
   console.log(`Paystack server running on port ${PORT}`);
   startPushDeliveryWorker();
-});
+  });
+}
+
+export { server };

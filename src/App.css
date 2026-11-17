@@ -29699,6 +29699,24 @@ body[data-theme="dark"] .orders-card__type.is-preorder {
   padding: 0;
 }
 
+.admin-orders-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.admin-orders-header__button--accent {
+  border-color: #17377a;
+  background: #17377a;
+  color: #ffffff;
+}
+
+.admin-orders-header__button--accent:hover:not(:disabled),
+.admin-orders-header__button--accent:focus-visible {
+  background: #10295c;
+}
+
 .admin-orders-header h1 {
   color: #0f172a;
   font-size: clamp(1.8rem, 3vw, 2.5rem);
@@ -29872,6 +29890,15 @@ body[data-theme="dark"] .admin-orders-search input {
   .admin-orders-toolbar {
     grid-template-columns: 1fr;
     padding: 1rem;
+  }
+
+  .admin-orders-header__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .admin-orders-header__actions .admin-orders-header__button {
+    flex: 1 1 12rem;
   }
 
   .admin-orders-filter-menu__trigger {
@@ -38014,6 +38041,125 @@ body[data-theme="dark"] .shop-page .shop-summary {
 
 .admin-orders-shipping-modal__actions {
   padding-top: 0.1rem;
+}
+
+.admin-orders-bulk-shipping-modal__panel {
+  width: min(46rem, calc(100vw - 2rem));
+  max-height: min(90dvh, 48rem);
+}
+
+.admin-orders-bulk-shipping-modal__body {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-orders-bulk-shipping-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.admin-orders-bulk-shipping-summary div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  background: #f8fafc;
+}
+
+.admin-orders-bulk-shipping-summary span,
+.admin-orders-bulk-shipping-list small,
+.admin-orders-bulk-shipping-result span {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.admin-orders-bulk-shipping-summary strong {
+  color: #172033;
+  font-size: 1rem;
+}
+
+.admin-orders-bulk-shipping-list {
+  display: grid;
+  max-height: 15rem;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+}
+
+.admin-orders-bulk-shipping-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.admin-orders-bulk-shipping-list__row:last-child {
+  border-bottom: 0;
+}
+
+.admin-orders-bulk-shipping-list__row span {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.admin-orders-bulk-shipping-list__row strong {
+  overflow-wrap: anywhere;
+}
+
+.admin-orders-bulk-shipping-list__row > strong {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.admin-orders-bulk-shipping-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  padding: 0.8rem;
+  border: 1px solid #bbf7d0;
+  border-radius: 0.8rem;
+  background: #f0fdf4;
+}
+
+.admin-orders-bulk-shipping-result strong {
+  flex-basis: 100%;
+  color: #166534;
+}
+
+body[data-theme="dark"] .admin-orders-bulk-shipping-summary div,
+body[data-theme="dark"] .admin-orders-bulk-shipping-list {
+  border-color: #2b3648;
+  background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-bulk-shipping-summary span,
+body[data-theme="dark"] .admin-orders-bulk-shipping-list small,
+body[data-theme="dark"] .admin-orders-bulk-shipping-result span {
+  color: #a9b8ce;
+}
+
+body[data-theme="dark"] .admin-orders-bulk-shipping-summary strong {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .admin-orders-bulk-shipping-list__row {
+  border-color: #2b3648;
+}
+
+@media (max-width: 560px) {
+  .admin-orders-bulk-shipping-modal__panel {
+    width: calc(100vw - 1.5rem);
+  }
+
+  .admin-orders-bulk-shipping-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 body[data-theme="dark"] .admin-orders-shipping-modal__header {

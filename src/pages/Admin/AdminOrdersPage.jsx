@@ -276,6 +276,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
   const [shippingNoticeSaving, setShippingNoticeSaving] = useState(false);
   const [shippingNoticeError, setShippingNoticeError] = useState("");
   const [shippingNoticeSuccess, setShippingNoticeSuccess] = useState("");
+  const [bulkShippingPreview, setBulkShippingPreview] = useState(null);
+  const [bulkShippingResult, setBulkShippingResult] = useState(null);
+  const [bulkShippingLoading, setBulkShippingLoading] = useState(false);
+  const [bulkShippingSaving, setBulkShippingSaving] = useState(false);
+  const [bulkShippingError, setBulkShippingError] = useState("");
   const [ordersRefreshing, setOrdersRefreshing] = useState(false);
   const [ordersRefreshError, setOrdersRefreshError] = useState("");
   const [paymentNoticeOrderId, setPaymentNoticeOrderId] = useState(null);
@@ -333,7 +338,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
     activeShippingOrder
       && (shippingAccounting.outstandingShipping <= 0 || shippingOrderCancelled),
   );
-  const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder);
+  const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder || bulkShippingPreview);
   const {
     shipmentsByOrderId,
     loading: shipmentsLoading,
@@ -405,6 +410,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
         if (activeStatusOrder) setStatusModalOrderId(null);
         if (activeShippingOrder) setShippingPaymentOrderId(null);
         if (activePaymentNoticeOrder) setPaymentNoticeOrderId(null);
+        if (bulkShippingPreview) closeBulkShippingModal();
       }
     };
 
@@ -414,7 +420,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeViewOrder, activeStatusOrder, activeShippingOrder, activePaymentNoticeOrder, hasOpenModal]);
+  }, [activeViewOrder, activeStatusOrder, activeShippingOrder, activePaymentNoticeOrder, bulkShippingPreview, hasOpenModal]);
 
   const summary = useMemo(() => {
     const totalOrders = orders.length;
@@ -488,6 +494,118 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
     setShippingNoticeSaving(false);
     setShippingNoticeError("");
     setShippingNoticeSuccess("");
+  };
+
+  const closeBulkShippingModal = () => {
+    setBulkShippingPreview(null);
+    setBulkShippingResult(null);
+    setBulkShippingLoading(false);
+    setBulkShippingSaving(false);
+    setBulkShippingError("");
+  };
+
+  const openBulkShippingModal = async () => {
+    if (bulkShippingLoading || bulkShippingSaving) return;
+    setBulkShippingLoading(true);
+    setBulkShippingError("");
+    setBulkShippingResult(null);
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error(sessionError?.message || "Please sign in again to preview shipping notices.");
+      }
+      const response = await fetch("/api/admin/shipping-payment-notices/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ action: "preview" }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Unable to calculate the shipping notice preview.");
+      }
+      setBulkShippingPreview(result);
+
+      const activeJobsResponse = await fetch("/api/admin/shipping-payment-notices/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ action: "list" }),
+      });
+      const activeJobs = await activeJobsResponse.json().catch(() => ({}));
+      if (activeJobsResponse.ok && activeJobs?.jobs?.[0]) {
+        setBulkShippingResult({ job: activeJobs.jobs[0] });
+      }
+    } catch (error) {
+      setBulkShippingError(error instanceof Error ? error.message : "Unable to calculate the shipping notice preview.");
+    } finally {
+      setBulkShippingLoading(false);
+    }
+  };
+
+  const handleQueueBulkShippingNotices = async () => {
+    if (!bulkShippingPreview || bulkShippingSaving) return;
+    setBulkShippingSaving(true);
+    setBulkShippingError("");
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error(sessionError?.message || "Please sign in again to queue shipping notices.");
+      }
+      const response = await fetch("/api/admin/shipping-payment-notices/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ action: "queue", idempotencyKey: bulkShippingPreview.idempotencyKey }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Unable to queue the shipping notices.");
+      }
+      setBulkShippingResult(result);
+      void runOrdersRefresh({ silent: true });
+    } catch (error) {
+      setBulkShippingError(error instanceof Error ? error.message : "Unable to queue the shipping notices.");
+    } finally {
+      setBulkShippingSaving(false);
+    }
+  };
+
+  const handleProcessBulkShippingNotices = async () => {
+    const jobId = bulkShippingResult?.job?.id;
+    if (!jobId || bulkShippingSaving || !bulkShippingResult?.job?.hasMore) return;
+    setBulkShippingSaving(true);
+    setBulkShippingError("");
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) {
+        throw new Error(sessionError?.message || "Please sign in again to continue this bulk job.");
+      }
+      const response = await fetch("/api/admin/shipping-payment-notices/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ action: "process", jobId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Unable to continue the bulk shipping notice job.");
+      }
+      setBulkShippingResult(result);
+      void runOrdersRefresh({ silent: true });
+    } catch (error) {
+      setBulkShippingError(error instanceof Error ? error.message : "Unable to continue the bulk shipping notice job.");
+    } finally {
+      setBulkShippingSaving(false);
+    }
   };
 
   const closePaymentNoticeModal = () => {
@@ -734,6 +852,14 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
           </div>
 
           <div className="admin-orders-header__actions">
+            <button
+              type="button"
+              className="admin-orders-header__button admin-orders-header__button--accent"
+              onClick={() => void openBulkShippingModal()}
+              disabled={bulkShippingLoading || bulkShippingSaving}
+            >
+              {bulkShippingLoading ? "Calculating..." : "Send Bulk Shipping Notices"}
+            </button>
             <button
               type="button"
               className="admin-orders-header__button"
@@ -1518,6 +1644,74 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
                   <path d="m4 4 16 8-16 8 3-8-3-8Zm3.5 8h8.25" />
                 </svg>
                 <span>{shippingNoticeSaving ? "Sending..." : shippingNoticeSuccess ? "Notice sent" : "Send Payment Notice"}</span>
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkShippingPreview ? (
+        <div className="admin-orders-modal admin-orders-bulk-shipping-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-shipping-modal-title">
+          <button
+            type="button"
+            className="admin-orders-modal__scrim"
+            aria-label="Close bulk shipping notices"
+            onClick={closeBulkShippingModal}
+          />
+          <div className="admin-orders-modal__panel admin-orders-bulk-shipping-modal__panel">
+            <header className="admin-orders-modal__header">
+              <div>
+                <p>Shipping payments</p>
+                <h2 id="bulk-shipping-modal-title">Send Bulk Shipping Notices</h2>
+                <span>This preview covers all eligible orders, not only the current table page.</span>
+              </div>
+              <button type="button" className="admin-orders-modal__close admin-orders-bulk-shipping-modal__close" onClick={closeBulkShippingModal} aria-label="Close bulk shipping notices">Close</button>
+            </header>
+            <div className="admin-orders-modal__body admin-orders-bulk-shipping-modal__body">
+              <div className="admin-orders-bulk-shipping-summary" aria-label="Bulk shipping notice summary">
+                <div><span>Eligible orders</span><strong>{bulkShippingPreview.summary?.eligibleOrders ?? 0}</strong></div>
+                <div><span>Unique customers</span><strong>{bulkShippingPreview.summary?.uniqueCustomers ?? 0}</strong></div>
+                <div><span>Total outstanding</span><strong>{formatMoney(bulkShippingPreview.summary?.totalOutstandingShipping ?? 0)}</strong></div>
+                <div><span>Eligible to queue</span><strong>{formatMoney(bulkShippingPreview.summary?.eligibleOutstandingShipping ?? 0)}</strong></div>
+                <div><span>Skipped</span><strong>{bulkShippingPreview.summary?.skippedOrders ?? 0}</strong></div>
+                <div><span>Already queued</span><strong>{bulkShippingPreview.summary?.blockedByDuplicateProtection ?? 0}</strong></div>
+                <div><span>Missing recipient</span><strong>{bulkShippingPreview.summary?.missingRecipient ?? 0}</strong></div>
+              </div>
+              {bulkShippingPreview.orders?.length ? (
+                <div className="admin-orders-bulk-shipping-list">
+                  {bulkShippingPreview.orders.map((order) => (
+                    <div className="admin-orders-bulk-shipping-list__row" key={order.id}>
+                      <span><strong>{order.orderNumber}</strong><small>{order.customerName}</small></span>
+                      <strong>{formatMoney(order.outstandingShipping)}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="admin-orders-modal__section-label">No eligible shipping notices are currently available.</p>}
+              {bulkShippingError ? <p className="admin-orders-modal__error">{bulkShippingError}</p> : null}
+              {bulkShippingResult ? (
+                <div className="admin-orders-bulk-shipping-result" role="status">
+                  <strong>Queue operation progress</strong>
+                  <span>Status: {bulkShippingResult.job?.status || "unknown"}</span>
+                  <span>Discovered: {bulkShippingResult.job?.discoveredOrders ?? 0}</span>
+                  <span>Remaining: {(bulkShippingResult.job?.pending ?? 0) + (bulkShippingResult.job?.processing ?? 0)}</span>
+                  <span>Queued: {bulkShippingResult.job?.queued ?? 0}</span>
+                  <span>Already sent: {bulkShippingResult.job?.alreadySent ?? 0}</span>
+                  <span>Retryable failed: {bulkShippingResult.job?.retryableFailed ?? 0}</span>
+                  <span>Permanent failed: {bulkShippingResult.job?.permanentlyFailed ?? 0}</span>
+                  <span>Missing delivery: {bulkShippingResult.job?.missingDelivery ?? 0}</span>
+                  <span>Skipped: {bulkShippingResult.job?.skipped ?? 0}</span>
+                </div>
+              ) : null}
+            </div>
+            <footer className="admin-orders-modal__actions">
+              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={closeBulkShippingModal}>Cancel</button>
+              <button
+                type="button"
+                className="admin-orders-modal__button admin-orders-modal__button--primary"
+                onClick={() => void (bulkShippingResult ? handleProcessBulkShippingNotices() : handleQueueBulkShippingNotices())}
+                disabled={bulkShippingSaving || (bulkShippingResult ? !bulkShippingResult.job?.hasMore : !(bulkShippingPreview.summary?.eligibleOrders > 0))}
+              >
+                {bulkShippingSaving ? "Processing..." : bulkShippingResult?.job?.hasMore ? "Continue Processing" : bulkShippingResult ? "Complete" : "Confirm & Queue Shipping Notices"}
               </button>
             </footer>
           </div>

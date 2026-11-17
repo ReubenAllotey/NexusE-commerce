@@ -4,6 +4,10 @@ import test from "node:test";
 import { getShippingAccounting } from "../src/shared/shippingPayment.js";
 
 const serverSource = await readFile(new URL("../server.js", import.meta.url), "utf8");
+const shippingNoticeSource = await readFile(
+  new URL("./services/shippingNoticeEligibility.js", import.meta.url),
+  "utf8",
+);
 const paymentSource = await readFile(
   new URL("../src/pages/payment/payment.jsx", import.meta.url),
   "utf8",
@@ -150,20 +154,23 @@ test("shipping notices reject cancelled orders and guest orders can use guest_em
   assert.match(serverSource, /guest_email, status, shipping_payment_mode, shipping_payment_status/);
   assert.match(serverSource, /order.customer_email \|\| order.guest_email/);
   assert.match(serverSource, /isCancelledOrder\(order\)/);
-  assert.match(serverSource, /shipping balance is already paid/);
+  assert.match(shippingNoticeSource, /shipping balance is already paid/);
 });
 
 test("shipping notices are queue-only and fail closed when delivery creation is unavailable", () => {
   const noticeStart = serverSource.indexOf("async function handleAdminShippingPaymentNotice");
   const noticeEnd = serverSource.indexOf("async function loadAdminOrderPaymentNotice", noticeStart);
   assert.ok(noticeStart >= 0 && noticeEnd > noticeStart);
-  const noticeSource = serverSource.slice(noticeStart, noticeEnd);
+  const noticeSource = `${serverSource.slice(noticeStart, noticeEnd)}\n${serverSource.slice(
+    serverSource.indexOf("async function queueShippingPaymentNotice"),
+    serverSource.indexOf("async function loadBulkShippingNoticeCandidates"),
+  )}`;
 
   assert.doesNotMatch(noticeSource, /sendNotificationEmailForRow/);
   assert.doesNotMatch(noticeSource, /isEmailQueueAvailable/);
   assert.match(noticeSource, /loadPaymentNoticeDelivery\(inserted\.id\)/);
-  assert.match(noticeSource, /code: "notification_queue_failed"/);
-  assert.match(noticeSource, /code: "email_queue_unavailable"/);
+  assert.match(noticeSource, /reason: "notification_queue_failed"/);
+  assert.match(noticeSource, /reason: "email_queue_unavailable"/);
   assert.match(noticeSource, /No email was sent/);
   assert.match(noticeSource, /notificationError\.code !== "23505"/);
 });
