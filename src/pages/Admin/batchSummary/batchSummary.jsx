@@ -4,6 +4,7 @@ import { loadAdminSession } from "../Auth/adminAuthStorage";
 import { formatMoney, formatShortDate } from "../adminHelpers";
 import { loadAdminBatches } from "../../../shared/batchStorage";
 import { downloadBatchSummaryPdf } from "./batchSummaryPdf";
+import { aggregateBatchRows, formatVariantDetails } from "./batchSummaryUtils";
 
 function normalize(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -24,35 +25,6 @@ function isEligibleOrder(order) {
   const paymentStatus = normalize(order?.paymentStatus ?? order?.payment_status);
   const status = normalize(order?.status);
   return ["paid", "successful"].includes(paymentStatus) && !["cancelled", "canceled", "failed"].includes(status);
-}
-
-function getItemOptions(item = {}) {
-  const selected = Array.isArray(item.selectedOptions) ? item.selectedOptions : [];
-  if (selected.length > 0) {
-    return selected
-      .map((option) => ({
-        group: String(option?.groupName ?? option?.group_name ?? option?.group ?? "Option").trim(),
-        value: String(option?.label ?? option?.value ?? "").trim(),
-      }))
-      .filter((option) => option.group && option.value);
-  }
-
-  return [
-    { group: "Color", value: String(item?.variant?.color ?? item?.selectedColor ?? "").trim() },
-    { group: "Size", value: String(item?.variant?.size ?? item?.selectedSize ?? "").trim() },
-  ].filter((option) => option.value);
-}
-
-function optionKey(options) {
-  return options
-    .map((option) => `${normalize(option.group)}=${normalize(option.value)}`)
-    .sort()
-    .join("|");
-}
-
-function formatVariantDetails(options) {
-  if (options.length === 0) return "Base product";
-  return options.map((option) => `${option.group}: ${option.value}`).join(" • ");
 }
 
 function getOrderNumber(order) {
@@ -92,72 +64,12 @@ function BatchSummaryPage({ orders = [] }) {
   );
   const activeBatch = selectedBatch || batches[0] || "";
 
-  const allRows = useMemo(() => {
-    const grouped = new Map();
-    eligibleOrders
-      .filter((order) => String(order.batchNumber ?? order.batch_number ?? "").trim() === activeBatch)
-      .forEach((order) => {
-        (Array.isArray(order.items) ? order.items : []).forEach((item) => {
-          const availabilityType = normalize(item.availabilityType ?? item.availability_type);
-          if (availabilityType === "coming_soon") return;
-
-          const options = getItemOptions(item);
-          const key = [
-            item.productId ?? item.product_id ?? item.slug ?? item.productSlug ?? item.name,
-            optionKey(options),
-            availabilityType,
-          ].map(normalize).join("::");
-          const quantity = Math.max(Number(item.quantity) || 1, 1);
-          const unitPrice = Number(item.price ?? item.unitPrice ?? item.unit_price) || 0;
-          const lineValue = Number(item.lineSubtotal ?? item.line_subtotal);
-          const totalValue = Number.isFinite(lineValue) && lineValue >= 0 ? lineValue : unitPrice * quantity;
-          const current = grouped.get(key) ?? {
-            key,
-            name: item.name || "Unnamed product",
-            sku: item.sku || item.SKU || item.productSku || item.product_sku || item.slug || "",
-            slug: item.slug || "",
-            image: item.image || item.imageUrl || item.image_url || "",
-            options,
-            availabilityType: availabilityType || "ready_stock",
-            quantity: 0,
-            totalValue: 0,
-            unitPrices: [],
-            orders: [],
-            contributions: [],
-          };
-
-          current.quantity += quantity;
-          current.totalValue += totalValue;
-          if (!current.unitPrices.some((value) => value === unitPrice)) current.unitPrices.push(unitPrice);
-          if (!current.image && (item.image || item.imageUrl || item.image_url)) {
-            current.image = item.image || item.imageUrl || item.image_url;
-          }
-          if (!current.sku && (item.sku || item.SKU || item.productSku || item.product_sku || item.slug)) {
-            current.sku = item.sku || item.SKU || item.productSku || item.product_sku || item.slug;
-          }
-          if (!current.orders.some((entry) => entry.id === order.id)) current.orders.push(order);
-          const contribution = current.contributions.find((entry) => entry.order.id === order.id);
-          if (contribution) {
-            contribution.quantity += quantity;
-          } else {
-            current.contributions.push({ order, quantity });
-          }
-          grouped.set(key, current);
-        });
-      });
-
-    return [...grouped.values()]
-      .map((row) => ({
-        ...row,
-        unitPrice: row.unitPrices.length === 1 ? row.unitPrices[0] : null,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name) || formatVariantDetails(left.options).localeCompare(formatVariantDetails(right.options)));
-  }, [activeBatch, eligibleOrders]);
+  const allRows = useMemo(() => aggregateBatchRows(eligibleOrders, activeBatch), [activeBatch, eligibleOrders]);
 
   const rows = useMemo(
     () => allRows.filter((row) => {
       const matchesAvailability = availabilityFilter === "all" || row.availabilityType === availabilityFilter;
-      const blob = `${row.name} ${row.slug} ${formatVariantDetails(row.options)}`.toLowerCase();
+      const blob = `${row.name} ${row.slug} ${formatVariantDetails(row.options, row.quantity)}`.toLowerCase();
       return matchesAvailability && (!query.trim() || blob.includes(query.trim().toLowerCase()));
     }),
     [allRows, availabilityFilter, query],
@@ -247,7 +159,7 @@ function BatchSummaryPage({ orders = [] }) {
                   <tr key={row.key}>
                     <td>{row.image ? <img className="admin-batch-summary-image" src={row.image} alt="" /> : <span className="admin-batch-summary-image admin-batch-summary-image--empty" />}</td>
                     <td><strong>{row.name}</strong><small>{row.slug || "No SKU snapshot"}</small></td>
-                    <td>{formatVariantDetails(row.options)}</td>
+                    <td className="admin-batch-summary-variant-details">{formatVariantDetails(row.options, row.quantity)}</td>
                     <td><span className={`admin-orders-pill admin-orders-pill--${availabilityTone(row.availabilityType)}`}>{availabilityLabel(row.availabilityType)}</span></td>
                     <td><strong>{row.quantity}</strong></td>
                     <td>{row.unitPrice == null ? "Mixed" : formatMoney(row.unitPrice)}</td>
@@ -264,7 +176,7 @@ function BatchSummaryPage({ orders = [] }) {
       {traceRow ? <div className="admin-batch-summary-modal" role="dialog" aria-modal="true" aria-labelledby="batch-trace-title">
         <button type="button" className="admin-batch-summary-modal__scrim" aria-label="Close order trace" onClick={() => setTraceRow(null)} />
         <section className="admin-batch-summary-modal__panel">
-          <header><div><p>Order traceability</p><h2 id="batch-trace-title">{traceRow.name}</h2><span>{formatVariantDetails(traceRow.options)}</span></div><button type="button" onClick={() => setTraceRow(null)}>Close</button></header>
+          <header><div><p>Order traceability</p><h2 id="batch-trace-title">{traceRow.name}</h2><span>{formatVariantDetails(traceRow.options, traceRow.quantity)}</span></div><button type="button" onClick={() => setTraceRow(null)}>Close</button></header>
           <div className="admin-batch-summary-trace-list">
             {traceRow.contributions.map(({ order, quantity }) => <article key={order.id}><strong>{getOrderNumber(order)}</strong><span>{order.customerName || "Customer"}</span><small>{quantity} units · {formatShortDate(order.createdAt)} · Order: {order.status || "Unknown"} · Payment: {order.paymentStatus || "Unknown"}</small></article>)}
           </div>

@@ -36,6 +36,7 @@ test("batch summary PDF contains branding, selected batch, financial summary, an
   assert.match(pdf, /Total Value/);
   assert.match(pdf, /Product Name/);
   assert.match(pdf, /Order References/);
+  assert.ok(pdf.includes("Navy / Large \\(2\\)"));
   assert.match(pdf, /GHS 25\.00/);
 });
 

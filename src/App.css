@@ -17110,6 +17110,14 @@ body[data-theme="dark"] .admin-batch-management-field textarea {
   color: #233354;
 }
 
+.admin-batch-summary-variant-details {
+  min-width: 12rem;
+  max-width: 20rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
 .admin-batch-summary-table td strong,
 .admin-batch-summary-table td small {
   display: block;

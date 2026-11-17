@@ -20,13 +20,12 @@ function formatMoney(value) {
   return `${CURRENCY} ${Number(value || 0).toFixed(2)}`;
 }
 
-function formatOptions(options) {
+function formatOptions(options, quantity = null) {
   const safeOptions = Array.isArray(options) ? options : [];
-  if (safeOptions.length === 0) return "Base product";
-  return safeOptions
-    .map((option) => `${clean(option?.group || option?.groupName || "Option")}: ${clean(option?.value || option?.label)}`)
-    .filter((option) => !option.endsWith(":"))
-    .join("; ") || "Base product";
+  const label = safeOptions.length === 0
+    ? "Base product"
+    : safeOptions.map((option) => clean(option?.value || option?.label)).filter(Boolean).join(" / ") || "Base product";
+  return quantity == null ? label : `${label} (${Math.max(Number(quantity) || 0, 0)})`;
 }
 
 function wrapText(value, width, fontSize = 8) {
@@ -81,7 +80,7 @@ function normalizeRow(row = {}) {
   return {
     name: clean(row.name) || "Unnamed product",
     sku: clean(row.sku || row.slug) || "No SKU snapshot",
-    variant: clean(row.variant || row.variantDetails) || formatOptions(row.options),
+    variant: clean(row.variant || row.variantDetails) || formatOptions(row.options, row.quantity),
     availability: clean(row.availability || row.availabilityLabel) || (clean(row.availabilityType) === "preorder" ? "Pre-order" : "Ready Stock"),
     quantity: Number(row.quantity) || 0,
     unitPrice: row.unitPrice == null ? "Mixed" : formatMoney(row.unitPrice),
