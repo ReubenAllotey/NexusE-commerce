@@ -2796,6 +2796,28 @@ async function loadBulkJob(jobId, idempotencyKey = "") {
   return data;
 }
 
+const BULK_SHIPPING_NOTICE_LEASE_SECONDS = 300;
+
+async function assertBulkShippingNoticeJobLease(job) {
+  const { data, error } = await supabaseAdmin
+    .from("bulk_shipping_notice_jobs")
+    .select("status, lock_token, locked_at")
+    .eq("id", job.id)
+    .eq("lock_token", job.lock_token)
+    .maybeSingle();
+  if (error) throw error;
+  const lockedAt = Date.parse(data?.locked_at || "");
+  if (
+    !data
+    || data.status !== "processing"
+    || data.lock_token !== job.lock_token
+    || !Number.isFinite(lockedAt)
+    || lockedAt <= Date.now() - BULK_SHIPPING_NOTICE_LEASE_SECONDS * 1000
+  ) {
+    throw new Error("Bulk shipping notice job lease was lost or expired.");
+  }
+}
+
 async function loadBulkJobStatus(job) {
   const { data: items, error } = await supabaseAdmin
     .from("bulk_shipping_notice_job_items")
@@ -2908,9 +2930,11 @@ async function persistBulkJobItems(job, rows) {
     notification_id: row.existingState?.notificationId || null,
     last_error: row.eligible ? null : row.message || null,
   }));
-  const { error } = await supabaseAdmin
-    .from("bulk_shipping_notice_job_items")
-    .upsert(values, { onConflict: "job_id,order_id", ignoreDuplicates: true });
+  const { error } = await supabaseAdmin.rpc("persist_bulk_shipping_notice_job_items", {
+    p_job_id: job.id,
+    p_lock_token: job.lock_token,
+    p_items: values,
+  });
   if (error) throw error;
 }
 
@@ -2921,12 +2945,15 @@ async function updateBulkJobCursor(job, scan) {
     scan_complete: scan.complete,
     updated_at: new Date().toISOString(),
   };
-  const { error } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("bulk_shipping_notice_jobs")
     .update(values)
     .eq("id", job.id)
-    .eq("lock_token", job.lock_token);
+    .eq("lock_token", job.lock_token)
+    .select("id")
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("Bulk shipping notice job lease was lost.");
 }
 
 async function updateBulkJobItem(item, result) {
@@ -2935,7 +2962,7 @@ async function updateBulkJobItem(item, result) {
     : ["already_pending", "already_processing", "already_sent", "retryable_failed", "permanent_failed", "missing_delivery"].includes(result.status)
       ? result.status
       : result.status === "skipped" ? "skipped" : "failed";
-  const { error } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("bulk_shipping_notice_job_items")
     .update({
       status: finalStatus,
@@ -2948,14 +2975,17 @@ async function updateBulkJobItem(item, result) {
     })
     .eq("id", item.id)
     .eq("status", "processing")
-    .eq("lock_token", item.lock_token);
+    .eq("lock_token", item.lock_token)
+    .select("id")
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("Bulk shipping notice item lease was lost.");
 }
 
 async function processBulkShippingNoticeJob(jobId) {
   const { data: claimedJobs, error: claimError } = await supabaseAdmin.rpc("claim_bulk_shipping_notice_job", {
     p_job_id: jobId,
-    p_lease_seconds: 300,
+    p_lease_seconds: BULK_SHIPPING_NOTICE_LEASE_SECONDS,
   });
   if (claimError) throw claimError;
   const job = Array.isArray(claimedJobs) ? claimedJobs[0] : null;
@@ -2964,6 +2994,7 @@ async function processBulkShippingNoticeJob(jobId) {
     return existing ? await loadBulkJobStatus(existing) : null;
   }
 
+  let completedStatus = null;
   try {
     if (!job.scan_complete) {
       const scan = await scanBulkShippingNoticeJob(job);
@@ -2973,13 +3004,15 @@ async function processBulkShippingNoticeJob(jobId) {
 
     const { data: items, error: itemClaimError } = await supabaseAdmin.rpc("claim_bulk_shipping_notice_items", {
       p_job_id: job.id,
+      p_lock_token: job.lock_token,
       p_limit: 25,
-      p_lease_seconds: 300,
+      p_lease_seconds: BULK_SHIPPING_NOTICE_LEASE_SECONDS,
     });
     if (itemClaimError) throw itemClaimError;
     for (const item of items || []) {
       let result;
       try {
+        await assertBulkShippingNoticeJobLease(job);
         const refreshed = await loadShippingPaymentDetails(item.order_id);
         result = refreshed.ok
           ? await queueShippingPaymentNotice(refreshed.order, refreshed.accounting)
@@ -2988,26 +3021,49 @@ async function processBulkShippingNoticeJob(jobId) {
         console.error("Bulk shipping notice item failed:", error?.code || "unknown");
         result = { ok: false, status: "failed", reason: "item_failed", message: "Unable to queue this shipping notice." };
       }
+      await assertBulkShippingNoticeJobLease(job);
       await updateBulkJobItem(item, result);
     }
+
+    const current = await loadBulkJob(jobId);
+    if (current) {
+      const currentStatus = await loadBulkJobStatus(current);
+      if (!currentStatus.hasMore) {
+        const { data: completed, error: completionError } = await supabaseAdmin
+          .from("bulk_shipping_notice_jobs")
+          .update({ status: "complete", updated_at: new Date().toISOString() })
+          .eq("id", job.id)
+          .eq("lock_token", job.lock_token)
+          .select("id")
+          .maybeSingle();
+        if (completionError) throw completionError;
+        if (completed) completedStatus = currentStatus;
+      }
+    }
   } finally {
-    await supabaseAdmin
+    const { error: releaseError } = await supabaseAdmin
       .from("bulk_shipping_notice_jobs")
-      .update({ locked_at: null, lock_token: null, status: "partial", updated_at: new Date().toISOString() })
+      .update({
+        locked_at: null,
+        lock_token: null,
+        status: completedStatus ? "complete" : "partial",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", job.id)
       .eq("lock_token", job.lock_token);
+    if (releaseError) {
+      console.error("Bulk shipping notice job lease release failed:", releaseError.code || "unknown");
+    }
+  }
+
+  if (completedStatus) {
+    return { ...completedStatus, status: "complete", hasMore: false };
   }
 
   const current = await loadBulkJob(jobId);
   if (current) {
     const currentStatus = await loadBulkJobStatus(current);
-    if (!currentStatus.hasMore) {
-      await supabaseAdmin
-        .from("bulk_shipping_notice_jobs")
-        .update({ status: "complete", updated_at: new Date().toISOString() })
-        .eq("id", jobId);
-      return { ...currentStatus, status: "complete", hasMore: false };
-    }
+    return currentStatus;
   }
   return current ? await loadBulkJobStatus(current) : null;
 }

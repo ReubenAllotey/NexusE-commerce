@@ -128,6 +128,52 @@ test("durable bulk migration is service-role-only and resumable", () => {
   assert.match(migrationSource, /alter table public\.bulk_shipping_notice_jobs enable row level security/);
 });
 
+test("bulk job completion and cursor updates are fenced by the active job lease", () => {
+  assert.match(serverSource, /persist_bulk_shipping_notice_job_items/);
+  assert.match(serverSource, /\.eq\("lock_token", job\.lock_token\)\s*\.select\("id"\)\s*\.maybeSingle\(\)/);
+  assert.match(serverSource, /status: completedStatus \? "complete" : "partial"/);
+  assert.match(serverSource, /Bulk shipping notice item lease was lost/);
+  assert.match(serverSource, /assertBulkShippingNoticeJobLease\(job\)/);
+  assert.doesNotMatch(serverSource, /\.update\(\{ status: "complete", updated_at: new Date\(\)\.toISOString\(\) \}\)\s*\.eq\("id", jobId\)/);
+});
+
+test("the additive claim migration caps every item claim at 25", async () => {
+  const cappedMigration = await readFile(
+    new URL("../supabase/migrations/20261118_0060_cap_bulk_shipping_notice_claims.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(cappedMigration, /limit least\(greatest\(coalesce\(p_limit, 25\), 1\), 25\)/);
+  assert.match(cappedMigration, /revoke all on function public\.claim_bulk_shipping_notice_items/);
+  assert.match(cappedMigration, /persist_bulk_shipping_notice_job_items/);
+  assert.match(cappedMigration, /where id = p_job_id\s+and lock_token = p_lock_token/);
+});
+
+test("item claims pass the active parent lock token", () => {
+  assert.match(serverSource, /claim_bulk_shipping_notice_items[\s\S]*p_job_id: job\.id,[\s\S]*p_lock_token: job\.lock_token/);
+});
+
+test("migration 0061 fences item claims to an unexpired processing parent job", async () => {
+  const fencedMigration = await readFile(
+    new URL("../supabase/migrations/20261118_0061_fence_bulk_shipping_notice_item_claims.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(fencedMigration, /p_lock_token uuid/);
+  assert.match(fencedMigration, /from public\.bulk_shipping_notice_jobs\s+where id = p_job_id\s+for update/);
+  assert.match(fencedMigration, /v_status <> 'processing'/);
+  assert.match(fencedMigration, /v_lock_token <> p_lock_token/);
+  assert.match(fencedMigration, /v_locked_at <= clock_timestamp\(\) - make_interval/);
+  assert.match(fencedMigration, /locked_at <= clock_timestamp\(\) - make_interval/);
+  assert.match(fencedMigration, /create or replace function public\.claim_bulk_shipping_notice_job/);
+  assert.match(fencedMigration, /or locked_at <= clock_timestamp\(\) - make_interval/);
+  assert.match(fencedMigration, /for update skip locked/);
+  assert.match(fencedMigration, /limit least\(greatest\(coalesce\(p_limit, 25\), 1\), 25\)/);
+  assert.match(fencedMigration, /revoke all on function public\.claim_bulk_shipping_notice_items\(uuid, integer, integer\)/);
+  assert.match(fencedMigration, /grant execute on function public\.claim_bulk_shipping_notice_items\(uuid, uuid, integer, integer\)\s+to service_role/);
+  assert.match(fencedMigration, /revoke all on function public\.claim_bulk_shipping_notice_items\(uuid, integer, integer\)[\s\S]*service_role/);
+  assert.match(fencedMigration, /persist_bulk_shipping_notice_job_items[\s\S]*v_locked_at <= clock_timestamp\(\) - make_interval/);
+  assert.match(fencedMigration, /revoke all on function public\.persist_bulk_shipping_notice_job_items\(uuid, uuid, jsonb\)[\s\S]*grant execute on function public\.persist_bulk_shipping_notice_job_items\(uuid, uuid, jsonb\)\s+to service_role/);
+});
+
 test("bulk admin UI previews all eligible orders before queueing", () => {
   assert.match(adminOrdersSource, /Send Bulk Shipping Notices/);
   assert.match(adminOrdersSource, /action: "preview"/);
