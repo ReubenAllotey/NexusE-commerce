@@ -375,15 +375,16 @@ function PaymentCheckout({
     }
 
     const loadContext = async () => {
-      if (paymentIntent.purpose === "shipping-balance" && !paymentIntent.token) {
+      if (paymentIntent.purpose === "shipping-balance") {
         const sessionResult = await supabase.auth.getSession();
-        if (sessionResult.error || !sessionResult.data?.session?.access_token) {
+        const accessToken = sessionResult.data?.session?.access_token ?? "";
+        if (sessionResult.error || (!paymentIntent.token && !accessToken)) {
           throw new Error("Please sign in to access this shipping payment.");
         }
         return loadShippingBalancePaymentContext(
           paymentIntent.orderId,
-          "",
-          sessionResult.data.session.access_token,
+          accessToken ? "" : paymentIntent.token,
+          accessToken,
         );
       }
 
@@ -846,7 +847,7 @@ function PaymentCheckout({
           orderId: pendingOrder.id,
           orderNumber: pendingOrder.orderNumber,
           paymentPurpose: isShippingBalancePayment ? "shipping-balance" : "order",
-          paymentToken: isShippingBalancePayment ? paymentIntent.token : undefined,
+          paymentToken: isShippingBalancePayment && !authUser?.id ? paymentIntent.token : undefined,
           paymentMethod,
           paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
           paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
@@ -909,6 +910,30 @@ function PaymentCheckout({
   // must not depend on cart or delivery-address checkout state.
   if (!isShippingBalancePayment && !isOrderBalancePayment && (!shippingAddress || cartRows.length === 0)) {
     return <Navigate to="/shipping-address" replace />;
+  }
+
+  if ((isShippingBalancePayment || isOrderBalancePayment) && !orderBalanceContext) {
+    return (
+      <main className="payment-page">
+        <div className="payment-shell">
+          <section className="payment-link-state" role="alert" aria-live="polite">
+            <h1>{orderBalanceLoading ? "Loading secure payment link" : "Payment link unavailable"}</h1>
+            <p>
+              {orderBalanceLoading
+                ? "We are validating the order and current payment balance."
+                : orderBalanceError || "This payment link is invalid or has expired."}
+            </p>
+            {!orderBalanceLoading ? (
+              <p>
+                {isShippingBalancePayment
+                  ? "If you are the customer, sign in to access your order or request a new shipping payment link from support."
+                  : "Please request a new payment link or sign in to access your order."}
+              </p>
+            ) : null}
+          </section>
+        </div>
+      </main>
+    );
   }
 
   return (
