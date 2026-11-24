@@ -119,7 +119,7 @@ test("admin notification retries stay queue-only when delivery is unavailable", 
   const retryEnd = serverSource.indexOf("async function loadPaymentNoticeDelivery", retryStart);
   const retrySource = serverSource.slice(retryStart, retryEnd);
 
-  assert.match(routeSource, /const email = await requeueNotificationEmail\(notification\.id\);/);
+  assert.match(routeSource, /const email = await requeueNotificationEmail\(notification\.id, \{/);
   assert.doesNotMatch(routeSource, /sendNotificationEmailForRow\(notification\)/);
   assert.match(retrySource, /code: "queue_unavailable"/);
 });

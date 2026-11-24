@@ -276,11 +276,18 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
   const [shippingNoticeSaving, setShippingNoticeSaving] = useState(false);
   const [shippingNoticeError, setShippingNoticeError] = useState("");
   const [shippingNoticeSuccess, setShippingNoticeSuccess] = useState("");
+  const [shippingNoticeData, setShippingNoticeData] = useState(null);
+  const [shippingNoticeMode, setShippingNoticeMode] = useState("initial");
+  const [shippingNoticeOverride, setShippingNoticeOverride] = useState(false);
+  const [shippingNoticeOverrideReason, setShippingNoticeOverrideReason] = useState("");
   const [bulkShippingPreview, setBulkShippingPreview] = useState(null);
   const [bulkShippingResult, setBulkShippingResult] = useState(null);
   const [bulkShippingLoading, setBulkShippingLoading] = useState(false);
   const [bulkShippingSaving, setBulkShippingSaving] = useState(false);
   const [bulkShippingError, setBulkShippingError] = useState("");
+  const [bulkShippingMode, setBulkShippingMode] = useState("initial");
+  const [bulkShippingOverride, setBulkShippingOverride] = useState(false);
+  const [bulkShippingOverrideReason, setBulkShippingOverrideReason] = useState("");
   const [ordersRefreshing, setOrdersRefreshing] = useState(false);
   const [ordersRefreshError, setOrdersRefreshError] = useState("");
   const [paymentNoticeOrderId, setPaymentNoticeOrderId] = useState(null);
@@ -338,6 +345,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
     activeShippingOrder
       && (shippingAccounting.outstandingShipping <= 0 || shippingOrderCancelled),
   );
+  const shippingCooldownActive = Boolean(shippingNoticeData?.cooldownActive);
+  const shippingNoticeCanResend = Boolean(shippingNoticeData?.canResend);
+  const shippingNoticeNeedsOverride = shippingNoticeMode === "resend"
+    && shippingCooldownActive
+    && !shippingNoticeOverride;
   const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder || bulkShippingPreview);
   const {
     shipmentsByOrderId,
@@ -494,6 +506,10 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
     setShippingNoticeSaving(false);
     setShippingNoticeError("");
     setShippingNoticeSuccess("");
+    setShippingNoticeData(null);
+    setShippingNoticeMode("initial");
+    setShippingNoticeOverride(false);
+    setShippingNoticeOverrideReason("");
   };
 
   const closeBulkShippingModal = () => {
@@ -502,13 +518,19 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
     setBulkShippingLoading(false);
     setBulkShippingSaving(false);
     setBulkShippingError("");
+    setBulkShippingMode("initial");
+    setBulkShippingOverride(false);
+    setBulkShippingOverrideReason("");
   };
 
-  const openBulkShippingModal = async () => {
+  const openBulkShippingModal = async (mode = "initial") => {
     if (bulkShippingLoading || bulkShippingSaving) return;
     setBulkShippingLoading(true);
     setBulkShippingError("");
     setBulkShippingResult(null);
+    setBulkShippingMode(mode === "resend" ? "resend" : "initial");
+    setBulkShippingOverride(false);
+    setBulkShippingOverrideReason("");
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !sessionData?.session?.access_token) {
@@ -520,7 +542,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
           "Content-Type": "application/json",
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
-        body: JSON.stringify({ action: "preview" }),
+        body: JSON.stringify({ action: "preview", mode: mode === "resend" ? "resend" : "initial" }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result?.ok === false) {
@@ -562,7 +584,13 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
           "Content-Type": "application/json",
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
-        body: JSON.stringify({ action: "queue", idempotencyKey: bulkShippingPreview.idempotencyKey }),
+        body: JSON.stringify({
+          action: "queue",
+          idempotencyKey: bulkShippingPreview.idempotencyKey,
+          mode: bulkShippingMode,
+          overrideCooldown: bulkShippingOverride,
+          overrideReason: bulkShippingOverrideReason.trim(),
+        }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result?.ok === false) {
@@ -626,7 +654,24 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
     setShippingPaymentOrderId(order.id);
     setShippingNoticeError("");
     setShippingNoticeSuccess("");
-    void runOrdersRefresh({ silent: true });
+    setShippingNoticeData(null);
+    setShippingNoticeMode("initial");
+    setShippingNoticeOverride(false);
+    setShippingNoticeOverrideReason("");
+    void (async () => {
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !sessionData?.session?.access_token) throw new Error(sessionError?.message || "Please sign in again to view shipping notice history.");
+        const response = await fetch(`/api/admin/shipping-payment-notice?orderId=${encodeURIComponent(order.id)}`, {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result?.ok === false) throw new Error(result?.message || "Unable to load shipping notice history.");
+        setShippingNoticeData(result);
+      } catch (error) {
+        setShippingNoticeError(error instanceof Error ? error.message : "Unable to load shipping notice history.");
+      }
+    })();
   };
 
   const openPaymentNoticeModal = async (order) => {
@@ -775,6 +820,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
       return;
     }
 
+    if (shippingNoticeNeedsOverride && !shippingNoticeOverrideReason.trim()) {
+      setShippingNoticeError("Enter a reason before overriding the 48-hour shipping notice cooldown.");
+      return;
+    }
+
     setShippingNoticeSaving(true);
     setShippingNoticeError("");
     setShippingNoticeSuccess("");
@@ -791,7 +841,12 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
           "Content-Type": "application/json",
           Authorization: `Bearer ${sessionData.session.access_token}`,
         },
-        body: JSON.stringify({ orderId: activeShippingOrder.id }),
+        body: JSON.stringify({
+          orderId: activeShippingOrder.id,
+          mode: shippingNoticeMode,
+          overrideCooldown: shippingNoticeOverride,
+          overrideReason: shippingNoticeOverrideReason.trim(),
+        }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result?.ok === false) {
@@ -805,11 +860,41 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
             ? "Shipping notice saved. Email delivery was accepted by the provider."
             : result.message || "Shipping notice saved.",
       );
+      setShippingNoticeData((current) => ({
+        ...current,
+        notification: result.notification || current?.notification,
+        cooldownActive: false,
+        canResend: false,
+      }));
       void runOrdersRefresh({ silent: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to send the shipping payment notice.";
       setShippingNoticeError(message);
       void runOrdersRefresh({ silent: true });
+    } finally {
+      setShippingNoticeSaving(false);
+    }
+  };
+
+  const handleRetryShippingNotice = async () => {
+    if (!activeShippingOrder || shippingNoticeSaving || shippingNoticeData?.notification?.status !== "retryable_failed") return;
+    if (!window.confirm("Retry this failed shipping payment notice email?")) return;
+    setShippingNoticeSaving(true);
+    setShippingNoticeError("");
+    setShippingNoticeSuccess("");
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.access_token) throw new Error(sessionError?.message || "Please sign in again to retry this notice.");
+      const response = await fetch("/api/admin/shipping-payment-notice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session.access_token}` },
+        body: JSON.stringify({ orderId: activeShippingOrder.id, retryEmail: true }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result?.ok === false) throw new Error(result?.message || "Unable to retry the shipping notice email.");
+      setShippingNoticeSuccess(result.message || "The shipping notice email was queued for retry.");
+    } catch (error) {
+      setShippingNoticeError(error instanceof Error ? error.message : "Unable to retry the shipping notice email.");
     } finally {
       setShippingNoticeSaving(false);
     }
@@ -855,10 +940,18 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
             <button
               type="button"
               className="admin-orders-header__button admin-orders-header__button--accent"
-              onClick={() => void openBulkShippingModal()}
+              onClick={() => void openBulkShippingModal("initial")}
               disabled={bulkShippingLoading || bulkShippingSaving}
             >
               {bulkShippingLoading ? "Calculating..." : "Send Bulk Shipping Notices"}
+            </button>
+            <button
+              type="button"
+              className="admin-orders-header__button"
+              onClick={() => void openBulkShippingModal("resend")}
+              disabled={bulkShippingLoading || bulkShippingSaving}
+            >
+              Resend Shipping Notices
             </button>
             <button
               type="button"
@@ -1632,6 +1725,42 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
               ) : null}
               {shippingNoticeError ? <p className="admin-orders-modal__error">{shippingNoticeError}</p> : null}
               {shippingNoticeSuccess ? <p className="admin-orders-modal__success">{shippingNoticeSuccess}</p> : null}
+              {shippingNoticeData?.notification ? (
+                <div className="admin-orders-shipping-modal__history" role="status">
+                  <strong>Previous notice: {String(shippingNoticeData.notification.status || "unknown").replaceAll("_", " ")}</strong>
+                  {shippingNoticeData.notification.sentAt ? <span>Last sent: {new Date(shippingNoticeData.notification.sentAt).toLocaleString()}</span> : null}
+                  {shippingNoticeData.cooldownUntil ? <span>Next resend: {new Date(shippingNoticeData.cooldownUntil).toLocaleString()}</span> : null}
+                  {(shippingNoticeCanResend || shippingNoticeData.canOverride) && !shippingNoticeSuccess ? (
+                    <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={() => setShippingNoticeMode("resend")}>
+                      Resend Shipping Notice
+                    </button>
+                  ) : null}
+                  {shippingNoticeData.notification.status === "retryable_failed" && !shippingNoticeSuccess ? (
+                    <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={() => void handleRetryShippingNotice()}>
+                      Retry Failed Delivery
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {shippingNoticeMode === "resend" && !shippingNoticeSuccess ? (
+                <div className="admin-orders-shipping-modal__override">
+                  {shippingCooldownActive ? (
+                    <label>
+                      <input type="checkbox" checked={shippingNoticeOverride} onChange={(event) => setShippingNoticeOverride(event.target.checked)} />
+                      Override the 48-hour cooldown
+                    </label>
+                  ) : null}
+                  {(shippingNoticeOverride || !shippingCooldownActive) ? (
+                    <input
+                      type="text"
+                      value={shippingNoticeOverrideReason}
+                      onChange={(event) => setShippingNoticeOverrideReason(event.target.value)}
+                      placeholder="Reason for resend"
+                      aria-label="Reason for shipping notice resend"
+                    />
+                  ) : null}
+                </div>
+              ) : null}
               <p className="admin-orders-shipping-modal__info">
                 <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm0-8v4m0-6h.01" /></svg>
                 <span>The customer will receive a shipping payment reminder with a secure payment link.</span>
@@ -1639,11 +1768,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
             </div>
             <footer className="admin-orders-modal__actions admin-orders-shipping-modal__actions">
               <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={closeShippingModal}>Cancel</button>
-              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--primary" onClick={handleSendShippingNotice} disabled={shippingNoticeSaving || Boolean(shippingNoticeSuccess) || shippingNoticeIneligible}>
+              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--primary" onClick={handleSendShippingNotice} disabled={shippingNoticeSaving || Boolean(shippingNoticeSuccess) || shippingNoticeIneligible || shippingNoticeNeedsOverride}>
                 <svg className="admin-orders-modal__button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="m4 4 16 8-16 8 3-8-3-8Zm3.5 8h8.25" />
                 </svg>
-                <span>{shippingNoticeSaving ? "Sending..." : shippingNoticeSuccess ? "Notice sent" : "Send Payment Notice"}</span>
+                <span>{shippingNoticeSaving ? "Sending..." : shippingNoticeSuccess ? "Notice sent" : shippingNoticeMode === "resend" ? "Queue Resend" : "Send Payment Notice"}</span>
               </button>
             </footer>
           </div>
@@ -1662,7 +1791,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
             <header className="admin-orders-modal__header">
               <div>
                 <p>Shipping payments</p>
-                <h2 id="bulk-shipping-modal-title">Send Bulk Shipping Notices</h2>
+                <h2 id="bulk-shipping-modal-title">{bulkShippingMode === "resend" ? "Resend Shipping Notices" : "Send Bulk Shipping Notices"}</h2>
                 <span>This preview covers all eligible orders, not only the current table page.</span>
               </div>
               <button type="button" className="admin-orders-modal__close admin-orders-bulk-shipping-modal__close" onClick={closeBulkShippingModal} aria-label="Close bulk shipping notices">Close</button>
@@ -1673,6 +1802,8 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
                 <div><span>Unique customers</span><strong>{bulkShippingPreview.summary?.uniqueCustomers ?? 0}</strong></div>
                 <div><span>Total outstanding</span><strong>{formatMoney(bulkShippingPreview.summary?.totalOutstandingShipping ?? 0)}</strong></div>
                 <div><span>Eligible to queue</span><strong>{formatMoney(bulkShippingPreview.summary?.eligibleOutstandingShipping ?? 0)}</strong></div>
+                <div><span>Eligible resends</span><strong>{bulkShippingPreview.summary?.eligibleResends ?? 0}</strong></div>
+                <div><span>Within cooldown</span><strong>{bulkShippingPreview.summary?.blockedByCooldown ?? 0}</strong></div>
                 <div><span>Skipped</span><strong>{bulkShippingPreview.summary?.skippedOrders ?? 0}</strong></div>
                 <div><span>Already queued</span><strong>{bulkShippingPreview.summary?.blockedByDuplicateProtection ?? 0}</strong></div>
                 <div><span>Missing recipient</span><strong>{bulkShippingPreview.summary?.missingRecipient ?? 0}</strong></div>
@@ -1687,6 +1818,23 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
                   ))}
                 </div>
               ) : <p className="admin-orders-modal__section-label">No eligible shipping notices are currently available.</p>}
+              {bulkShippingMode === "resend" ? (
+                <div className="admin-orders-bulk-shipping-modal__override">
+                  <label>
+                    <input type="checkbox" checked={bulkShippingOverride} onChange={(event) => setBulkShippingOverride(event.target.checked)} />
+                    Override the 48-hour cooldown for eligible resends
+                  </label>
+                  {bulkShippingOverride ? (
+                    <input
+                      type="text"
+                      value={bulkShippingOverrideReason}
+                      onChange={(event) => setBulkShippingOverrideReason(event.target.value)}
+                      placeholder="Reason for bulk resend override"
+                      aria-label="Reason for bulk resend override"
+                    />
+                  ) : null}
+                </div>
+              ) : null}
               {bulkShippingError ? <p className="admin-orders-modal__error">{bulkShippingError}</p> : null}
               {bulkShippingResult ? (
                 <div className="admin-orders-bulk-shipping-result" role="status">
@@ -1709,7 +1857,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
                 type="button"
                 className="admin-orders-modal__button admin-orders-modal__button--primary"
                 onClick={() => void (bulkShippingResult ? handleProcessBulkShippingNotices() : handleQueueBulkShippingNotices())}
-                disabled={bulkShippingSaving || (bulkShippingResult ? !bulkShippingResult.job?.hasMore : !(bulkShippingPreview.summary?.eligibleOrders > 0))}
+                disabled={bulkShippingSaving || (bulkShippingMode === "resend" && bulkShippingOverride && !bulkShippingOverrideReason.trim()) || (bulkShippingResult ? !bulkShippingResult.job?.hasMore : !(bulkShippingPreview.summary?.eligibleOrders > 0))}
               >
                 {bulkShippingSaving ? "Processing..." : bulkShippingResult?.job?.hasMore ? "Continue Processing" : bulkShippingResult ? "Complete" : "Confirm & Queue Shipping Notices"}
               </button>

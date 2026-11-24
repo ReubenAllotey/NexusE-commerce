@@ -23,15 +23,16 @@ export function evaluateShippingNoticeEligibility(order, accounting, { recipient
     };
   }
 
-  if (!NOTICE_STATUSES.has(accounting?.status)) {
-    const reason = accounting?.status === "pending"
+  const pendingShipping = accounting?.hasPendingShipping === true || accounting?.status === "pending";
+  if (pendingShipping || !NOTICE_STATUSES.has(accounting?.status)) {
+    const reason = pendingShipping
       ? "pending_shipping"
       : accounting?.status === "paid"
         ? "already_paid"
         : accounting?.status === "free"
           ? "no_balance"
           : "ineligible_shipping";
-    const message = accounting?.status === "pending"
+    const message = pendingShipping
       ? "Shipping is still being calculated for this order."
       : accounting?.status === "paid"
         ? "This shipping balance is already paid."
@@ -71,7 +72,8 @@ export function summarizeShippingNoticeResults(results = []) {
     totalOutstandingShipping,
     eligibleOutstandingShipping,
     skippedOrders: rows.length - eligible.length,
-    blockedByCooldown: 0,
+    eligibleResends: rows.filter((row) => row.reason === "resend_eligible").length,
+    blockedByCooldown: count("cooldown"),
     blockedByDuplicateProtection: count("already_pending") + count("already_processing") + count("already_sent") + count("retryable_failed") + count("permanent_failed") + count("missing_delivery"),
     alreadyQueued: count("already_pending") + count("already_processing"),
     alreadySent: count("already_sent"),
@@ -82,5 +84,6 @@ export function summarizeShippingNoticeResults(results = []) {
     cancelled: count("cancelled"),
     alreadyPaid: count("already_paid"),
     pendingShipping: count("pending_shipping"),
+    noPreviousNotice: count("no_previous_notice"),
   };
 }

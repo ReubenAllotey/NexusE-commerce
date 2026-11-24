@@ -142,6 +142,9 @@ test("shipping accounting handles unpaid, partial, paid, and pending item shapes
     { lineShipping: 0, shippingPaidAmount: 0, shippingFeeStatus: "pending" },
   ] }).status, "pending");
   assert.equal(getShippingAccounting({ items: [
+    { lineShipping: null, shippingPaidAmount: null, shippingFeeStatus: "pending" },
+  ] }).status, "pending");
+  assert.equal(getShippingAccounting({ items: [
     { lineShipping: 20, shippingPaidAmount: 0, shippingFeeStatus: "pending" },
   ] }).status, "pending");
   assert.equal(getShippingAccounting({ items: [
@@ -168,11 +171,11 @@ test("shipping notices are queue-only and fail closed when delivery creation is 
 
   assert.doesNotMatch(noticeSource, /sendNotificationEmailForRow/);
   assert.doesNotMatch(noticeSource, /isEmailQueueAvailable/);
-  assert.match(noticeSource, /loadPaymentNoticeDelivery\(inserted\.id\)/);
+  assert.match(noticeSource, /loadPaymentNoticeDelivery\(result\.notification_id\)/);
   assert.match(noticeSource, /reason: "notification_queue_failed"/);
   assert.match(noticeSource, /reason: "email_queue_unavailable"/);
   assert.match(noticeSource, /No email was sent/);
-  assert.match(noticeSource, /notificationError\.code !== "23505"/);
+  assert.match(noticeSource, /create_admin_shipping_payment_reminder/);
 });
 
 test("successful order confirmations remain notification-triggered queue jobs", () => {
@@ -360,7 +363,7 @@ test("the success route does not claim payment success before backend verificati
 test("shipping reminder emails regenerate an order-scoped token at delivery time", () => {
   assert.match(
     serverSource,
-    /source_key\)\.startsWith\("shipping-payment-request:"\)[\s\S]*?actionUrl: buildShippingPaymentReminderUrl\(notification\.order_id\)/,
+    /shippingSourceKey === shippingSourcePrefix[\s\S]*?actionUrl: buildShippingPaymentReminderUrl\(notification\.order_id\)/,
   );
 });
 

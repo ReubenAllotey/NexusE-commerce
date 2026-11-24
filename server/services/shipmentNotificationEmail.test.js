@@ -22,6 +22,8 @@ test("shipping payment reminder is branded, item-payment separate, and escaped",
   assert.match(email.html, /\/payment\?purpose=shipping-balance&amp;orderId=fictional-order/);
   assert.match(email.text, /Pay Shipping Balance Now/);
   assert.match(email.html, /Pay Shipping Balance Now/);
+  assert.match(email.text, /valid for 48 hours/i);
+  assert.match(email.html, /valid for 48 hours/i);
   assert.match(email.html, /&lt;Phone&gt; \(Qty 2\)/);
   assert.doesNotMatch(email.html, /Paystack/);
 });

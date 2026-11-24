@@ -27,15 +27,13 @@ export function getShippingAccounting(order = {}) {
     hasUnconfirmedShipping ||= feeStatus === "pending" && lineShipping > 0;
   }
 
-  const status = hasUnconfirmedShipping
+  const status = hasPendingShipping
     ? "pending"
-    : hasPendingShipping && outstandingShipping <= 0
-      ? "pending"
-      : outstandingShipping > 0
-        ? paidShipping > 0 ? "partial" : "unpaid"
-        : knownShipping > 0
-          ? "paid"
-          : "free";
+    : outstandingShipping > 0
+      ? paidShipping > 0 ? "partial" : "unpaid"
+      : knownShipping > 0
+        ? "paid"
+        : "free";
 
   return {
     knownShipping,

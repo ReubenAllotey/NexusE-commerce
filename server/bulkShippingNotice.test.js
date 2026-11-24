@@ -110,7 +110,8 @@ test("bulk endpoint is admin-only, revalidates, and uses the existing queue sour
   assert.match(serverSource, /claim_bulk_shipping_notice_items/);
   assert.match(serverSource, /p_limit: 25/);
   assert.match(serverSource, /shipping-payment-request:\$\{order\.id\}/);
-  assert.match(serverSource, /notificationError\.code !== "23505"/);
+  assert.match(serverSource, /create_admin_shipping_payment_reminder/);
+  assert.match(serverSource, /mode: noticeMode/);
   assert.match(serverSource, /\.eq\("order_id", order\.id\)/);
   assert.match(serverSource, /recipient\.valid/);
   assert.match(serverSource, /No email was sent/);
