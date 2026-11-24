@@ -183,6 +183,17 @@ test("bulk admin UI previews all eligible orders before queueing", () => {
   assert.match(adminOrdersSource, /all eligible orders/);
 });
 
+test("shipping notice modal explains cooldowns and uses one stateful primary action", () => {
+  assert.match(adminOrdersSource, /Send Shipping Payment Notice/);
+  assert.match(adminOrdersSource, /Resend Shipping Payment Notice/);
+  assert.match(adminOrdersSource, /48-hour resend cooldown is active/);
+  assert.match(adminOrdersSource, /formatCooldownRemaining/);
+  assert.match(adminOrdersSource, /Notice queued/);
+  assert.match(adminOrdersSource, /shippingNoticeOverrideMissingReason/);
+  assert.match(adminOrdersSource, /historyResponse = await fetch\(`\/api\/admin\/shipping-payment-notice\?orderId=/);
+  assert.doesNotMatch(adminOrdersSource, /onClick=\{\(\) => setShippingNoticeMode\("resend"\)\}/);
+});
+
 test("bulk HTTP routes enforce auth and execute the real preview and job creation handlers", async (t) => {
   const state = { profileRole: "admin", failOrders: false };
   const supabaseStub = http.createServer((req, res) => {

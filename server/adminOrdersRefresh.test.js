@@ -60,8 +60,8 @@ test("Admin Orders polls only while visible and cleans up its timer", () => {
 
 test("shipping notice refreshes persisted state and distinguishes queueing from delivery", () => {
   assert.match(adminOrdersSource, /void runOrdersRefresh\(\{ silent: true \}\)/);
-  assert.match(adminOrdersSource, /Shipping notice saved and email queued for delivery/);
-  assert.match(adminOrdersSource, /Email delivery was accepted by the provider/);
+  assert.match(adminOrdersSource, /Notice queued\. Email delivery will be handled by the email worker/);
+  assert.match(adminOrdersSource, /Notice queued/);
   assert.match(adminOrdersSource, /Unable to send the shipping payment notice/);
 });
 

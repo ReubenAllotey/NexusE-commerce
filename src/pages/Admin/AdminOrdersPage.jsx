@@ -49,6 +49,26 @@ function normalizeText(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function formatCooldownRemaining(cooldownUntil) {
+  const remainingMs = Date.parse(cooldownUntil || "") - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return "";
+  const totalMinutes = Math.ceil(remainingMs / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  return [
+    days ? `${days}d` : "",
+    hours ? `${hours}h` : "",
+    minutes || (!days && !hours) ? `${minutes}m` : "",
+  ].filter(Boolean).join(" ");
+}
+
+function shippingNoticeStatusLabel(status) {
+  return String(status || "queued")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function getOrderItemCount(order) {
   return Array.isArray(order?.items)
     ? order.items.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0)
@@ -347,9 +367,15 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
   );
   const shippingCooldownActive = Boolean(shippingNoticeData?.cooldownActive);
   const shippingNoticeCanResend = Boolean(shippingNoticeData?.canResend);
+  const shippingNoticeHasPrevious = Boolean(shippingNoticeData?.notification);
+  const shippingNoticeStatus = shippingNoticeData?.notification?.status || shippingNoticeData?.email?.status || "queued";
   const shippingNoticeNeedsOverride = shippingNoticeMode === "resend"
     && shippingCooldownActive
     && !shippingNoticeOverride;
+  const shippingNoticeOverrideMissingReason = shippingNoticeOverride && !shippingNoticeOverrideReason.trim();
+  const shippingNoticeSubmissionBlocked = shippingNoticeHasPrevious
+    && !shippingNoticeCanResend
+    && !(shippingCooldownActive && shippingNoticeOverride);
   const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder || bulkShippingPreview);
   const {
     shipmentsByOrderId,
@@ -853,19 +879,29 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
         throw new Error(result?.message || "Unable to send the shipping payment notice.");
       }
 
-      setShippingNoticeSuccess(
-        result.email?.queued
-          ? "Shipping notice saved and email queued for delivery."
-          : result.email?.status === "sent"
-            ? "Shipping notice saved. Email delivery was accepted by the provider."
-            : result.message || "Shipping notice saved.",
-      );
-      setShippingNoticeData((current) => ({
-        ...current,
-        notification: result.notification || current?.notification,
-        cooldownActive: false,
-        canResend: false,
-      }));
+      let history = null;
+      try {
+        const historyResponse = await fetch(`/api/admin/shipping-payment-notice?orderId=${encodeURIComponent(activeShippingOrder.id)}`, {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+        });
+        const historyResult = await historyResponse.json().catch(() => ({}));
+        if (historyResponse.ok && historyResult?.ok !== false) history = historyResult;
+      } catch {
+        // The notice is already queued; retain the success state if history refresh is temporarily unavailable.
+      }
+      if (history) {
+        setShippingNoticeData(history);
+        setShippingNoticeMode(history.notification ? "resend" : "initial");
+      } else {
+        setShippingNoticeData((current) => ({
+          ...current,
+          notification: current?.notification || result.notification || null,
+          email: { ...(current?.email || {}), queued: true, status: "queued" },
+        }));
+      }
+      setShippingNoticeSuccess("Notice queued. Email delivery will be handled by the email worker.");
+      setShippingNoticeOverride(false);
+      setShippingNoticeOverrideReason("");
       void runOrdersRefresh({ silent: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to send the shipping payment notice.";
@@ -893,6 +929,16 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
       const result = await response.json().catch(() => ({}));
       if (!response.ok || result?.ok === false) throw new Error(result?.message || "Unable to retry the shipping notice email.");
       setShippingNoticeSuccess(result.message || "The shipping notice email was queued for retry.");
+      try {
+        const historyResponse = await fetch(`/api/admin/shipping-payment-notice?orderId=${encodeURIComponent(activeShippingOrder.id)}`, {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+        });
+        const historyResult = await historyResponse.json().catch(() => ({}));
+        if (historyResponse.ok && historyResult?.ok !== false) setShippingNoticeData(historyResult);
+      } catch {
+        // Retry has already been accepted; a later modal open will refresh the delivery state.
+      }
+      void runOrdersRefresh({ silent: true });
     } catch (error) {
       setShippingNoticeError(error instanceof Error ? error.message : "Unable to retry the shipping notice email.");
     } finally {
@@ -1676,7 +1722,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
                 </span>
                 <div>
                   <p>Shipping payment</p>
-                  <h2 id="shipping-payment-modal-title">Send Shipping Payment Notice</h2>
+                  <h2 id="shipping-payment-modal-title">{shippingNoticeMode === "resend" ? "Resend Shipping Payment Notice" : "Send Shipping Payment Notice"}</h2>
                   <span>Remind the customer to complete their outstanding shipping payment.</span>
                 </div>
               </div>
@@ -1727,20 +1773,21 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
               {shippingNoticeSuccess ? <p className="admin-orders-modal__success">{shippingNoticeSuccess}</p> : null}
               {shippingNoticeData?.notification ? (
                 <div className="admin-orders-shipping-modal__history" role="status">
-                  <strong>Previous notice: {String(shippingNoticeData.notification.status || "unknown").replaceAll("_", " ")}</strong>
-                  {shippingNoticeData.notification.sentAt ? <span>Last sent: {new Date(shippingNoticeData.notification.sentAt).toLocaleString()}</span> : null}
+                  <strong>Previous notice: {shippingNoticeStatusLabel(shippingNoticeStatus)}</strong>
+                  {(shippingNoticeData.sentAt || shippingNoticeData.notification.sentAt) ? <span>Last sent: {new Date(shippingNoticeData.sentAt || shippingNoticeData.notification.sentAt).toLocaleString()}</span> : null}
                   {shippingNoticeData.cooldownUntil ? <span>Next resend: {new Date(shippingNoticeData.cooldownUntil).toLocaleString()}</span> : null}
-                  {(shippingNoticeCanResend || shippingNoticeData.canOverride) && !shippingNoticeSuccess ? (
-                    <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={() => setShippingNoticeMode("resend")}>
-                      Resend Shipping Notice
-                    </button>
-                  ) : null}
                   {shippingNoticeData.notification.status === "retryable_failed" && !shippingNoticeSuccess ? (
                     <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={() => void handleRetryShippingNotice()}>
                       Retry Failed Delivery
                     </button>
                   ) : null}
                 </div>
+              ) : null}
+              {shippingCooldownActive && !shippingNoticeSuccess ? (
+                <p className="admin-orders-shipping-modal__cooldown" role="status">
+                  The 48-hour resend cooldown is active. Normal resend is unavailable for {formatCooldownRemaining(shippingNoticeData.cooldownUntil) || "a short time"}.
+                  {shippingNoticeData.cooldownUntil ? ` Next eligible resend: ${new Date(shippingNoticeData.cooldownUntil).toLocaleString()}.` : ""}
+                </p>
               ) : null}
               {shippingNoticeMode === "resend" && !shippingNoticeSuccess ? (
                 <div className="admin-orders-shipping-modal__override">
@@ -1768,11 +1815,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
             </div>
             <footer className="admin-orders-modal__actions admin-orders-shipping-modal__actions">
               <button type="button" className="admin-orders-modal__button admin-orders-modal__button--ghost" onClick={closeShippingModal}>Cancel</button>
-              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--primary" onClick={handleSendShippingNotice} disabled={shippingNoticeSaving || Boolean(shippingNoticeSuccess) || shippingNoticeIneligible || shippingNoticeNeedsOverride}>
+              <button type="button" className="admin-orders-modal__button admin-orders-modal__button--primary" onClick={handleSendShippingNotice} disabled={shippingNoticeSaving || Boolean(shippingNoticeSuccess) || shippingNoticeIneligible || shippingNoticeNeedsOverride || shippingNoticeOverrideMissingReason || shippingNoticeSubmissionBlocked}>
                 <svg className="admin-orders-modal__button-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="m4 4 16 8-16 8 3-8-3-8Zm3.5 8h8.25" />
                 </svg>
-                <span>{shippingNoticeSaving ? "Sending..." : shippingNoticeSuccess ? "Notice sent" : shippingNoticeMode === "resend" ? "Queue Resend" : "Send Payment Notice"}</span>
+                <span>{shippingNoticeSaving ? "Queuing..." : shippingNoticeSuccess ? "Notice queued" : shippingNoticeMode === "resend" ? "Queue Resend" : "Send Shipping Payment Notice"}</span>
               </button>
             </footer>
           </div>

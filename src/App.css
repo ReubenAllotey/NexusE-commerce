@@ -37951,6 +37951,8 @@ body[data-theme="dark"] .shop-page .shop-summary {
 
 .admin-orders-shipping-modal__body {
   gap: 0.85rem;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .admin-orders-shipping-modal__details,
@@ -38040,7 +38042,62 @@ body[data-theme="dark"] .shop-page .shop-summary {
 }
 
 .admin-orders-shipping-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
   padding-top: 0.1rem;
+}
+
+.admin-orders-shipping-modal__history {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.8rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  background: #f8fafc;
+  overflow-wrap: anywhere;
+}
+
+.admin-orders-shipping-modal__history > span {
+  color: #52627a;
+  font-size: 0.78rem;
+}
+
+.admin-orders-shipping-modal__cooldown {
+  margin: 0;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid rgba(180, 83, 9, 0.24);
+  border-radius: 0.75rem;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.admin-orders-shipping-modal__override {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.admin-orders-shipping-modal__override label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #52627a;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.admin-orders-shipping-modal__override input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.65rem;
+  background: #fff;
+  color: #172033;
+  font: inherit;
 }
 
 .admin-orders-bulk-shipping-modal__panel {
@@ -38185,6 +38242,31 @@ body[data-theme="dark"] .admin-orders-shipping-modal__summary strong {
 body[data-theme="dark"] .admin-orders-shipping-modal__summary {
   border-color: #2b3648;
   background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__history {
+  border-color: #2b3648;
+  background: #182235;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__history > span {
+  color: #a9b8ce;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__cooldown {
+  border-color: rgba(251, 191, 36, 0.3);
+  background: rgba(120, 53, 15, 0.25);
+  color: #fde68a;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__override label {
+  color: #a9b8ce;
+}
+
+body[data-theme="dark"] .admin-orders-shipping-modal__override input[type="text"] {
+  border-color: #43516a;
+  background: #111827;
+  color: #f8fafc;
 }
 
 body[data-theme="dark"] .admin-orders-shipping-modal__summary .is-due {
