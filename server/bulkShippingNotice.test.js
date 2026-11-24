@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 import test from "node:test";
 import {
   evaluateShippingNoticeEligibility,
@@ -15,6 +16,13 @@ const migrationSource = await readFile(
 const adminOrdersSource = await readFile(
   new URL("../src/pages/Admin/AdminOrdersPage.jsx", import.meta.url),
   "utf8",
+);
+const actionHelperStart = adminOrdersSource.indexOf("export function getShippingNoticeActionState");
+const actionHelperEnd = adminOrdersSource.indexOf("\nfunction getOrderItemCount", actionHelperStart);
+const actionHelperContext = {};
+vm.runInNewContext(
+  `${adminOrdersSource.slice(actionHelperStart, actionHelperEnd).replace(/^export /, "")}\nthis.getShippingNoticeActionState = getShippingNoticeActionState;`,
+  actionHelperContext,
 );
 
 const account = (id, email = `${id}@example.com`) => ({
@@ -190,8 +198,46 @@ test("shipping notice modal explains cooldowns and uses one stateful primary act
   assert.match(adminOrdersSource, /formatCooldownRemaining/);
   assert.match(adminOrdersSource, /Notice queued/);
   assert.match(adminOrdersSource, /shippingNoticeOverrideMissingReason/);
+  assert.match(adminOrdersSource, /shippingNoticeHistoryLoading/);
+  assert.match(adminOrdersSource, /getShippingNoticeActionState/);
+  assert.match(adminOrdersSource, /shippingNoticeHistoryRequestRef/);
+  assert.match(adminOrdersSource, /Loading authoritative shipping notice history/);
+  assert.match(adminOrdersSource, /disabled=\{shippingNoticeSaving \|\| Boolean\(shippingNoticeSuccess\) \|\| shippingNoticeIneligible \|\| shippingNoticeNeedsOverride \|\| shippingNoticeOverrideMissingReason \|\| shippingNoticeSubmissionBlocked\}/);
   assert.match(adminOrdersSource, /historyResponse = await fetch\(`\/api\/admin\/shipping-payment-notice\?orderId=/);
   assert.doesNotMatch(adminOrdersSource, /onClick=\{\(\) => setShippingNoticeMode\("resend"\)\}/);
+});
+
+test("shipping notice action mode follows loaded history and fails closed during loading", () => {
+  const decide = actionHelperContext.getShippingNoticeActionState;
+  assert.equal(decide({ history: null, historyLoading: true }).mode, "loading");
+  assert.equal(decide({ history: {}, historyLoading: false }).mode, "initial");
+  assert.equal(decide({
+    history: { notification: { status: "sent" }, cooldownActive: true, canResend: false },
+    historyLoading: false,
+  }).mode, "resend");
+  assert.equal(decide({
+    history: { notification: { status: "sent" }, cooldownActive: true, canResend: false },
+    historyLoading: false,
+  }).submissionBlocked, true);
+  assert.equal(decide({
+    history: { notification: { status: "sent" }, cooldownActive: true, canResend: false },
+    historyLoading: false,
+    override: true,
+  }).missingOverrideReason, true);
+  assert.equal(decide({
+    history: { notification: { status: "sent" }, cooldownActive: true, canResend: false },
+    historyLoading: false,
+    override: true,
+    overrideReason: "Customer requested an early resend",
+  }).submissionBlocked, false);
+  assert.equal(decide({
+    history: { notification: { status: "retryable_failed" }, cooldownActive: false, canResend: false },
+    historyLoading: false,
+  }).retryableFailed, true);
+  assert.equal(decide({
+    history: { notification: { status: "sent" }, cooldownActive: false, canResend: true },
+    historyLoading: false,
+  }).submissionBlocked, false);
 });
 
 test("bulk HTTP routes enforce auth and execute the real preview and job creation handlers", async (t) => {

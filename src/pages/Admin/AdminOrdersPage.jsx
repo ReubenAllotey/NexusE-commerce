@@ -69,6 +69,36 @@ function shippingNoticeStatusLabel(status) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+export function getShippingNoticeActionState({
+  history = null,
+  historyLoading = false,
+  override = false,
+  overrideReason = "",
+} = {}) {
+  const hasPrevious = Boolean(history?.notification);
+  const mode = historyLoading ? "loading" : hasPrevious ? "resend" : "initial";
+  const cooldownActive = Boolean(history?.cooldownActive);
+  const canResend = Boolean(history?.canResend);
+  const retryableFailed = history?.notification?.status === "retryable_failed";
+  const needsOverride = mode === "resend" && cooldownActive && !override;
+  const missingOverrideReason = override && !String(overrideReason).trim();
+  const submissionBlocked = historyLoading
+    || !history
+    || (hasPrevious && !canResend && !(cooldownActive && override))
+    || missingOverrideReason;
+
+  return {
+    mode,
+    cooldownActive,
+    canResend,
+    retryableFailed,
+    showOverride: mode === "resend" && cooldownActive,
+    needsOverride,
+    missingOverrideReason,
+    submissionBlocked,
+  };
+}
+
 function getOrderItemCount(order) {
   return Array.isArray(order?.items)
     ? order.items.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0)
@@ -297,7 +327,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
   const [shippingNoticeError, setShippingNoticeError] = useState("");
   const [shippingNoticeSuccess, setShippingNoticeSuccess] = useState("");
   const [shippingNoticeData, setShippingNoticeData] = useState(null);
-  const [shippingNoticeMode, setShippingNoticeMode] = useState("initial");
+  const [shippingNoticeHistoryLoading, setShippingNoticeHistoryLoading] = useState(false);
   const [shippingNoticeOverride, setShippingNoticeOverride] = useState(false);
   const [shippingNoticeOverrideReason, setShippingNoticeOverrideReason] = useState("");
   const [bulkShippingPreview, setBulkShippingPreview] = useState(null);
@@ -322,6 +352,7 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
   const [paymentNoticeOverride, setPaymentNoticeOverride] = useState(false);
   const [paymentNoticeOverrideReason, setPaymentNoticeOverrideReason] = useState("");
   const ordersRefreshInFlightRef = useRef(false);
+  const shippingNoticeHistoryRequestRef = useRef(0);
 
   const session = authUser ?? loadAdminSession();
   const activeStatusOrder = useMemo(
@@ -365,17 +396,19 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
     activeShippingOrder
       && (shippingAccounting.outstandingShipping <= 0 || shippingOrderCancelled),
   );
-  const shippingCooldownActive = Boolean(shippingNoticeData?.cooldownActive);
-  const shippingNoticeCanResend = Boolean(shippingNoticeData?.canResend);
-  const shippingNoticeHasPrevious = Boolean(shippingNoticeData?.notification);
+  const shippingNoticeAction = getShippingNoticeActionState({
+    history: shippingNoticeData,
+    historyLoading: shippingNoticeHistoryLoading,
+    override: shippingNoticeOverride,
+    overrideReason: shippingNoticeOverrideReason,
+  });
+  const shippingNoticeMode = shippingNoticeAction.mode;
+  const shippingCooldownActive = shippingNoticeAction.cooldownActive;
+  const shippingNoticeCanResend = shippingNoticeAction.canResend;
   const shippingNoticeStatus = shippingNoticeData?.notification?.status || shippingNoticeData?.email?.status || "queued";
-  const shippingNoticeNeedsOverride = shippingNoticeMode === "resend"
-    && shippingCooldownActive
-    && !shippingNoticeOverride;
-  const shippingNoticeOverrideMissingReason = shippingNoticeOverride && !shippingNoticeOverrideReason.trim();
-  const shippingNoticeSubmissionBlocked = shippingNoticeHasPrevious
-    && !shippingNoticeCanResend
-    && !(shippingCooldownActive && shippingNoticeOverride);
+  const shippingNoticeNeedsOverride = shippingNoticeAction.needsOverride;
+  const shippingNoticeOverrideMissingReason = shippingNoticeAction.missingOverrideReason;
+  const shippingNoticeSubmissionBlocked = shippingNoticeAction.submissionBlocked;
   const hasOpenModal = Boolean(activeViewOrder || activeStatusOrder || activeShippingOrder || activePaymentNoticeOrder || bulkShippingPreview);
   const {
     shipmentsByOrderId,
@@ -529,11 +562,11 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
 
   const closeShippingModal = () => {
     setShippingPaymentOrderId(null);
+    shippingNoticeHistoryRequestRef.current += 1;
     setShippingNoticeSaving(false);
     setShippingNoticeError("");
     setShippingNoticeSuccess("");
     setShippingNoticeData(null);
-    setShippingNoticeMode("initial");
     setShippingNoticeOverride(false);
     setShippingNoticeOverrideReason("");
   };
@@ -677,11 +710,13 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
   };
 
   const openShippingModal = (order) => {
+    const requestId = shippingNoticeHistoryRequestRef.current + 1;
+    shippingNoticeHistoryRequestRef.current = requestId;
     setShippingPaymentOrderId(order.id);
     setShippingNoticeError("");
     setShippingNoticeSuccess("");
     setShippingNoticeData(null);
-    setShippingNoticeMode("initial");
+    setShippingNoticeHistoryLoading(true);
     setShippingNoticeOverride(false);
     setShippingNoticeOverrideReason("");
     void (async () => {
@@ -693,9 +728,15 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || result?.ok === false) throw new Error(result?.message || "Unable to load shipping notice history.");
+        if (shippingNoticeHistoryRequestRef.current !== requestId) return;
         setShippingNoticeData(result);
       } catch (error) {
+        if (shippingNoticeHistoryRequestRef.current !== requestId) return;
         setShippingNoticeError(error instanceof Error ? error.message : "Unable to load shipping notice history.");
+      } finally {
+        if (shippingNoticeHistoryRequestRef.current === requestId) {
+          setShippingNoticeHistoryLoading(false);
+        }
       }
     })();
   };
@@ -891,7 +932,6 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
       }
       if (history) {
         setShippingNoticeData(history);
-        setShippingNoticeMode(history.notification ? "resend" : "initial");
       } else {
         setShippingNoticeData((current) => ({
           ...current,
@@ -1771,6 +1811,9 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
               ) : null}
               {shippingNoticeError ? <p className="admin-orders-modal__error">{shippingNoticeError}</p> : null}
               {shippingNoticeSuccess ? <p className="admin-orders-modal__success">{shippingNoticeSuccess}</p> : null}
+              {shippingNoticeHistoryLoading ? (
+                <p className="admin-orders-shipping-modal__info" role="status">Loading authoritative shipping notice history...</p>
+              ) : null}
               {shippingNoticeData?.notification ? (
                 <div className="admin-orders-shipping-modal__history" role="status">
                   <strong>Previous notice: {shippingNoticeStatusLabel(shippingNoticeStatus)}</strong>
