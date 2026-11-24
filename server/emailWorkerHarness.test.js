@@ -276,6 +276,7 @@ function buildHarness(state, {
     } },
     paystackSecret: "fictional-paystack-secret",
     GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS: 30 * 60,
+    SHIPPING_PAYMENT_REMINDER_TOKEN_TTL_SECONDS: 48 * 60 * 60,
     isTruthyEnv: (value) => ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase()),
     emailWorkerRunning: workerAlreadyRunning,
     supabaseAdmin: supabaseAvailable ? createSupabaseMock(state) : null,

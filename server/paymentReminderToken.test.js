@@ -41,6 +41,7 @@ const context = {
   Date,
   crypto,
   GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS: 30 * 60,
+  SHIPPING_PAYMENT_REMINDER_TOKEN_TTL_SECONDS: 48 * 60 * 60,
   process: { env: { GUEST_CHECKOUT_ACCESS_SECRET: "fictional-reminder-secret" } },
   paystackSecret: "unused-fictional-paystack-secret",
   clean: (value) => String(value ?? "").trim(),
@@ -52,11 +53,13 @@ vm.runInNewContext(
     "verifyGuestCheckoutAccessToken",
     "createOrderPaymentReminderToken",
     "verifyOrderPaymentReminderToken",
+    "createShippingPaymentReminderToken",
+    "verifyShippingPaymentReminderToken",
     "getPublicAppUrl",
     "buildOrderPaymentReminderUrl",
   ]
     .map(extractFunction)
-    .join("\n") + "\nthis.api = { createOrderPaymentReminderToken, verifyOrderPaymentReminderToken, buildOrderPaymentReminderUrl };",
+    .join("\n") + "\nthis.api = { createOrderPaymentReminderToken, verifyOrderPaymentReminderToken, createShippingPaymentReminderToken, verifyShippingPaymentReminderToken, buildOrderPaymentReminderUrl };",
   context,
   { filename: "server.js payment reminder token harness" },
 );
@@ -64,6 +67,8 @@ vm.runInNewContext(
 const {
   createOrderPaymentReminderToken,
   verifyOrderPaymentReminderToken,
+  createShippingPaymentReminderToken,
+  verifyShippingPaymentReminderToken,
   buildOrderPaymentReminderUrl,
 } = context.api;
 
@@ -81,6 +86,26 @@ test("payment reminder tokens bind to the order and expire", () => {
   })).toString("base64url");
   const signature = crypto.createHmac("sha256", "fictional-reminder-secret").update(payload).digest("base64url");
   assert.equal(verifyOrderPaymentReminderToken(`${payload}.${signature}`, "order-fictional-001"), false);
+});
+
+test("shipping payment reminder tokens remain valid for 48 hours and stay order-bound", () => {
+  const orderId = "order-fictional-shipping-001";
+  const token = createShippingPaymentReminderToken(orderId);
+  const payload = JSON.parse(Buffer.from(token.split(".")[0], "base64url").toString("utf8"));
+
+  assert.equal(payload.expiresAt - payload.issuedAt, 48 * 60 * 60);
+  assert.equal(verifyShippingPaymentReminderToken(token, orderId), true);
+  assert.equal(verifyShippingPaymentReminderToken(token, "order-fictional-shipping-002"), false);
+  assert.equal(verifyShippingPaymentReminderToken(`${token}tampered`, orderId), false);
+
+  const expiredPayload = Buffer.from(JSON.stringify({
+    reference: "shipping-payment-reminder",
+    orderId,
+    issuedAt: Math.floor(Date.now() / 1000) - (49 * 60 * 60),
+    expiresAt: Math.floor(Date.now() / 1000) - 1,
+  })).toString("base64url");
+  const expiredSignature = crypto.createHmac("sha256", "fictional-reminder-secret").update(expiredPayload).digest("base64url");
+  assert.equal(verifyShippingPaymentReminderToken(`${expiredPayload}.${expiredSignature}`, orderId), false);
 });
 
 test("backend Pay Now URLs target the existing payment route with an order-scoped token", () => {

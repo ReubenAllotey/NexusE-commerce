@@ -85,6 +85,7 @@ function clean(value) {
 }
 
 const GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS = 30 * 60;
+const SHIPPING_PAYMENT_REMINDER_TOKEN_TTL_SECONDS = 48 * 60 * 60;
 const GUEST_CHECKOUT_COOKIE_PREFIX = "nexus_guest_checkout_";
 
 function guestCheckoutCookieName(reference) {
@@ -118,19 +119,21 @@ function buildGuestCheckoutCookie(reference, token) {
   return `${guestCheckoutCookieName(reference)}=${encodeURIComponent(token)}; Max-Age=${GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS}; Path=/; HttpOnly; Secure; SameSite=Lax`;
 }
 
-function createGuestCheckoutAccessToken(reference, orderId) {
+function createGuestCheckoutAccessToken(reference, orderId, ttlSeconds = GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS) {
   const secret = clean(process.env.GUEST_CHECKOUT_ACCESS_SECRET) || paystackSecret;
+  const issuedAt = Math.floor(Date.now() * 0.001);
   const payload = {
     reference: clean(reference),
     orderId: clean(orderId),
-    expiresAt: Math.floor(Date.now() / 1000) + GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS,
+    issuedAt,
+    expiresAt: issuedAt + ttlSeconds,
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signature = crypto.createHmac("sha256", secret).update(encodedPayload).digest("base64url");
-  return `${encodedPayload}.${signature}`;
+  return encodedPayload + "." + signature;
 }
 
-function verifyGuestCheckoutAccessToken(token, reference, orderId) {
+function verifyGuestCheckoutAccessToken(token, reference, orderId, ttlSeconds = GUEST_CHECKOUT_ACCESS_TOKEN_TTL_SECONDS) {
   const secret = clean(process.env.GUEST_CHECKOUT_ACCESS_SECRET) || paystackSecret;
   const [encodedPayload, providedSignature] = clean(token).split(".");
   if (!secret || !encodedPayload || !providedSignature) return false;
@@ -146,7 +149,8 @@ function verifyGuestCheckoutAccessToken(token, reference, orderId) {
     const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
     return payload?.reference === clean(reference)
       && payload?.orderId === clean(orderId)
-      && Number(payload?.expiresAt) > Math.floor(Date.now() / 1000);
+      && Number(payload?.expiresAt) > Math.floor(Date.now() / 1000)
+      && (!payload?.issuedAt || Number(payload.expiresAt) <= Number(payload.issuedAt) + ttlSeconds);
   } catch {
     return false;
   }
@@ -161,11 +165,11 @@ function verifyOrderPaymentReminderToken(token, orderId) {
 }
 
 function createShippingPaymentReminderToken(orderId) {
-  return createGuestCheckoutAccessToken("shipping-payment-reminder", orderId);
+  return createGuestCheckoutAccessToken("shipping-payment-reminder", orderId, SHIPPING_PAYMENT_REMINDER_TOKEN_TTL_SECONDS);
 }
 
 function verifyShippingPaymentReminderToken(token, orderId) {
-  return verifyGuestCheckoutAccessToken(token, "shipping-payment-reminder", orderId);
+  return verifyGuestCheckoutAccessToken(token, "shipping-payment-reminder", orderId, SHIPPING_PAYMENT_REMINDER_TOKEN_TTL_SECONDS);
 }
 
 function createShippingReceiptAccessToken(orderId, paymentReference) {
