@@ -58,6 +58,8 @@ test("shipping payment context defers until auth restoration and retries for the
   assert.match(paymentSource, /if \(!authReady\) \{[\s\S]*setOrderBalanceLoading\(true\)/);
   assert.match(paymentSource, /\}, \[authReady, authUser\?\.id, paymentIntent\?\.orderId, paymentIntent\?\.purpose, paymentIntent\?\.token\]\);/);
   assert.match(paymentSource, /const canSubmit = canSubmitPayment\(\{ authReady, orderBalanceLoading, isSubmitting, processing \}\);/);
+  assert.match(paymentSource, /function PaymentCheckout\(\{[\s\S]*authReady = false/);
+  assert.match(appSource, /<PaymentPage[\s\S]*authReady=\{authReady\}/);
 });
 
 test("registered confirmation actions continue to use the authenticated account", () => {

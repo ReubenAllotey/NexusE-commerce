@@ -769,6 +769,7 @@ function AppShell({
               ordersLoading={ordersLoading}
               ordersError={ordersError}
               authUser={authUser}
+              authReady={authReady}
               siteBanner={siteBanner}
               onClearCart={onClearCart}
               onReplaceOrders={onReplaceOrders}

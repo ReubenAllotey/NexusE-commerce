@@ -329,6 +329,7 @@ function PaymentCheckout({
   ordersLoading = false,
   ordersError = "",
   authUser = null,
+  authReady = false,
   siteBanner = null,
   onClearCart = () => {},
   onReplaceOrders = () => {},
