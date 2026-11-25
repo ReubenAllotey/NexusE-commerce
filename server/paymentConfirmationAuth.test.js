@@ -80,6 +80,7 @@ test("payment sign-in recovery validates the internal return path and preserves 
   assert.match(paymentSource, /Sign In and Continue Payment/);
   assert.match(paymentSource, /returnTo: buildPaymentSignInReturnTo\(location\.pathname, location\.search\)/);
   assert.match(paymentSource, /error\?\.status === 401 && accessToken/);
+  assert.match(paymentSource, /if \(!authUser && !isShippingBalancePayment && !isOrderBalancePayment\)/);
 });
 
 test("registered confirmation actions continue to use the authenticated account", () => {

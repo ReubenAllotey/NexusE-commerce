@@ -737,7 +737,7 @@ function PaymentCheckout({
         return;
       }
 
-      if (!authUser) {
+      if (!authUser && !isShippingBalancePayment && !isOrderBalancePayment) {
         const initResponse = await initializePaystackCheckout(
           {
             callbackUrl: getCallbackUrl(paymentIntent),
