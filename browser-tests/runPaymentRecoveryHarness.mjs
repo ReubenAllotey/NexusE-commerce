@@ -66,6 +66,7 @@ async function runScenario(browserSocket, scenario) {
 const scenarios = [
   "auth-return",
   "already-authenticated",
+  "authenticated-invalid-bearer",
   "valid-guest-token",
   "expired-guest-token",
   "incorrect-account",
@@ -93,7 +94,7 @@ try {
   for (const scenario of scenarios) {
     const report = await runScenario(browserSocket, scenario);
     const failed = report.results.filter((result) => !result.passed);
-    reports.push({ scenario, passed: failed.length === 0, failed: failed.map((result) => result.name) });
+    reports.push({ scenario, passed: failed.length === 0, failed });
   }
   console.log(JSON.stringify({ scenarios: reports }, null, 2));
   if (reports.some((report) => !report.passed)) process.exitCode = 1;

@@ -3,6 +3,7 @@ console.info("HARNESS_MOCK_LOADED");
 const state = {
   session: null,
   scenario: "auth-return",
+  refreshCount: 0,
   listeners: new Set(),
 };
 
@@ -25,13 +26,17 @@ function sessionFor(user = customer) {
 export const mockAuth = {
   configure(nextScenario) {
     state.scenario = nextScenario;
-    state.session = nextScenario === "already-authenticated" ? sessionFor() : null;
+    state.refreshCount = 0;
+    state.session = ["already-authenticated", "authenticated-invalid-bearer"].includes(nextScenario) ? sessionFor() : null;
   },
   getSession() {
     return state.session;
   },
   getScenario() {
     return state.scenario;
+  },
+  getRefreshCount() {
+    return state.refreshCount;
   },
 };
 
@@ -61,6 +66,12 @@ export const supabase = {
       for (const listener of state.listeners) listener("SIGNED_IN", state.session);
       return { data: { session: state.session }, error: null };
     },
+    refreshSession: async () => {
+      state.refreshCount += 1;
+      state.session = { ...sessionFor(customer), access_token: "synthetic-access-refreshed-customer-1" };
+      for (const listener of state.listeners) listener("TOKEN_REFRESHED", state.session);
+      return { data: { session: state.session }, error: null };
+    },
   },
   from: () => profileQuery,
 };
@@ -68,5 +79,6 @@ export const supabase = {
 export function resetMockAuth() {
   state.session = null;
   state.scenario = "auth-return";
+  state.refreshCount = 0;
   state.listeners.clear();
 }

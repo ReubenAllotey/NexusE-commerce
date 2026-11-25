@@ -109,6 +109,10 @@ function syntheticFetch(url, options = {}) {
   }
 
   if (String(url) === "/api/paystack/initialize") {
+    const attemptNumber = (window.__paymentHarnessInitializationAttempts || 0) + 1;
+    const authorizationKind = request.headers.Authorization?.includes("refreshed") ? "refreshed" : request.headers.Authorization ? "initial" : "missing";
+    window.__paymentHarnessInitializationAttempts = attemptNumber;
+    window.__paymentHarnessInitializationSequence = [...(window.__paymentHarnessInitializationSequence || []), authorizationKind];
     window.__paymentHarnessInitialization = {
       url: request.url,
       method: request.method,
@@ -117,8 +121,14 @@ function syntheticFetch(url, options = {}) {
       orderId: request.body?.orderId,
       paymentTokenPresent: Boolean(request.body?.paymentToken),
       guestCheckout: Boolean(request.body?.guestCheckout),
+      refreshedAuthorization: request.headers.Authorization === "Bearer synthetic-access-refreshed-customer-1",
+      authorizationKind,
+      attempts: attemptNumber,
+      sequence: window.__paymentHarnessInitializationSequence,
     };
-    window.__paymentHarnessInitializationAttempts = (window.__paymentHarnessInitializationAttempts || 0) + 1;
+    if (mockAuth.getScenario() === "authenticated-invalid-bearer" && window.__paymentHarnessInitializationAttempts === 1) {
+      return Promise.resolve(new Response(JSON.stringify({ ok: false, message: "Please sign in to continue." }), { status: 401 }));
+    }
     if (mockAuth.getScenario() === "duplicate-payment") {
       return Promise.resolve(new Response(JSON.stringify({ ok: false, message: "This shipping payment is already being prepared." }), { status: 409 }));
     }
@@ -129,6 +139,12 @@ function syntheticFetch(url, options = {}) {
       orderId: request.body?.orderId,
       paymentTokenPresent: Boolean(request.body?.paymentToken),
       guestCheckout: Boolean(request.body?.guestCheckout),
+      refreshedAuthorization: request.headers.Authorization === "Bearer synthetic-access-refreshed-customer-1",
+      authorizationKind,
+      attempts: attemptNumber,
+      sequence: window.__paymentHarnessInitializationSequence,
+      refreshCount: mockAuth.getRefreshCount(),
+      sameCustomer: mockAuth.getSession()?.user?.id === "synthetic-customer-1",
     }));
     return Promise.resolve(new Response(JSON.stringify({
       ok: true,
@@ -187,9 +203,10 @@ async function runJourney() {
     sessionStorage.removeItem("payment-harness-results");
     sessionStorage.removeItem("payment-harness-scenario");
     const init = JSON.parse(completedInitialization);
-    const shippingScenario = ["auth-return", "already-authenticated", "valid-guest-token"].includes(completedScenario);
+    const shippingScenario = ["auth-return", "already-authenticated", "authenticated-invalid-bearer", "valid-guest-token"].includes(completedScenario);
     const orderBalanceScenario = completedScenario === "order-balance";
-    document.body.innerHTML = `<pre id="harness-result">${JSON.stringify({ scenario: completedScenario, results: [...priorResults, { name: "payment submission reached initialization", passed: true }, { name: shippingScenario ? "initialization used shipping purpose" : orderBalanceScenario ? "initialization used order-balance purpose" : "standard checkout used order purpose", passed: shippingScenario ? init.paymentPurpose === "shipping-balance" : orderBalanceScenario ? init.paymentPurpose === "order-balance" : init.paymentPurpose === "order" }, { name: shippingScenario || orderBalanceScenario ? "initialization used existing order" : "standard checkout remained guest checkout", passed: shippingScenario || orderBalanceScenario ? init.orderId === syntheticOrder.id : init.guestCheckout }, { name: "initialization used authorization", passed: ["valid-guest-token", "standard-guest-valid", "order-balance"].includes(completedScenario) ? !init.authorizationPresent : init.authorizationPresent }, { name: "guest token supplied", passed: ["valid-guest-token", "order-balance"].includes(completedScenario) ? init.paymentTokenPresent : true }] })}</pre>`;
+    const completedResults = [...priorResults, { name: "payment submission reached initialization", passed: true }, { name: shippingScenario ? "initialization used shipping purpose" : orderBalanceScenario ? "initialization used order-balance purpose" : "standard checkout used order purpose", passed: shippingScenario ? init.paymentPurpose === "shipping-balance" : orderBalanceScenario ? init.paymentPurpose === "order-balance" : init.paymentPurpose === "order" }, { name: shippingScenario || orderBalanceScenario ? "initialization used existing order" : "standard checkout remained guest checkout", passed: shippingScenario || orderBalanceScenario ? init.orderId === syntheticOrder.id : init.guestCheckout }, { name: "initialization used authorization", passed: ["valid-guest-token", "standard-guest-valid", "order-balance"].includes(completedScenario) ? !init.authorizationPresent : init.authorizationPresent }, { name: "guest token supplied", passed: ["valid-guest-token", "order-balance"].includes(completedScenario) ? init.paymentTokenPresent : true }, ...(completedScenario === "authenticated-invalid-bearer" ? [{ name: "stale bearer recovered with refreshed session", passed: init.refreshedAuthorization && init.attempts === 2 && init.refreshCount === 1 && init.sameCustomer, detail: JSON.stringify({ authorizationKind: init.authorizationKind, attempts: init.attempts, refreshCount: init.refreshCount, sameCustomer: init.sameCustomer, sequence: init.sequence }) }] : [])];
+    document.body.innerHTML = `<pre id="harness-result">${JSON.stringify({ scenario: completedScenario, results: completedResults })}</pre>`;
     return;
   }
 
@@ -256,6 +273,12 @@ async function runJourney() {
       record("already-authenticated context used authorization", window.__paymentHarnessRequests.some((request) => request.headers.Authorization === "Bearer synthetic-access-synthetic-customer-1"));
       record("already-authenticated customer saw no recovery panel", !document.querySelector(".payment-auth-recovery"));
       sessionStorage.setItem("payment-harness-scenario", "already-authenticated");
+      sessionStorage.setItem("payment-harness-results", JSON.stringify(results));
+      await submitShippingPayment();
+    } else if (scenario === "authenticated-invalid-bearer") {
+      await waitForEnabled(".payment-submit");
+      record("stale authenticated customer reached payment form", true);
+      sessionStorage.setItem("payment-harness-scenario", scenario);
       sessionStorage.setItem("payment-harness-results", JSON.stringify(results));
       await submitShippingPayment();
     } else if (scenario === "valid-guest-token") {

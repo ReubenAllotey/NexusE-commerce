@@ -81,6 +81,10 @@ test("payment sign-in recovery validates the internal return path and preserves 
   assert.match(paymentSource, /returnTo: buildPaymentSignInReturnTo\(location\.pathname, location\.search\)/);
   assert.match(paymentSource, /error\?\.status === 401 && accessToken/);
   assert.match(paymentSource, /if \(!authUser && !isShippingBalancePayment && !isOrderBalancePayment\)/);
+  assert.match(paymentSource, /initializationError\?\.status !== 401 \|\| !authUser\?\.id/);
+  assert.match(paymentSource, /supabase\.auth\.refreshSession\(\)/);
+  assert.match(paymentSource, /setPaymentAuthRequired\(true\)/);
+  assert.match(paymentSource, /retryError\?\.status === 401/);
 });
 
 test("registered confirmation actions continue to use the authenticated account", () => {

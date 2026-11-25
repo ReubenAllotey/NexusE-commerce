@@ -894,22 +894,56 @@ function PaymentCheckout({
         }
       }
 
-      const initResponse = await initializePaystackCheckout(
-        {
-          callbackUrl: getCallbackUrl(paymentIntent),
-          orderId: pendingOrder.id,
-          orderNumber: pendingOrder.orderNumber,
-          paymentPurpose: isShippingBalancePayment ? "shipping-balance" : "order",
-          paymentToken: isShippingBalancePayment && !authUser?.id ? paymentIntent.token : undefined,
-          paymentMethod,
-          paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
-          paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
-          shippingBalanceDue: isShippingBalancePayment ? summaryTotal : 0,
-          shippingPaymentPreference,
-          batchNumber: pendingOrder.batchNumber ?? checkoutBatchNumber,
-        },
-        { accessToken: tokenResult.accessToken },
-      );
+      const initializationPayload = {
+        callbackUrl: getCallbackUrl(paymentIntent),
+        orderId: pendingOrder.id,
+        orderNumber: pendingOrder.orderNumber,
+        paymentPurpose: isShippingBalancePayment ? "shipping-balance" : "order",
+        paymentToken: isShippingBalancePayment && !authUser?.id ? paymentIntent.token : undefined,
+        paymentMethod,
+        paymentNetwork: paymentMethod === "mobile-money" ? mobileNetwork : "",
+        paymentPhoneNumber: paymentMethod === "mobile-money" ? mobileNumber : "",
+        shippingBalanceDue: isShippingBalancePayment ? summaryTotal : 0,
+        shippingPaymentPreference,
+        batchNumber: pendingOrder.batchNumber ?? checkoutBatchNumber,
+      };
+
+      let initResponse;
+      try {
+        initResponse = await initializePaystackCheckout(
+          initializationPayload,
+          { accessToken: tokenResult.accessToken },
+        );
+      } catch (initializationError) {
+        if (initializationError?.status !== 401 || !authUser?.id) {
+          throw initializationError;
+        }
+
+        const refreshedSessionResult = await supabase.auth.refreshSession();
+        const refreshedAccessToken = refreshedSessionResult.data?.session?.access_token ?? "";
+        if (refreshedSessionResult.error || !refreshedAccessToken) {
+          setPaymentAuthRequired(true);
+          setOrderBalanceContext(null);
+          initializationError.code = "shipping_auth_required";
+          initializationError.message = "Your sign-in session has expired. Please sign in again to continue.";
+          throw initializationError;
+        }
+
+        try {
+          initResponse = await initializePaystackCheckout(
+            initializationPayload,
+            { accessToken: refreshedAccessToken },
+          );
+        } catch (retryError) {
+          if (retryError?.status === 401) {
+            setPaymentAuthRequired(true);
+            setOrderBalanceContext(null);
+            retryError.code = "shipping_auth_required";
+            retryError.message = "Your sign-in session has expired. Please sign in again to continue.";
+          }
+          throw retryError;
+        }
+      }
 
       const paystackData = initResponse?.data ?? {};
       const paymentReference = clean(paystackData.reference);
