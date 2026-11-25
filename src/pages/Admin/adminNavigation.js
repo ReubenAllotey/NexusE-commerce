@@ -4,6 +4,7 @@ export const adminNavItems = [
   { to: "/admin/batch-management", label: "Batch Management" },
   { to: "/admin/batch-summary", label: "Batch Summary" },
   { to: "/admin/products", label: "Products" },
+  { to: "/admin/exchange-rates", label: "Exchange Rates" },
   { to: "/admin/customers", label: "Customers" },
   { to: "/admin/notifications", label: "Notifications" },
   { to: "/admin/flashy-sales", label: "Flashy Sales" },

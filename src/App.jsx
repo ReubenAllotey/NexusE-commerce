@@ -87,6 +87,7 @@ const AnnouncementPage = lazy(() => import("./pages/Admin/announcement/announcem
 const AdminProductsPage = lazy(() => import("./pages/Admin/products/products"));
 const AddProductPage = lazy(() => import("./pages/Admin/products/addProduct"));
 const EditProductPage = lazy(() => import("./pages/Admin/products/editProduct"));
+const ExchangeRatesPage = lazy(() => import("./pages/Admin/exchangeRates/exchangeRates"));
 const SupportInboxPage = lazy(() => import("./pages/Admin/notification/supportInbox"));
 const AdminNotificationsPage = lazy(() => import("./pages/Admin/notification/notifications"));
 const CategoriesPage = lazy(() => import("./pages/Admin/categories/categories"));
@@ -595,6 +596,7 @@ function AppShell({
             path="/admin/products/:productSlug/edit"
             element={adminGuard(<EditProductPage />)}
           />
+          <Route path="/admin/exchange-rates" element={adminGuard(<ExchangeRatesPage />)} />
           <Route
             path="/admin/support-inbox"
             element={adminGuard(<SupportInboxPage />)}

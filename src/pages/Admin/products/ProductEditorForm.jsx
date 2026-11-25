@@ -414,6 +414,9 @@ function buildImageEntries(value) {
     subcategoryLabel: value?.subcategoryLabel ?? value?.subcategory_label ?? "",
     price: value?.price ?? "",
     compareAt: value?.compareAt ?? "",
+    pricingCurrency: String(value?.pricingCurrency ?? value?.pricing_currency ?? (value?.id ? "GHS" : "CNY")).toUpperCase() === "GHS" ? "GHS" : "CNY",
+    originalCnyPrice: value?.originalCnyPrice ?? value?.original_cny_price ?? (value?.id ? "" : value?.price ?? ""),
+    originalCnyCompareAt: value?.originalCnyCompareAt ?? value?.original_cny_compare_at ?? (value?.id ? "" : value?.compareAt ?? ""),
     shippingFee: value?.shippingFee ?? "",
     shippingMethod: value?.shippingMethod ?? "air-freight",
     availabilityType: value?.availabilityType ?? value?.availability_type ?? DEFAULT_AVAILABILITY_TYPE,
@@ -526,6 +529,9 @@ function ProductEditorForm({
   const [quickCustomHex, setQuickCustomHex] = useState("#1C3FB7");
   const [variationNameChoice, setVariationNameChoice] = useState("");
   const [showAiAssistant, setShowAiAssistant] = useState(false);
+  const [activePricingRate, setActivePricingRate] = useState(
+    Number(initialProduct?.activeExchangeRate ?? initialProduct?.active_exchange_rate ?? 0),
+  );
   const [bulkCombinationValues, setBulkCombinationValues] = useState({
     price: "",
     compareAt: "",
@@ -539,7 +545,28 @@ function ProductEditorForm({
 
   useEffect(() => {
     setFormData(buildImageEntries(initialProduct));
+    setActivePricingRate(Number(initialProduct?.activeExchangeRate ?? initialProduct?.active_exchange_rate ?? 0));
   }, [initialProduct]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRate = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const response = await fetch("/api/admin/exchange-rates", {
+          headers: data?.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {},
+        });
+        const payload = await response.json().catch(() => ({}));
+        const settings = payload?.settings;
+        const rate = Number(settings?.activePricingMode === "live" ? settings?.liveRate : settings?.manualRate);
+        if (!cancelled && Number.isFinite(rate) && rate > 0) setActivePricingRate(rate);
+      } catch {
+        // The editor can still save GHS products when rate preview is unavailable.
+      }
+    };
+    loadRate();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!variationModal && !variationDeleteTarget) {
@@ -612,6 +639,11 @@ function ProductEditorForm({
       [name]: value,
       }));
   };
+
+  const previewCnyPrice = Number(formData.originalCnyPrice);
+  const previewGhsPrice = Number.isFinite(previewCnyPrice) && Number.isFinite(activePricingRate) && activePricingRate > 0
+    ? (Math.round((previewCnyPrice * activePricingRate + Number.EPSILON) * 100) / 100).toFixed(2)
+    : "";
 
   const handleApplyAiDraft = (draft) => {
     const suggestedGroups = (Array.isArray(draft?.variationSuggestions) ? draft.variationSuggestions : [])
@@ -1328,28 +1360,42 @@ function ProductEditorForm({
           </div>
 
         <Field>
-          <span>Price</span>
-          <input
-            type="number"
-            name="price"
-            value={formData.price}
-            onChange={handleChange}
-            min="0"
-            step="0.01"
-            placeholder="0.00"
-            required
-          />
+          <span>Pricing Currency</span>
+          <select name="pricingCurrency" value={formData.pricingCurrency} onChange={handleChange}>
+            <option value="CNY">Chinese Yuan (CNY)</option>
+            <option value="GHS">Ghana Cedi (GHS)</option>
+          </select>
+          <small className="admin-product-form__hint">
+            New products default to CNY. Existing GHS products remain GHS until explicitly changed.
+          </small>
         </Field>
 
         <Field>
-          <span>Compare At</span>
+          <span>{formData.pricingCurrency === "CNY" ? "Product price (CNY)" : "Price (GHS)"}</span>
           <input
             type="number"
-            name="compareAt"
-            value={formData.compareAt}
+            name={formData.pricingCurrency === "CNY" ? "originalCnyPrice" : "price"}
+            value={formData.pricingCurrency === "CNY" ? formData.originalCnyPrice : formData.price}
             onChange={handleChange}
             min="0"
-            step="0.01"
+            step="0.000001"
+            placeholder="0.00"
+            required
+          />
+          {formData.pricingCurrency === "CNY" && previewGhsPrice ? (
+            <small className="admin-product-form__hint">Preview at current active rate: GH₵{previewGhsPrice}</small>
+          ) : null}
+        </Field>
+
+        <Field>
+          <span>{formData.pricingCurrency === "CNY" ? "Compare-at price (CNY)" : "Compare At (GHS)"}</span>
+          <input
+            type="number"
+            name={formData.pricingCurrency === "CNY" ? "originalCnyCompareAt" : "compareAt"}
+            value={formData.pricingCurrency === "CNY" ? formData.originalCnyCompareAt : formData.compareAt}
+            onChange={handleChange}
+            min="0"
+            step="0.000001"
             placeholder="Optional"
           />
         </Field>
@@ -1608,7 +1654,7 @@ function ProductEditorForm({
                           </label>
 
                           <label className="admin-product-form__variation-inline-field">
-                            <span>Variation Price (GH₵)</span>
+                            <span>Variation Price ({formData.pricingCurrency})</span>
                             <input
                               type="number"
                               min="0"
@@ -1962,7 +2008,7 @@ function ProductEditorForm({
                           />
                         </label>
                         <label className="admin-product-form__variation-inline-field">
-                          <span>Variation Price (GHS)</span>
+                          <span>Variation Price ({formData.pricingCurrency})</span>
                           <input
                             type="number"
                             min="0"

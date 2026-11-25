@@ -583,7 +583,7 @@ function normalizeVariationGroupRow(row = {}, options = [], basePrice = 0, baseC
     id:
       cleanText(row?.id) ||
       slugify(normalizeVariationGroupName(row?.groupName ?? row?.group_name)) ||
-      `variation-group-${displayOrder + 1}`,
+      `variation-group-${(Number(row?.displayOrder ?? row?.display_order) || 0) + 1}`,
     productId: cleanText(row?.productId ?? row?.product_id),
     groupName,
     displayOrder: Math.max(Math.round(Number(row?.displayOrder ?? row?.display_order) || 0), 0),
@@ -1327,8 +1327,12 @@ function buildVariationGroupsFromEditorValues(values = {}, existingProduct = nul
     return explicitGroups.map((group, index) => normalizeVariationGroupInput(group, index));
   }
 
-  const basePrice = normalizeNumber(values?.price ?? existingProduct?.price) ?? 0;
-  const baseCompareAt = normalizeNumber(values?.compareAt ?? existingProduct?.compareAt ?? existingProduct?.compare_at);
+  const basePrice = normalizeNumber(
+    values?.pricingCurrency === "CNY" ? values?.originalCnyPrice : values?.price ?? existingProduct?.price,
+  ) ?? 0;
+  const baseCompareAt = normalizeNumber(
+    values?.pricingCurrency === "CNY" ? values?.originalCnyCompareAt : values?.compareAt ?? existingProduct?.compareAt ?? existingProduct?.compare_at,
+  );
   const derivedGroups = [];
 
   const seriesOptions = buildSeriesOptions(values?.series ?? existingProduct?.series ?? "", basePrice, baseCompareAt);
@@ -1574,6 +1578,9 @@ export function buildProductBundlePayloadFromEditorValues(values = {}, existingP
       name: nextName,
       price: normalizeNumber(values.price) ?? 0,
       compare_at: normalizeNumber(values.compareAt),
+      pricingCurrency: cleanText(values.pricingCurrency ?? values.pricing_currency ?? existing?.pricingCurrency ?? "CNY").toUpperCase() === "GHS" ? "GHS" : "CNY",
+      originalCnyPrice: normalizeNumber(values.originalCnyPrice ?? values.original_cny_price ?? values.price),
+      originalCnyCompareAt: normalizeNumber(values.originalCnyCompareAt ?? values.original_cny_compare_at ?? values.compareAt),
       badge: cleanText(values.badge) || null,
       stock_status: cleanText(values.stockStatus) || DEFAULT_STOCK_STATUS,
       description: cleanText(values.description) || null,
@@ -1648,6 +1655,32 @@ async function queryRpc(functionName, args = {}) {
   }
 
   return createResult(true, { data });
+}
+
+async function savePricedProductBundle(payload) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token ?? "";
+  if (sessionError || !accessToken) {
+    return createResult(false, { message: "Please sign in again before saving a CNY-priced product." });
+  }
+
+  try {
+    const response = await fetch("/api/admin/products/priced", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.ok === false) {
+      return createResult(false, { message: body?.message || "Unable to save the converted product." });
+    }
+    return createResult(true, { data: body.data });
+  } catch {
+    return createResult(false, { message: "Unable to save the converted product right now." });
+  }
 }
 
 function combinationLabel(combination, index) {
@@ -1927,7 +1960,10 @@ export async function saveProductBundle(payload = {}) {
     return mapDbError(error, "Unable to generate a unique product URL.");
   }
 
-  const result = await queryRpc("save_product_bundle", { payload: normalizedPayload });
+  const pricingCurrency = cleanText(normalizedPayload.product?.pricingCurrency).toUpperCase();
+  const result = pricingCurrency === "CNY"
+    ? await savePricedProductBundle(normalizedPayload)
+    : await queryRpc("save_product_bundle", { payload: normalizedPayload });
 
   if (!result.ok) {
     if (/product slug must be unique/i.test(String(result.message ?? ""))) {
@@ -1948,9 +1984,12 @@ export async function saveProductBundle(payload = {}) {
   }
 
   if (Array.isArray(normalizedPayload.variationCombinations)) {
+    const combinationsToSave = Array.isArray(result?.data?.convertedVariationCombinations)
+      ? result.data.convertedVariationCombinations
+      : normalizedPayload.variationCombinations;
     const combinationPayload = await remapSavedProductCombinations(
       productId,
-      normalizedPayload.variationCombinations,
+      combinationsToSave,
     );
     if (!combinationPayload.ok) {
       return combinationPayload;

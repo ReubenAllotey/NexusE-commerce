@@ -26,6 +26,12 @@ import {
   summarizeShippingNoticeResults,
 } from "./server/services/shippingNoticeEligibility.js";
 import { buildReceiptPdfBuffer as buildBrandedReceiptPdfBuffer } from "./server/receiptPdf.js";
+import {
+  convertCnyToGhs,
+  fetchCnyGhsRate,
+  getActiveRate,
+  normalizeExchangeRate,
+} from "./server/services/exchangeRateService.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(ROOT_DIR, "dist");
@@ -1816,6 +1822,292 @@ async function loadProfile(userId) {
 
 function isActiveAdminProfile(profile = null) {
   return profile?.role === "admin" && profile?.status === "active";
+}
+
+function mapExchangeRateSettings(settings = {}) {
+  return {
+    id: settings.id,
+    baseCurrency: settings.base_currency,
+    targetCurrency: settings.target_currency,
+    activePricingMode: settings.active_pricing_mode,
+    manualRate: settings.manual_rate == null ? null : Number(settings.manual_rate),
+    manualRateVersion: settings.manual_rate_version || null,
+    liveRate: settings.live_rate == null ? null : Number(settings.live_rate),
+    liveRateVersion: settings.live_rate_version || null,
+    liveRateProvider: settings.live_rate_provider || null,
+    providerDataTimestamp: settings.provider_data_timestamp || null,
+    providerNextUpdateAt: settings.provider_next_update_at || null,
+    lastSuccessfulFetchAt: settings.last_successful_fetch_at || null,
+    settingsVersion: Number(settings.settings_version || 0),
+    updatedBy: settings.updated_by || null,
+    updatedAt: settings.updated_at || null,
+    cnyProductCount: Number(settings.cny_product_count || 0),
+  };
+}
+
+function getExchangeRateMaxAgeMs() {
+  const hours = Number(process.env.EXCHANGE_RATE_MAX_LIVE_AGE_HOURS);
+  return Number.isFinite(hours) && hours > 0 ? hours * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+}
+
+async function getActiveAdminForRequest(req) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    return { ok: false, status: 401, message: authResult.message || "Please sign in to continue." };
+  }
+  const profileResult = await loadProfile(authResult.user.id);
+  if (!profileResult.ok || !isActiveAdminProfile(profileResult.profile)) {
+    return { ok: false, status: 403, message: "Only active administrators can manage exchange rates." };
+  }
+  return { ok: true, user: authResult.user, profile: profileResult.profile };
+}
+
+async function loadExchangeRateSettings() {
+  const { data, error } = await supabaseAdmin.rpc("get_exchange_rate_settings");
+  if (error || !data) return { ok: false, message: "Unable to load exchange-rate settings." };
+  return { ok: true, settings: mapExchangeRateSettings(data) };
+}
+
+async function updateExchangeRateSettings(values = {}) {
+  const { data, error } = await supabaseAdmin.rpc("update_exchange_rate_settings", {
+    p_active_pricing_mode: values.activePricingMode ?? null,
+    p_manual_rate: values.manualRate ?? null,
+    p_live_rate: values.liveRate ?? null,
+    p_live_rate_provider: values.liveRateProvider ?? null,
+    p_provider_data_timestamp: values.providerDataTimestamp ?? null,
+    p_provider_next_update_at: values.providerNextUpdateAt ?? null,
+    p_last_successful_fetch_at: values.lastSuccessfulFetchAt ?? null,
+    p_live_rate_version: values.liveRateVersion ?? null,
+    p_manual_rate_version: values.manualRateVersion ?? null,
+    p_refresh_lease_token: values.refreshLeaseToken ?? null,
+    p_administrator_id: values.administratorId ?? null,
+    p_change_reason: values.changeReason ?? null,
+  });
+  if (error || !data) return { ok: false, message: "Unable to save exchange-rate settings." };
+  return { ok: true, settings: mapExchangeRateSettings(data) };
+}
+
+async function claimExchangeRateRefreshLease() {
+  const { data, error } = await supabaseAdmin.rpc("claim_exchange_rate_refresh", { p_lease_seconds: 300 });
+  return error || !data ? { ok: false, token: null } : { ok: true, token: data };
+}
+
+async function releaseExchangeRateRefreshLease(token) {
+  if (!token) return;
+  await supabaseAdmin.rpc("release_exchange_rate_refresh", { p_lease_token: token });
+}
+
+async function handleAdminExchangeRates(req, res) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
+  if (req.method !== "GET") return sendJson(res, 405, { ok: false, message: "Method Not Allowed" });
+  const result = await loadExchangeRateSettings();
+  return sendJson(res, result.ok ? 200 : 503, result);
+}
+
+async function handleAdminExchangeRateRefresh(req, res) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
+  let leaseToken = null;
+  try {
+    const lease = await claimExchangeRateRefreshLease();
+    if (!lease.ok) return sendJson(res, 409, { ok: false, message: "Another live exchange-rate refresh is already in progress." });
+    leaseToken = lease.token;
+    const live = await fetchCnyGhsRate({ apiKey: process.env.EXCHANGE_RATE_API_KEY });
+    const result = await updateExchangeRateSettings({
+      liveRate: live.rate,
+      liveRateProvider: live.provider,
+      providerDataTimestamp: live.providerTimestamp,
+      providerNextUpdateAt: live.providerNextUpdateAt,
+      lastSuccessfulFetchAt: live.fetchedAt,
+      liveRateVersion: crypto.randomUUID(),
+      refreshLeaseToken: leaseToken,
+      administratorId: admin.user.id,
+      changeReason: "Manual live-rate refresh",
+    });
+    return sendJson(res, result.ok ? 200 : 503, { ...result, attributionRequired: live.attributionRequired });
+  } catch {
+    return sendJson(res, 503, { ok: false, message: "The live exchange-rate provider is unavailable. The last successful rate was preserved." });
+  } finally {
+    await releaseExchangeRateRefreshLease(leaseToken);
+  }
+}
+
+async function handleAdminExchangeRateManual(req, res) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
+  const body = normalizePayload(await readJsonBody(req));
+  const rate = normalizeExchangeRate(body.rate);
+  if (rate == null) return sendJson(res, 400, { ok: false, message: "Enter a finite exchange rate greater than zero." });
+  const result = await updateExchangeRateSettings({ manualRate: rate, administratorId: admin.user.id, changeReason: clean(body.reason).slice(0, 500) || "Manual business-rate update" });
+  return sendJson(res, result.ok ? 200 : 503, result);
+}
+
+async function handleAdminExchangeRateMode(req, res) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
+  const body = normalizePayload(await readJsonBody(req));
+  const mode = clean(body.mode).toLowerCase();
+  if (!["live", "manual"].includes(mode)) return sendJson(res, 400, { ok: false, message: "Choose live or manual pricing mode." });
+  const result = await updateExchangeRateSettings({ activePricingMode: mode, administratorId: admin.user.id, changeReason: clean(body.reason).slice(0, 500) || "Pricing mode change" });
+  return sendJson(res, result.ok ? 200 : 409, result);
+}
+
+async function handleAdminExchangeRateHistory(req, res) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
+  const limit = Math.min(Math.max(Number(new URL(req.url, `http://${req.headers.host || "localhost"}`).searchParams.get("limit") || 25), 1), 100);
+  const { data, error } = await supabaseAdmin.from("exchange_rate_history").select("id,previous_rate,new_rate,rate_source,previous_pricing_mode,new_pricing_mode,provider,provider_data_timestamp,administrator_id,change_reason,created_at").order("created_at", { ascending: false }).limit(limit);
+  if (error) return sendJson(res, 503, { ok: false, message: "Unable to load exchange-rate history." });
+  return sendJson(res, 200, { ok: true, history: Array.isArray(data) ? data : [] });
+}
+
+function finiteNonNegativeAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 && amount <= 1_000_000_000 ? amount : null;
+}
+
+async function handleAdminPricedProduct(req, res) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
+  const body = normalizePayload(await readJsonBody(req));
+  const product = normalizePayload(body.product);
+  if (clean(product.pricingCurrency ?? product.pricing_currency).toUpperCase() !== "CNY") {
+    return sendJson(res, 400, { ok: false, message: "This endpoint only handles CNY-priced products." });
+  }
+  const settingsResult = await loadExchangeRateSettings();
+  if (!settingsResult.ok) return sendJson(res, 503, settingsResult);
+  const activeRate = getActiveRate(settingsResult.settings, Date.now(), getExchangeRateMaxAgeMs());
+  if (!activeRate.ok) return sendJson(res, 409, { ok: false, message: activeRate.message });
+  const originalCnyPrice = finiteNonNegativeAmount(product.originalCnyPrice ?? product.original_cny_price ?? product.price);
+  const compareInput = product.originalCnyCompareAt ?? product.original_cny_compare_at ?? product.compareAt;
+  const originalCnyCompareAt = compareInput === "" || compareInput == null ? null : finiteNonNegativeAmount(compareInput);
+  if (originalCnyPrice == null || (compareInput !== "" && compareInput != null && originalCnyCompareAt == null)) return sendJson(res, 400, { ok: false, message: "Enter valid non-negative CNY prices." });
+  const convertedPrice = convertCnyToGhs(originalCnyPrice, activeRate.rate);
+  const convertedCompareAt = originalCnyCompareAt == null ? null : convertCnyToGhs(originalCnyCompareAt, activeRate.rate);
+  if (convertedPrice == null || (convertedCompareAt != null && convertedCompareAt < convertedPrice)) return sendJson(res, 400, { ok: false, message: "The converted compare-at price must be at least the converted selling price." });
+  const variantCnyPrices = {};
+  const convertedVariationCombinations = [];
+  try {
+    for (const combination of Array.isArray(body.variationCombinations) ? body.variationCombinations : []) {
+      const key = clean(combination.combinationKey ?? combination.combination_key);
+      const price = finiteNonNegativeAmount(combination.price);
+      const compareAtInput = combination.compareAt === "" || combination.compareAt == null ? null : combination.compareAt;
+      const compareAt = compareAtInput == null ? null : finiteNonNegativeAmount(compareAtInput);
+      if (!key || price == null || (compareAtInput != null && compareAt == null)) throw new Error("Every active variation combination must have valid CNY prices.");
+      const converted = convertCnyToGhs(price, activeRate.rate);
+      const convertedCompare = compareAt == null ? null : convertCnyToGhs(compareAt, activeRate.rate);
+      if (converted == null || (convertedCompare != null && convertedCompare < converted)) throw new Error("A variation compare-at price cannot be below its selling price.");
+      variantCnyPrices[key] = { price, compareAt };
+      convertedVariationCombinations.push({ ...combination, price: converted, compareAt: convertedCompare });
+    }
+  } catch (error) {
+    return sendJson(res, 400, { ok: false, message: error.message || "Invalid variation pricing." });
+  }
+  const serverProduct = { ...product, price: convertedPrice, compareAt: convertedCompareAt };
+  for (const key of ["pricingCurrency", "pricing_currency", "originalCnyPrice", "original_cny_price", "originalCnyCompareAt", "original_cny_compare_at"]) delete serverProduct[key];
+  const { data, error } = await supabaseAdmin.rpc("save_priced_product_bundle", {
+    payload: { ...body, product: serverProduct },
+    pricing_metadata: {
+      product_id: product.id || null,
+      pricing_currency: "CNY",
+      original_cny_price: originalCnyPrice,
+      original_cny_compare_at: originalCnyCompareAt,
+      applied_exchange_rate: activeRate.rate,
+      applied_rate_source: activeRate.source,
+      exchange_rate_version: activeRate.source === "live" ? settingsResult.settings.liveRateVersion : settingsResult.settings.manualRateVersion,
+      variant_cny_prices: variantCnyPrices,
+      last_converted_at: new Date().toISOString(),
+      updated_by: admin.user.id,
+    },
+  });
+  if (error || !data?.product?.id) return sendJson(res, 400, { ok: false, message: error?.message || "Unable to save the converted product." });
+  return sendJson(res, 200, { ok: true, data: { ...data, convertedVariationCombinations, pricing: { originalCnyPrice, appliedRate: activeRate.rate, source: activeRate.source, convertedPrice } } });
+}
+
+function getRepricingPreviewSecret() { return clean(process.env.SUPABASE_SERVICE_ROLE_KEY); }
+function signRepricingPreview(payload) {
+  const secret = getRepricingPreviewSecret();
+  if (!secret) return null;
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${encoded}.${crypto.createHmac("sha256", secret).update(encoded).digest("base64url")}`;
+}
+function verifyRepricingPreview(token) {
+  const secret = getRepricingPreviewSecret();
+  const [encoded, signature] = String(token ?? "").split(".");
+  if (!secret || !encoded || !signature) return null;
+  const expected = crypto.createHmac("sha256", secret).update(encoded).digest("base64url");
+  const provided = Buffer.from(signature); const expectedBuffer = Buffer.from(expected);
+  if (provided.length !== expectedBuffer.length || !crypto.timingSafeEqual(provided, expectedBuffer)) return null;
+  try { const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")); return payload?.expiresAt > Date.now() ? payload : null; } catch { return null; }
+}
+
+async function loadCnyRepricingRows() {
+  const { data: metadata, error: metadataError } = await supabaseAdmin.from("product_pricing_metadata").select("product_id,original_cny_price,original_cny_compare_at,applied_exchange_rate,applied_rate_source,variant_cny_prices,updated_at").eq("pricing_currency", "CNY").order("product_id", { ascending: true });
+  if (metadataError) return { ok: false, message: "Unable to load CNY product pricing metadata." };
+  const ids = (metadata || []).map((row) => row.product_id).filter(Boolean);
+  if (!ids.length) return { ok: true, rows: [] };
+  const [{ data: products, error: productError }, { data: variations, error: variationError }] = await Promise.all([
+    supabaseAdmin.from("products").select("id,name,slug,price,compare_at,primary_image_url,status,deleted_at,updated_at").in("id", ids),
+    supabaseAdmin.from("product_variation_combinations").select("id,product_id,combination_key,updated_at").in("product_id", ids).order("id", { ascending: true }),
+  ]);
+  if (productError || variationError) return { ok: false, message: "Unable to load CNY products." };
+  const productsById = new Map((products || []).map((product) => [product.id, product]));
+  const variationsByProductId = new Map();
+  for (const variation of variations || []) variationsByProductId.set(variation.product_id, [...(variationsByProductId.get(variation.product_id) || []), variation]);
+  return { ok: true, rows: (metadata || []).map((row) => ({ ...row, product: productsById.get(row.product_id), variations: variationsByProductId.get(row.product_id) || [] })).filter((row) => row.product && row.product.status === "active" && !row.product.deleted_at) };
+}
+
+async function resolveRepricingRate(source, requestedRate) {
+  const settingsResult = await loadExchangeRateSettings();
+  if (!settingsResult.ok) return settingsResult;
+  const normalized = clean(source).toLowerCase();
+  if (normalized === "custom") return { ok: false, message: "Save a custom rate as the manual rate before repricing products." };
+  if (normalized === "live") {
+    const rate = normalizeExchangeRate(settingsResult.settings.liveRate);
+    return rate == null ? { ok: false, message: "A live exchange rate is not available." } : { ok: true, rate, source: "live", exchangeRateVersion: settingsResult.settings.liveRateVersion, settings: settingsResult.settings };
+  }
+  if (normalized === "manual") {
+    const rate = normalizeExchangeRate(settingsResult.settings.manualRate);
+    return rate == null ? { ok: false, message: "A manual exchange rate is not configured." } : { ok: true, rate, source: "manual", exchangeRateVersion: settingsResult.settings.manualRateVersion, settings: settingsResult.settings };
+  }
+  const active = getActiveRate(settingsResult.settings, Date.now(), getExchangeRateMaxAgeMs());
+  return active.ok ? { ...active, exchangeRateVersion: active.source === "live" ? settingsResult.settings.liveRateVersion : settingsResult.settings.manualRateVersion, settings: settingsResult.settings } : { ok: false, message: active.message };
+}
+
+async function handleAdminRepricing(req, res, action) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
+  const body = normalizePayload(await readJsonBody(req));
+  const approval = action === "apply" ? verifyRepricingPreview(body.approvalToken) : null;
+  if (action === "apply" && !approval) return sendJson(res, 409, { ok: false, message: "The repricing preview is missing or expired. Generate a new preview." });
+  const rateResult = approval ? { ok: true, rate: approval.rate, source: approval.rateSource, exchangeRateVersion: approval.exchangeRateVersion, settings: {} } : await resolveRepricingRate(body.rateSource || "active", body.rate);
+  if (!rateResult.ok) return sendJson(res, 409, rateResult);
+  const rowsResult = await loadCnyRepricingRows();
+  if (!rowsResult.ok) return sendJson(res, 503, rowsResult);
+  const filterIds = new Set(Array.isArray(body.productIds) ? body.productIds.map(clean).filter(Boolean) : []);
+  const rows = filterIds.size ? rowsResult.rows.filter((row) => filterIds.has(row.product.id)) : rowsResult.rows;
+  const preview = rows.map((row) => ({
+    productId: row.product.id, name: row.product.name, imageUrl: row.product.primary_image_url,
+    originalCnyPrice: Number(row.original_cny_price), originalCnyCompareAt: row.original_cny_compare_at == null ? null : Number(row.original_cny_compare_at),
+    previousRate: Number(row.applied_exchange_rate), newRate: rateResult.rate, currentGhsPrice: Number(row.product.price), currentGhsCompareAt: row.product.compare_at == null ? null : Number(row.product.compare_at),
+    proposedGhsPrice: convertCnyToGhs(row.original_cny_price, rateResult.rate), proposedGhsCompareAt: row.original_cny_compare_at == null ? null : convertCnyToGhs(row.original_cny_compare_at, rateResult.rate),
+    metadataUpdatedAt: row.updated_at, productUpdatedAt: row.product.updated_at, variationVersions: Object.fromEntries(row.variations.map((variation) => [variation.id, variation.updated_at])),
+  }));
+  if (action === "preview") {
+    const exchangeRateVersion = rateResult.exchangeRateVersion;
+    const approvalToken = signRepricingPreview({ rate: rateResult.rate, rateSource: rateResult.source, exchangeRateVersion, productIds: preview.map((row) => row.productId).sort(), expectedProductSnapshots: Object.fromEntries(preview.map((row) => [row.productId, { productUpdatedAt: row.productUpdatedAt, metadataUpdatedAt: row.metadataUpdatedAt, variations: row.variationVersions }])), expiresAt: Date.now() + 10 * 60 * 1000 });
+    if (!approvalToken || !exchangeRateVersion) return sendJson(res, 503, { ok: false, message: "The approved exchange-rate version is unavailable." });
+    return sendJson(res, 200, { ok: true, rate: rateResult.rate, rateSource: rateResult.source, rows: preview, total: preview.length, approvalToken, exchangeRateVersion });
+  }
+  if (!Array.isArray(body.productIds) || body.productIds.length === 0) return sendJson(res, 400, { ok: false, message: "Select at least one CNY-priced product to reprice." });
+  const selectedIds = [...new Set(body.productIds.map(clean).filter(Boolean))].sort();
+  const approvedIds = new Set(approval.productIds);
+  if (selectedIds.some((id) => !approvedIds.has(id))) return sendJson(res, 409, { ok: false, message: "The selected products were not part of the approved preview." });
+  const expectedSnapshots = Object.fromEntries(selectedIds.map((id) => [id, approval.expectedProductSnapshots[id]]));
+  const { data, error } = await supabaseAdmin.rpc("apply_product_currency_repricing", { p_operation_id: crypto.randomUUID(), p_administrator_id: admin.user.id, p_rate: approval.rate, p_rate_source: approval.rateSource, p_exchange_rate_version: approval.exchangeRateVersion, p_product_ids: selectedIds, p_expected_product_versions: expectedSnapshots });
+  if (error || !data) return sendJson(res, 409, { ok: false, message: error?.message?.includes("changed") ? "A selected product changed after preview. Generate a new preview." : "Unable to apply the repricing operation." });
+  return sendJson(res, 200, { ok: true, status: data.status, updatedCount: data.updated_count || 0 });
 }
 
 function normalizeProductAiText(value, maxLength = 4000) {
@@ -8690,6 +8982,46 @@ export function createHttpServer() {
 
   if (pathname === "/api/admin/ai/product-analysis" && req.method === "POST") {
     await handleAnalyzeProduct(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/exchange-rates" && req.method === "GET") {
+    await handleAdminExchangeRates(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/exchange-rates/refresh" && req.method === "POST") {
+    await handleAdminExchangeRateRefresh(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/exchange-rates/manual" && req.method === "PATCH") {
+    await handleAdminExchangeRateManual(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/exchange-rates/mode" && req.method === "PATCH") {
+    await handleAdminExchangeRateMode(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/exchange-rates/history" && req.method === "GET") {
+    await handleAdminExchangeRateHistory(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/products/priced" && req.method === "POST") {
+    await handleAdminPricedProduct(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/exchange-rates/reprice/preview" && req.method === "POST") {
+    await handleAdminRepricing(req, res, "preview");
+    return;
+  }
+
+  if (pathname === "/api/admin/exchange-rates/reprice/apply" && req.method === "POST") {
+    await handleAdminRepricing(req, res, "apply");
     return;
   }
 

@@ -38339,3 +38339,38 @@ body[data-theme="dark"] .admin-orders-shipping-modal__info svg {
     width: 100%;
   }
 }
+.admin-exchange-rates {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 28px clamp(16px, 3vw, 40px) 56px;
+}
+
+.admin-exchange-rates__header,
+.admin-exchange-rates__section-heading,
+.admin-exchange-rates__form-row {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.admin-exchange-rates__header { margin-bottom: 22px; }
+.admin-exchange-rates__header h1 { margin: 4px 0 8px; }
+.admin-exchange-rates__header p { margin: 0; color: var(--muted-text, #667085); }
+.admin-exchange-rates__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.admin-exchange-rates .admin-section-card { min-width: 0; }
+.admin-exchange-rates__grid strong { display: block; font-size: 1.35rem; margin: 8px 0 4px; }
+.admin-exchange-rates__grid small, .admin-exchange-rates__note { color: var(--muted-text, #667085); }
+.admin-exchange-rates__controls > * + * { margin-top: 18px; }
+.admin-exchange-rates label { display: grid; gap: 7px; min-width: min(280px, 100%); font-weight: 600; }
+.admin-exchange-rates input, .admin-exchange-rates select { min-height: 42px; border: 1px solid var(--border-color, #d0d5dd); border-radius: 10px; padding: 8px 10px; background: var(--surface, #fff); color: inherit; }
+.admin-exchange-rates__output { min-width: 140px; min-height: 42px; display: grid; place-items: center; border-radius: 10px; background: var(--surface-muted, #f2f4f7); font-weight: 700; }
+.admin-exchange-rates__table-wrap { overflow-x: auto; margin: 16px 0; }
+.admin-exchange-rates .admin-table { min-width: 620px; }
+@media (max-width: 760px) {
+  .admin-exchange-rates__grid { grid-template-columns: 1fr; }
+  .admin-exchange-rates__header .admin-button { width: 100%; }
+  .admin-exchange-rates__form-row > * { flex: 1 1 100%; }
+  .admin-exchange-rates__form-row button { width: 100%; }
+}
