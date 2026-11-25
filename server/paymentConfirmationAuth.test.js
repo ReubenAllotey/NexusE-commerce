@@ -62,6 +62,26 @@ test("shipping payment context defers until auth restoration and retries for the
   assert.match(appSource, /<PaymentPage[\s\S]*authReady=\{authReady\}/);
 });
 
+test("payment sign-in recovery validates the internal return path and preserves token state", () => {
+  const start = paymentSource.indexOf("export function buildPaymentSignInReturnTo");
+  const end = paymentSource.indexOf("\nfunction isReasonableEmail", start);
+  const context = { clean: (value) => String(value ?? "").trim() };
+  vm.runInNewContext(
+    `${paymentSource.slice(start, end).replace(/^export /gm, "")}\nthis.buildPaymentSignInReturnTo = buildPaymentSignInReturnTo;`,
+    context,
+  );
+
+  assert.equal(
+    context.buildPaymentSignInReturnTo("/payment", "?purpose=shipping-balance&orderId=order-1&token=signed-token"),
+    "/payment?purpose=shipping-balance&orderId=order-1&token=signed-token",
+  );
+  assert.equal(context.buildPaymentSignInReturnTo("https://evil.example", "?token=stolen"), "/payment");
+  assert.match(paymentSource, /shipping_auth_required/);
+  assert.match(paymentSource, /Sign In and Continue Payment/);
+  assert.match(paymentSource, /returnTo: buildPaymentSignInReturnTo\(location\.pathname, location\.search\)/);
+  assert.match(paymentSource, /error\?\.status === 401 && accessToken/);
+});
+
 test("registered confirmation actions continue to use the authenticated account", () => {
   assert.match(paymentSource, /if \(!authUser\?\.id\) \{\s*handleGuestNext\(\);/);
   assert.match(paymentSource, /navigate\("\/profile\/orders"\)/);

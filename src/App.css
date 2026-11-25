@@ -19499,6 +19499,43 @@ body[data-theme="dark"] .admin-notifications-developer-tools { background: rgba(
   box-shadow: none;
 }
 
+.payment-auth-recovery {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  max-width: 42rem;
+  margin: 3rem auto;
+  padding: clamp(2rem, 6vw, 4rem);
+  text-align: center;
+}
+
+.payment-auth-recovery__eyebrow {
+  margin: 0;
+  color: #286deb;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.payment-auth-recovery h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  letter-spacing: -0.05em;
+}
+
+.payment-auth-recovery p:not(.payment-auth-recovery__eyebrow) {
+  max-width: 34rem;
+  margin: 0;
+  color: #53645d;
+  line-height: 1.7;
+}
+
+.payment-auth-recovery .payment-button {
+  min-height: 3.25rem;
+  padding: 0.9rem 1.35rem;
+}
+
 .payment-summary {
   padding: 1.2rem;
 }

@@ -54,6 +54,16 @@ export function canSubmitPayment({ authReady = false, orderBalanceLoading = fals
   return Boolean(authReady && !orderBalanceLoading && !isSubmitting && !processing);
 }
 
+export function buildPaymentSignInReturnTo(pathname = "", search = "") {
+  const safePath = clean(pathname);
+  if (safePath !== "/payment") {
+    return "/payment";
+  }
+
+  const safeSearch = String(search ?? "");
+  return `${safePath}${safeSearch.startsWith("?") ? safeSearch : ""}`;
+}
+
 function isReasonableEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(value));
 }
@@ -347,6 +357,7 @@ function PaymentCheckout({
   const [orderBalanceContext, setOrderBalanceContext] = useState(null);
   const [orderBalanceLoading, setOrderBalanceLoading] = useState(false);
   const [orderBalanceError, setOrderBalanceError] = useState("");
+  const [paymentAuthRequired, setPaymentAuthRequired] = useState(false);
   const checkoutBatchNumber = useMemo(
     () => getCheckoutBatchNumber(paymentIntent, siteBanner),
     [paymentIntent, siteBanner],
@@ -374,6 +385,7 @@ function PaymentCheckout({
     setOrderBalanceLoading(true);
     setOrderBalanceError("");
     setOrderBalanceContext(null);
+    setPaymentAuthRequired(false);
 
     if (!authReady) {
       setOrderBalanceLoading(true);
@@ -400,13 +412,24 @@ function PaymentCheckout({
         const sessionResult = await supabase.auth.getSession();
         const accessToken = sessionResult.data?.session?.access_token ?? "";
         if (sessionResult.error || (!paymentIntent.token && !accessToken)) {
-          throw new Error("Please sign in to access this shipping payment.");
+          const authError = new Error("Please sign in to access this shipping payment.");
+          authError.code = "shipping_auth_required";
+          throw authError;
         }
-        return loadShippingBalancePaymentContext(
-          paymentIntent.orderId,
-          accessToken ? "" : paymentIntent.token,
-          accessToken,
-        );
+
+        try {
+          return await loadShippingBalancePaymentContext(
+            paymentIntent.orderId,
+            accessToken ? "" : paymentIntent.token,
+            accessToken,
+          );
+        } catch (error) {
+          if (error?.status === 401 && accessToken) {
+            error.code = "shipping_auth_required";
+            error.message = "Your sign-in session has expired. Please sign in again to continue.";
+          }
+          throw error;
+        }
       }
 
       return paymentIntent.purpose === "shipping-balance"
@@ -421,6 +444,7 @@ function PaymentCheckout({
       })
       .catch((requestError) => {
         if (!active) return;
+        setPaymentAuthRequired(requestError?.code === "shipping_auth_required");
         setOrderBalanceError(requestError.message || "Unable to load this order payment.");
       })
       .finally(() => {
@@ -615,6 +639,14 @@ function PaymentCheckout({
   const hasReadyStockItems = cartRows.some((row) => row.availabilityType === "ready_stock");
   const hasPendingShipping = cartRows.some((row) => row.hasPendingShipping || row.shippingFeeStatus === "pending");
   const canSubmit = canSubmitPayment({ authReady, orderBalanceLoading, isSubmitting, processing });
+
+  const handlePaymentSignIn = () => {
+    navigate("/register/login", {
+      state: {
+        returnTo: buildPaymentSignInReturnTo(location.pathname, location.search),
+      },
+    });
+  };
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -937,21 +969,32 @@ function PaymentCheckout({
     return (
       <main className="payment-page">
         <div className="payment-shell">
-          <section className="payment-link-state" role="alert" aria-live="polite">
-            <h1>{orderBalanceLoading ? "Loading secure payment link" : "Payment link unavailable"}</h1>
-            <p>
-              {orderBalanceLoading
-                ? "We are validating the order and current payment balance."
-                : orderBalanceError || "This payment link is invalid or has expired."}
-            </p>
-            {!orderBalanceLoading ? (
+          {paymentAuthRequired ? (
+            <section className="payment-link-state payment-auth-recovery" role="alert" aria-live="polite">
+              <p className="payment-auth-recovery__eyebrow">Secure payment access</p>
+              <h1>Sign in to continue your payment</h1>
+              <p>Please sign into the account associated with this order. You will automatically return to this payment page after signing in.</p>
+              <button type="button" className="payment-button payment-button--primary" onClick={handlePaymentSignIn}>
+                Sign In and Continue Payment
+              </button>
+            </section>
+          ) : (
+            <section className="payment-link-state" role="alert" aria-live="polite">
+              <h1>{orderBalanceLoading ? "Loading secure payment link" : "Payment link unavailable"}</h1>
               <p>
-                {isShippingBalancePayment
-                  ? "If you are the customer, sign in to access your order or request a new shipping payment link from support."
-                  : "Please request a new payment link or sign in to access your order."}
+                {orderBalanceLoading
+                  ? "We are validating the order and current payment balance."
+                  : orderBalanceError || "This payment link is invalid or has expired."}
               </p>
-            ) : null}
-          </section>
+              {!orderBalanceLoading ? (
+                <p>
+                  {isShippingBalancePayment
+                    ? "This secure payment link may have expired or is not authorized for this order. Request a new shipping payment link from support."
+                    : "Please request a new payment link or sign in to access your order."}
+                </p>
+              ) : null}
+            </section>
+          )}
         </div>
       </main>
     );

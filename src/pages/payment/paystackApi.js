@@ -19,6 +19,7 @@ async function requestJson(url, options = {}) {
 
   if (!response.ok || body?.ok === false || body?.status === false) {
     const error = new Error(body?.error || body?.message || "Paystack request failed.");
+    error.status = response.status;
     error.code = body?.errorCode || body?.code || "";
     error.paymentVerified = body?.paymentVerified === true;
     error.orderSynchronization = body?.orderSynchronization || "";
