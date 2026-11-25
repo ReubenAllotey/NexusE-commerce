@@ -2007,7 +2007,7 @@ async function handleAdminPricedProduct(req, res) {
   const serverProduct = { ...product, price: convertedPrice, compareAt: convertedCompareAt };
   for (const key of ["pricingCurrency", "pricing_currency", "originalCnyPrice", "original_cny_price", "originalCnyCompareAt", "original_cny_compare_at"]) delete serverProduct[key];
   const { data, error } = await supabaseAdmin.rpc("save_priced_product_bundle", {
-    payload: { ...body, product: serverProduct },
+    payload: { ...body, product: serverProduct, variation_combinations: convertedVariationCombinations },
     pricing_metadata: {
       product_id: product.id || null,
       pricing_currency: "CNY",
@@ -2020,6 +2020,7 @@ async function handleAdminPricedProduct(req, res) {
       last_converted_at: new Date().toISOString(),
       updated_by: admin.user.id,
     },
+    p_administrator_id: admin.user.id,
   });
   if (error || !data?.product?.id) return sendJson(res, 400, { ok: false, message: error?.message || "Unable to save the converted product." });
   return sendJson(res, 200, { ok: true, data: { ...data, convertedVariationCombinations, pricing: { originalCnyPrice, appliedRate: activeRate.rate, source: activeRate.source, convertedPrice } } });
@@ -2105,7 +2106,7 @@ async function handleAdminRepricing(req, res, action) {
   const approvedIds = new Set(approval.productIds);
   if (selectedIds.some((id) => !approvedIds.has(id))) return sendJson(res, 409, { ok: false, message: "The selected products were not part of the approved preview." });
   const expectedSnapshots = Object.fromEntries(selectedIds.map((id) => [id, approval.expectedProductSnapshots[id]]));
-  const { data, error } = await supabaseAdmin.rpc("apply_product_currency_repricing", { p_operation_id: crypto.randomUUID(), p_administrator_id: admin.user.id, p_rate: approval.rate, p_rate_source: approval.rateSource, p_exchange_rate_version: approval.exchangeRateVersion, p_product_ids: selectedIds, p_expected_product_versions: expectedSnapshots });
+  const { data, error } = await supabaseAdmin.rpc("apply_product_currency_repricing", { p_operation_id: crypto.randomUUID(), p_administrator_id: admin.user.id, p_rate: approval.rate, p_rate_source: approval.rateSource, p_exchange_rate_version: approval.exchangeRateVersion, p_product_ids: selectedIds, p_expected_product_versions: expectedSnapshots, p_max_live_age_seconds: Math.round(getExchangeRateMaxAgeMs() / 1000) });
   if (error || !data) return sendJson(res, 409, { ok: false, message: error?.message?.includes("changed") ? "A selected product changed after preview. Generate a new preview." : "Unable to apply the repricing operation." });
   return sendJson(res, 200, { ok: true, status: data.status, updatedCount: data.updated_count || 0 });
 }

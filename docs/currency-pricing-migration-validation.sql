@@ -28,6 +28,11 @@ join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
   and p.proname in ('save_product_bundle', 'save_priced_product_bundle', 'get_exchange_rate_settings', 'update_exchange_rate_settings', 'apply_product_currency_repricing', 'claim_exchange_rate_refresh', 'release_exchange_rate_refresh');
 
+select tgname, tgrelid::regclass as table_name, tgenabled
+from pg_catalog.pg_trigger
+where not tgisinternal
+  and tgname in ('prevent_untracked_cny_product_pricing', 'prevent_untracked_cny_variation_pricing');
+
 select table_name, grantee, privilege_type
 from information_schema.role_table_grants
 where table_schema = 'public'
@@ -48,7 +53,8 @@ order by table_name, grantee, privilege_type;
 select to_regclass('public.exchange_rate_settings') as settings_table,
        to_regclass('public.product_pricing_metadata') as metadata_table,
        to_regprocedure('public.get_exchange_rate_settings()') as settings_function,
-       to_regprocedure('public.apply_product_currency_repricing(uuid,uuid,numeric,text,uuid,uuid[],jsonb)') as repricing_function,
+       to_regprocedure('public.save_priced_product_bundle(jsonb,jsonb,uuid)') as priced_save_function,
+       to_regprocedure('public.apply_product_currency_repricing(uuid,uuid,numeric,text,uuid,uuid[],jsonb,integer)') as repricing_function,
        to_regprocedure('public.claim_exchange_rate_refresh(integer)') as claim_function,
        to_regprocedure('public.release_exchange_rate_refresh(uuid)') as release_function;
 
@@ -89,6 +95,11 @@ select schemaname, tablename, rowsecurity
 from pg_catalog.pg_tables
 where schemaname = 'public'
   and tablename in ('exchange_rate_settings', 'exchange_rate_history', 'product_pricing_metadata', 'product_repricing_history', 'product_repricing_operations');
+
+select tgname, tgrelid::regclass as table_name, tgenabled
+from pg_catalog.pg_trigger
+where not tgisinternal
+  and tgname in ('prevent_untracked_cny_product_pricing', 'prevent_untracked_cny_variation_pricing');
 
 -- Capture this before and after migration; the two values must match.
 select count(*) as product_count,

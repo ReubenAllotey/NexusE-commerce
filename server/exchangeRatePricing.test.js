@@ -9,8 +9,8 @@ const editor = fs.readFileSync(new URL("../src/pages/Admin/products/ProductEdito
 test("currency pricing migration keeps private tables service-role-only", () => {
   for (const table of ["exchange_rate_settings", "exchange_rate_history", "exchange_rate_refresh_leases", "product_pricing_metadata", "product_repricing_history", "product_repricing_operations"]) {
     assert.match(migration, new RegExp(`revoke all on table public\\.${table} from public, anon, authenticated;`));
-    if (table === "product_repricing_history") {
-      assert.match(migration, /grant select on table public\.product_repricing_history to service_role;/);
+    if (["exchange_rate_history", "product_repricing_history"].includes(table)) {
+      assert.match(migration, new RegExp(`grant select on table public\\.${table} to service_role;`));
     } else {
       assert.match(migration, new RegExp(`grant all on table public\\.${table} to service_role;`));
     }
@@ -20,8 +20,15 @@ test("currency pricing migration keeps private tables service-role-only", () => 
   assert.match(migration, /provider_next_update_at timestamptz/);
   assert.match(migration, /manual_rate_version uuid/);
   assert.match(migration, /manual_rate_version', v_settings\.manual_rate_version/);
-  assert.match(migration, /create or replace function public\.save_priced_product_bundle\(payload jsonb, pricing_metadata jsonb\)/);
-  assert.match(migration, /grant execute on function public\.save_priced_product_bundle\(jsonb, jsonb\) to service_role;/);
+  assert.match(migration, /create or replace function public\.save_priced_product_bundle\(\s*payload jsonb,\s*pricing_metadata jsonb,\s*p_administrator_id uuid\s*\)/);
+  assert.match(migration, /grant execute on function public\.save_priced_product_bundle\(jsonb, jsonb, uuid\) to service_role;/);
+  assert.match(migration, /set_config\('request\.jwt\.claim\.sub', p_administrator_id::text, true\)/);
+  assert.match(migration, /prevent_untracked_cny_pricing_mutation/);
+  assert.match(migration, /save_product_variation_combinations/);
+  assert.match(migration, /Complete variation pricing metadata is required/);
+  assert.match(migration, /revoke all on function public\.prevent_untracked_cny_pricing_mutation\(\) from public, anon, authenticated, service_role;/);
+  assert.match(migration, /p_max_live_age_seconds integer default 86400/);
+  assert.match(migration, /grant execute on function public\.apply_product_currency_repricing\(uuid, uuid, numeric, text, uuid, uuid\[\], jsonb, integer\) to service_role;/);
   assert.match(migration, /create or replace function public\.claim_exchange_rate_refresh\(p_lease_seconds integer default 300\)/);
   assert.match(migration, /returns uuid/);
   assert.match(migration, /create or replace function public\.release_exchange_rate_refresh\(p_lease_token uuid\)/);
@@ -42,6 +49,9 @@ test("scheduled refresh claims a durable lease before calling the provider and r
   assert.match(refreshFunction, /rpc\/release_exchange_rate_refresh/);
   assert.match(refreshFunction, /p_refresh_lease_token: leaseToken/);
   assert.match(refreshFunction, /p_lease_token: leaseToken/);
+  assert.match(refreshFunction, /fetchJson/);
+  assert.match(refreshFunction, /baseCurrency !== "CNY"/);
+  assert.match(refreshFunction, /typeof leaseToken !== "string"/);
   assert.match(refreshFunction, /finally/);
 });
 
@@ -51,6 +61,8 @@ test("currency endpoints require active admins and save CNY through server conve
   assert.match(server, /const admin = await getActiveAdminForRequest\(req\);/);
   assert.match(server, /convertCnyToGhs\(originalCnyPrice, activeRate\.rate\)/);
   assert.match(server, /save_priced_product_bundle/);
+  assert.match(server, /p_administrator_id: admin\.user\.id/);
+  assert.match(server, /variation_combinations: convertedVariationCombinations/);
 });
 
 test("product editor exposes CNY and GHS pricing explicitly", () => {

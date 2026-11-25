@@ -145,14 +145,64 @@ revoke all on table public.product_pricing_metadata from public, anon, authentic
 revoke all on table public.product_repricing_history from public, anon, authenticated;
 revoke all on table public.product_repricing_operations from public, anon, authenticated;
 grant all on table public.exchange_rate_settings to service_role;
-grant all on table public.exchange_rate_history to service_role;
+revoke all on table public.exchange_rate_history from service_role;
+grant select on table public.exchange_rate_history to service_role;
 grant all on table public.exchange_rate_refresh_leases to service_role;
 grant all on table public.product_pricing_metadata to service_role;
 revoke all on table public.product_repricing_history from service_role;
 grant select on table public.product_repricing_history to service_role;
 grant all on table public.product_repricing_operations to service_role;
 
-create or replace function public.save_priced_product_bundle(payload jsonb, pricing_metadata jsonb)
+create or replace function public.prevent_untracked_cny_pricing_mutation()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if coalesce(current_setting('nexus.currency_pricing_write', true), '') = 'on' then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  if tg_table_name = 'products'
+     and tg_op = 'UPDATE'
+     and (new.price is distinct from old.price or new.compare_at is distinct from old.compare_at)
+     and exists (
+       select 1 from public.product_pricing_metadata m
+       where m.product_id = old.id and m.pricing_currency = 'CNY'
+     ) then
+    raise exception 'CNY-managed product prices must be changed through the currency pricing workflow.' using errcode = '42501';
+  end if;
+
+  if tg_table_name = 'product_variation_combinations' then
+    if exists (
+      select 1 from public.product_pricing_metadata m
+      where m.product_id = coalesce(new.product_id, old.product_id)
+        and m.pricing_currency = 'CNY'
+    ) then
+      raise exception 'CNY-managed variation prices must be changed through the currency pricing workflow.' using errcode = '42501';
+    end if;
+  end if;
+
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+
+drop trigger if exists prevent_untracked_cny_product_pricing on public.products;
+create trigger prevent_untracked_cny_product_pricing
+before update on public.products
+for each row execute function public.prevent_untracked_cny_pricing_mutation();
+
+drop trigger if exists prevent_untracked_cny_variation_pricing on public.product_variation_combinations;
+create trigger prevent_untracked_cny_variation_pricing
+before insert or update or delete on public.product_variation_combinations
+for each row execute function public.prevent_untracked_cny_pricing_mutation();
+
+create or replace function public.save_priced_product_bundle(
+  payload jsonb,
+  pricing_metadata jsonb,
+  p_administrator_id uuid
+)
 returns jsonb
 language plpgsql
 security definer
@@ -163,13 +213,29 @@ declare
   v_product_id uuid;
   v_metadata public.product_pricing_metadata%rowtype;
   v_existing public.product_pricing_metadata%rowtype;
+  v_admin public.profiles%rowtype;
+  v_variant jsonb;
+  v_combination record;
+  v_expected_variation_count integer;
+  v_actual_variation_count integer;
 begin
   if (select coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role') then
     raise exception 'Service role is required.' using errcode = '42501';
   end if;
+  if p_administrator_id is null then
+    raise exception 'An administrator identity is required.' using errcode = '42501';
+  end if;
+  select * into v_admin from public.profiles where id = p_administrator_id for share;
+  if not found or coalesce(v_admin.role, '') <> 'admin' or coalesce(v_admin.status, '') <> 'active' then
+    raise exception 'Only active administrators can save priced products.' using errcode = '42501';
+  end if;
+  if auth.uid() is not null and auth.uid() <> p_administrator_id then
+    raise exception 'The authenticated administrator does not match the request.' using errcode = '42501';
+  end if;
 
   v_product_id := nullif(pricing_metadata->>'product_id', '')::uuid;
   if v_product_id is not null then
+    perform 1 from public.products where id = v_product_id for update;
     select * into v_existing
     from public.product_pricing_metadata
     where product_id = v_product_id
@@ -180,6 +246,8 @@ begin
     end if;
   end if;
 
+  perform set_config('request.jwt.claim.sub', p_administrator_id::text, true);
+  perform set_config('nexus.currency_pricing_write', 'on', true);
   v_saved := public.save_product_bundle(coalesce(payload, '{}'::jsonb));
   v_product_id := nullif(v_saved #>> '{product,id}', '')::uuid;
   if v_product_id is null or (nullif(pricing_metadata->>'product_id', '') is not null and nullif(pricing_metadata->>'product_id', '')::uuid is distinct from v_product_id) then
@@ -192,6 +260,43 @@ begin
        or nullif(pricing_metadata->>'applied_rate_source', '') not in ('live', 'manual')) then
     raise exception 'Complete CNY pricing metadata is required.' using errcode = '22023';
   end if;
+
+  if jsonb_typeof(coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb)) <> 'object' then
+    raise exception 'Variation pricing metadata must be a JSON object.' using errcode = '22023';
+  end if;
+  if jsonb_typeof(coalesce(payload->'variation_combinations', payload->'variationCombinations', '[]'::jsonb)) = 'array'
+     and jsonb_array_length(coalesce(payload->'variation_combinations', payload->'variationCombinations', '[]'::jsonb)) > 0 then
+    perform public.save_product_variation_combinations(
+      v_product_id,
+      coalesce(payload->'variation_combinations', payload->'variationCombinations')
+    );
+  end if;
+  select count(*) into v_actual_variation_count
+  from public.product_variation_combinations
+  where product_id = v_product_id and is_active;
+  select count(*) into v_expected_variation_count
+  from jsonb_object_keys(coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb));
+  if v_actual_variation_count <> v_expected_variation_count then
+    raise exception 'Complete variation pricing metadata is required.' using errcode = '22023';
+  end if;
+  for v_combination in
+    select c.combination_key
+    from public.product_variation_combinations c
+    where c.product_id = v_product_id and c.is_active
+  loop
+    v_variant := pricing_metadata->'variant_cny_prices' -> v_combination.combination_key;
+    if v_variant is null or jsonb_typeof(v_variant) <> 'object'
+       or not (v_variant ? 'price') or v_variant->>'price' is null
+       or (v_variant->>'price')::numeric = 'NaN'::numeric
+       or (v_variant->>'price')::numeric < 0
+       or (v_variant->>'price')::numeric > 1000000000
+       or (v_variant ? 'compareAt' and nullif(v_variant->>'compareAt', '') is not null
+           and ((v_variant->>'compareAt')::numeric = 'NaN'::numeric
+             or (v_variant->>'compareAt')::numeric < (v_variant->>'price')::numeric
+             or (v_variant->>'compareAt')::numeric > 1000000000)) then
+      raise exception 'Variation pricing metadata is incomplete or invalid.' using errcode = '22023';
+    end if;
+  end loop;
 
   insert into public.product_pricing_metadata (
     product_id, pricing_currency, original_cny_price, original_cny_compare_at,
@@ -234,7 +339,8 @@ create or replace function public.apply_product_currency_repricing(
   p_rate_source text,
   p_exchange_rate_version uuid,
   p_product_ids uuid[],
-  p_expected_product_versions jsonb
+  p_expected_product_versions jsonb,
+  p_max_live_age_seconds integer default 86400
 )
 returns jsonb
 language plpgsql
@@ -271,6 +377,9 @@ begin
      or p_exchange_rate_version is null
      or coalesce(array_length(p_product_ids, 1), 0) = 0 then
     raise exception 'Incomplete repricing operation.' using errcode = '22023';
+  end if;
+  if p_max_live_age_seconds is null or p_max_live_age_seconds < 300 or p_max_live_age_seconds > 604800 then
+    raise exception 'The live-rate freshness policy is invalid.' using errcode = '22023';
   end if;
   select array_agg(item order by item) into v_sorted_product_ids
   from unnest(p_product_ids) as item;
@@ -352,7 +461,7 @@ begin
       raise exception 'The approved exchange-rate snapshot is no longer current.' using errcode = '40001';
     end if;
     if lower(p_rate_source) = 'live'
-       and (v_settings.provider_data_timestamp is null or v_settings.provider_data_timestamp < clock_timestamp() - interval '24 hours') then
+       and (v_settings.provider_data_timestamp is null or v_settings.provider_data_timestamp < clock_timestamp() - make_interval(secs => p_max_live_age_seconds)) then
       raise exception 'The approved live exchange rate is stale.' using errcode = '40001';
     end if;
     v_previous_price := v_product.price;
@@ -531,6 +640,7 @@ declare
   v_mode text;
   v_rate numeric;
   v_manual_version uuid;
+  v_live_version uuid;
 begin
   if (select coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role') then
     raise exception 'Service role is required.' using errcode = '42501';
@@ -559,10 +669,10 @@ begin
     raise exception 'Unsupported pricing mode.';
   end if;
 
-  if p_manual_rate is not null and (p_manual_rate <= 0 or p_manual_rate > 1000000) then
+  if p_manual_rate is not null and (p_manual_rate = 'NaN'::numeric or p_manual_rate <= 0 or p_manual_rate > 1000000) then
     raise exception 'Manual exchange rate must be greater than zero and within the supported range.';
   end if;
-  if p_live_rate is not null and (p_live_rate <= 0 or p_live_rate > 1000000) then
+  if p_live_rate is not null and (p_live_rate = 'NaN'::numeric or p_live_rate <= 0 or p_live_rate > 1000000) then
     raise exception 'Live exchange rate must be greater than zero and within the supported range.';
   end if;
 
@@ -580,6 +690,9 @@ begin
     if v_old.provider_data_timestamp is not null and p_provider_data_timestamp < v_old.provider_data_timestamp then
       raise exception 'An older provider observation cannot replace a newer rate.' using errcode = '40001';
     end if;
+    if p_provider_data_timestamp > clock_timestamp() + interval '5 minutes' then
+      raise exception 'A future provider observation is not valid.' using errcode = '22023';
+    end if;
   end if;
 
   v_rate := case when v_mode = 'live' then coalesce(p_live_rate, v_old.live_rate) else coalesce(p_manual_rate, v_old.manual_rate) end;
@@ -596,6 +709,15 @@ begin
     else v_old.manual_rate_version
   end;
 
+  v_live_version := case
+    when p_live_rate is not null
+      and (p_live_rate is distinct from v_old.live_rate
+        or p_provider_data_timestamp is distinct from v_old.provider_data_timestamp
+        or nullif(btrim(p_live_rate_provider), '') is distinct from v_old.live_rate_provider)
+      then coalesce(p_live_rate_version, pg_catalog.gen_random_uuid())
+    else v_old.live_rate_version
+  end;
+
   update public.exchange_rate_settings
   set active_pricing_mode = v_mode,
       manual_rate = coalesce(p_manual_rate, manual_rate),
@@ -605,7 +727,7 @@ begin
       provider_data_timestamp = coalesce(p_provider_data_timestamp, provider_data_timestamp),
       provider_next_update_at = coalesce(p_provider_next_update_at, provider_next_update_at),
       last_successful_fetch_at = coalesce(p_last_successful_fetch_at, last_successful_fetch_at),
-      live_rate_version = coalesce(p_live_rate_version, live_rate_version),
+      live_rate_version = v_live_version,
       settings_version = settings_version + 1,
       updated_by = p_administrator_id,
       updated_at = now()
@@ -656,6 +778,7 @@ end;
 $$;
 
 revoke all on function public.get_exchange_rate_settings() from public, anon, authenticated;
+revoke all on function public.prevent_untracked_cny_pricing_mutation() from public, anon, authenticated, service_role;
 revoke all on function public.update_exchange_rate_settings(text, numeric, numeric, text, timestamptz, timestamptz, timestamptz, uuid, uuid, uuid, uuid, text) from public, anon, authenticated;
 grant execute on function public.get_exchange_rate_settings() to service_role;
 revoke all on function public.claim_exchange_rate_refresh(integer) from public, anon, authenticated;
@@ -663,10 +786,10 @@ revoke all on function public.release_exchange_rate_refresh(uuid) from public, a
 grant execute on function public.claim_exchange_rate_refresh(integer) to service_role;
 grant execute on function public.release_exchange_rate_refresh(uuid) to service_role;
 grant execute on function public.update_exchange_rate_settings(text, numeric, numeric, text, timestamptz, timestamptz, timestamptz, uuid, uuid, uuid, uuid, text) to service_role;
-revoke all on function public.save_priced_product_bundle(jsonb, jsonb) from public, anon, authenticated;
-grant execute on function public.save_priced_product_bundle(jsonb, jsonb) to service_role;
-revoke all on function public.apply_product_currency_repricing(uuid, uuid, numeric, text, uuid, uuid[], jsonb) from public, anon, authenticated;
-grant execute on function public.apply_product_currency_repricing(uuid, uuid, numeric, text, uuid, uuid[], jsonb) to service_role;
+revoke all on function public.save_priced_product_bundle(jsonb, jsonb, uuid) from public, anon, authenticated;
+grant execute on function public.save_priced_product_bundle(jsonb, jsonb, uuid) to service_role;
+revoke all on function public.apply_product_currency_repricing(uuid, uuid, numeric, text, uuid, uuid[], jsonb, integer) from public, anon, authenticated;
+grant execute on function public.apply_product_currency_repricing(uuid, uuid, numeric, text, uuid, uuid[], jsonb, integer) to service_role;
 
 do $$
 begin
@@ -675,6 +798,9 @@ begin
   end if;
   if to_regprocedure('public.release_exchange_rate_refresh()') is not null then
     execute 'revoke all on function public.release_exchange_rate_refresh() from public, anon, authenticated';
+  end if;
+  if to_regprocedure('public.save_priced_product_bundle(jsonb,jsonb)') is not null then
+    execute 'revoke all on function public.save_priced_product_bundle(jsonb,jsonb) from public, anon, authenticated';
   end if;
 end;
 $$;
