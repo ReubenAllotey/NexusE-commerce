@@ -46,6 +46,14 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+export function canLoadPaymentContext({ authReady = false, orderId = "", purpose = "", token = "" } = {}) {
+  return Boolean(authReady && clean(orderId) && (purpose !== "order-balance" || clean(token)));
+}
+
+export function canSubmitPayment({ authReady = false, orderBalanceLoading = false, isSubmitting = false, processing = false } = {}) {
+  return Boolean(authReady && !orderBalanceLoading && !isSubmitting && !processing);
+}
+
 function isReasonableEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(value));
 }
@@ -366,7 +374,19 @@ function PaymentCheckout({
     setOrderBalanceError("");
     setOrderBalanceContext(null);
 
-    if (!paymentIntent.orderId || (paymentIntent.purpose === "order-balance" && !paymentIntent.token)) {
+    if (!authReady) {
+      setOrderBalanceLoading(true);
+      return () => {
+        active = false;
+      };
+    }
+
+    if (!canLoadPaymentContext({
+      authReady,
+      orderId: paymentIntent.orderId,
+      purpose: paymentIntent.purpose,
+      token: paymentIntent.token,
+    })) {
       setOrderBalanceLoading(false);
       setOrderBalanceError("This payment link is invalid or has expired.");
       return () => {
@@ -409,7 +429,7 @@ function PaymentCheckout({
     return () => {
       active = false;
     };
-  }, [paymentIntent?.orderId, paymentIntent?.purpose, paymentIntent?.token]);
+  }, [authReady, authUser?.id, paymentIntent?.orderId, paymentIntent?.purpose, paymentIntent?.token]);
 
   const serverOrder = orderBalanceContext?.order
     ? {
@@ -593,7 +613,7 @@ function PaymentCheckout({
   const mobileReady = clean(mobileNetwork) && clean(mobileNumber).length >= 9;
   const hasReadyStockItems = cartRows.some((row) => row.availabilityType === "ready_stock");
   const hasPendingShipping = cartRows.some((row) => row.hasPendingShipping || row.shippingFeeStatus === "pending");
-  const canSubmit = !isSubmitting && !processing;
+  const canSubmit = canSubmitPayment({ authReady, orderBalanceLoading, isSubmitting, processing });
 
   async function handleSubmit(event) {
     event.preventDefault();

@@ -37,6 +37,29 @@ test("payment confirmation waits for Supabase auth restoration before verificati
   assert.doesNotMatch(appSource, /clearPaymentSession\(\);[\s\S]{0,80}setAuthSession\(null\)/);
 });
 
+test("shipping payment context defers until auth restoration and retries for the restored session", () => {
+  const start = paymentSource.indexOf("export function canLoadPaymentContext");
+  const end = paymentSource.indexOf("\nfunction isReasonableEmail", start);
+  assert.ok(start >= 0 && end > start, "Expected the payment context readiness helper");
+  const context = {
+    clean: (value) => String(value ?? "").trim(),
+  };
+  vm.runInNewContext(
+    `${paymentSource.slice(start, end).replace(/^export /gm, "")}\nthis.canLoadPaymentContext = canLoadPaymentContext;\nthis.canSubmitPayment = canSubmitPayment;`,
+    context,
+  );
+
+  assert.equal(context.canLoadPaymentContext({ authReady: false, orderId: "order-1", purpose: "shipping-balance" }), false);
+  assert.equal(context.canLoadPaymentContext({ authReady: true, orderId: "order-1", purpose: "shipping-balance" }), true);
+  assert.equal(context.canLoadPaymentContext({ authReady: true, orderId: "order-1", purpose: "order-balance" }), false);
+  assert.equal(context.canSubmitPayment({ authReady: false }), false);
+  assert.equal(context.canSubmitPayment({ authReady: true, orderBalanceLoading: true }), false);
+  assert.equal(context.canSubmitPayment({ authReady: true }), true);
+  assert.match(paymentSource, /if \(!authReady\) \{[\s\S]*setOrderBalanceLoading\(true\)/);
+  assert.match(paymentSource, /\}, \[authReady, authUser\?\.id, paymentIntent\?\.orderId, paymentIntent\?\.purpose, paymentIntent\?\.token\]\);/);
+  assert.match(paymentSource, /const canSubmit = canSubmitPayment\(\{ authReady, orderBalanceLoading, isSubmitting, processing \}\);/);
+});
+
 test("registered confirmation actions continue to use the authenticated account", () => {
   assert.match(paymentSource, /if \(!authUser\?\.id\) \{\s*handleGuestNext\(\);/);
   assert.match(paymentSource, /navigate\("\/profile\/orders"\)/);
