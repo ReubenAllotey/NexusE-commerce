@@ -213,9 +213,16 @@ declare
   v_product_id uuid;
   v_metadata public.product_pricing_metadata%rowtype;
   v_existing public.product_pricing_metadata%rowtype;
+  v_settings public.exchange_rate_settings%rowtype;
   v_admin public.profiles%rowtype;
   v_variant jsonb;
   v_combination record;
+  v_pricing_currency text;
+  v_target_rate numeric;
+  v_target_source text;
+  v_target_version uuid;
+  v_expected_product_price numeric;
+  v_expected_product_compare_at numeric;
   v_expected_variation_count integer;
   v_actual_variation_count integer;
 begin
@@ -234,16 +241,16 @@ begin
   end if;
 
   v_product_id := nullif(pricing_metadata->>'product_id', '')::uuid;
+  v_pricing_currency := upper(coalesce(nullif(pricing_metadata->>'pricing_currency', ''), 'CNY'));
+  if v_pricing_currency not in ('CNY', 'GHS') then
+    raise exception 'Unsupported pricing currency.' using errcode = '22023';
+  end if;
   if v_product_id is not null then
     perform 1 from public.products where id = v_product_id for update;
     select * into v_existing
     from public.product_pricing_metadata
     where product_id = v_product_id
     for update;
-    if found and v_existing.pricing_currency = 'CNY'
-       and v_existing.exchange_rate_version is distinct from nullif(pricing_metadata->>'exchange_rate_version', '')::uuid then
-      raise exception 'The product pricing changed after it was loaded.' using errcode = '40001';
-    end if;
   end if;
 
   perform set_config('request.jwt.claim.sub', p_administrator_id::text, true);
@@ -254,14 +261,50 @@ begin
     raise exception 'Product pricing metadata does not match the saved product.';
   end if;
 
-  if upper(coalesce(nullif(pricing_metadata->>'pricing_currency', ''), 'CNY')) = 'CNY'
+  if v_pricing_currency = 'CNY'
      and (nullif(pricing_metadata->>'applied_exchange_rate', '')::numeric is null
        or nullif(pricing_metadata->>'exchange_rate_version', '')::uuid is null
        or nullif(pricing_metadata->>'applied_rate_source', '') not in ('live', 'manual')) then
     raise exception 'Complete CNY pricing metadata is required.' using errcode = '22023';
   end if;
 
-  if jsonb_typeof(coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb)) <> 'object' then
+  if v_pricing_currency = 'CNY' then
+    select * into v_settings
+    from public.exchange_rate_settings
+    where id = 'cny-ghs'
+    for share;
+    v_target_source := lower(nullif(pricing_metadata->>'applied_rate_source', ''));
+    v_target_rate := nullif(pricing_metadata->>'applied_exchange_rate', '')::numeric;
+    v_target_version := nullif(pricing_metadata->>'exchange_rate_version', '')::uuid;
+    if v_target_source = 'live' then
+      if v_settings.live_rate is null
+         or v_settings.live_rate_version is distinct from v_target_version
+         or v_settings.live_rate is distinct from v_target_rate
+         or v_settings.provider_data_timestamp is null
+         or v_settings.provider_data_timestamp < clock_timestamp() - interval '24 hours' then
+        raise exception 'The authoritative live exchange rate is stale or no longer current.' using errcode = '40001';
+      end if;
+    elsif v_target_source = 'manual' then
+      if v_settings.manual_rate is null
+         or v_settings.manual_rate_version is distinct from v_target_version
+         or v_settings.manual_rate is distinct from v_target_rate then
+        raise exception 'The authoritative manual exchange rate is no longer current.' using errcode = '40001';
+      end if;
+    end if;
+    v_expected_product_price := round((payload->'product'->>'price')::numeric, 2);
+    if v_expected_product_price is distinct from round((pricing_metadata->>'original_cny_price')::numeric * v_target_rate, 2) then
+      raise exception 'The converted product price does not match the authoritative exchange rate.' using errcode = '22023';
+    end if;
+    v_expected_product_compare_at := case
+      when nullif(pricing_metadata->>'original_cny_compare_at', '') is null then null
+      else round((pricing_metadata->>'original_cny_compare_at')::numeric * v_target_rate, 2)
+    end;
+    if v_expected_product_compare_at is distinct from nullif(coalesce(payload->'product'->>'compareAt', payload->'product'->>'compare_at'), '')::numeric then
+      raise exception 'The converted product compare-at price does not match the authoritative exchange rate.' using errcode = '22023';
+    end if;
+  end if;
+
+  if v_pricing_currency = 'CNY' and jsonb_typeof(coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb)) <> 'object' then
     raise exception 'Variation pricing metadata must be a JSON object.' using errcode = '22023';
   end if;
   if jsonb_typeof(coalesce(payload->'variation_combinations', payload->'variationCombinations', '[]'::jsonb)) = 'array'
@@ -271,32 +314,45 @@ begin
       coalesce(payload->'variation_combinations', payload->'variationCombinations')
     );
   end if;
-  select count(*) into v_actual_variation_count
-  from public.product_variation_combinations
-  where product_id = v_product_id and is_active;
-  select count(*) into v_expected_variation_count
-  from jsonb_object_keys(coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb));
-  if v_actual_variation_count <> v_expected_variation_count then
-    raise exception 'Complete variation pricing metadata is required.' using errcode = '22023';
-  end if;
-  for v_combination in
-    select c.combination_key
-    from public.product_variation_combinations c
-    where c.product_id = v_product_id and c.is_active
-  loop
-    v_variant := pricing_metadata->'variant_cny_prices' -> v_combination.combination_key;
-    if v_variant is null or jsonb_typeof(v_variant) <> 'object'
-       or not (v_variant ? 'price') or v_variant->>'price' is null
-       or (v_variant->>'price')::numeric = 'NaN'::numeric
-       or (v_variant->>'price')::numeric < 0
-       or (v_variant->>'price')::numeric > 1000000000
-       or (v_variant ? 'compareAt' and nullif(v_variant->>'compareAt', '') is not null
-           and ((v_variant->>'compareAt')::numeric = 'NaN'::numeric
-             or (v_variant->>'compareAt')::numeric < (v_variant->>'price')::numeric
-             or (v_variant->>'compareAt')::numeric > 1000000000)) then
-      raise exception 'Variation pricing metadata is incomplete or invalid.' using errcode = '22023';
+  if v_pricing_currency = 'CNY' then
+    select count(*) into v_actual_variation_count
+    from public.product_variation_combinations
+    where product_id = v_product_id and is_active;
+    select count(*) into v_expected_variation_count
+    from jsonb_object_keys(coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb));
+    if v_actual_variation_count <> v_expected_variation_count then
+      raise exception 'Complete variation pricing metadata is required.' using errcode = '22023';
     end if;
-  end loop;
+    for v_combination in
+      select c.combination_key, c.price, c.compare_at
+      from public.product_variation_combinations c
+      where c.product_id = v_product_id and c.is_active
+    loop
+      v_variant := pricing_metadata->'variant_cny_prices' -> v_combination.combination_key;
+      if v_variant is null or jsonb_typeof(v_variant) <> 'object'
+         or not (v_variant ? 'price') or v_variant->>'price' is null
+         or (v_variant->>'price')::numeric = 'NaN'::numeric
+         or (v_variant->>'price')::numeric < 0
+         or (v_variant->>'price')::numeric > 1000000000
+         or v_combination.price is distinct from round((v_variant->>'price')::numeric * v_target_rate, 2)
+         or (v_variant ? 'compareAt' and nullif(v_variant->>'compareAt', '') is not null
+             and ((v_variant->>'compareAt')::numeric = 'NaN'::numeric
+               or (v_variant->>'compareAt')::numeric < (v_variant->>'price')::numeric
+               or (v_variant->>'compareAt')::numeric > 1000000000
+               or v_combination.compare_at is distinct from round((v_variant->>'compareAt')::numeric * v_target_rate, 2))) then
+        raise exception 'Variation pricing metadata is incomplete or does not match the authoritative exchange rate.' using errcode = '22023';
+      end if;
+    end loop;
+  else
+    if coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb) <> '{}'::jsonb
+       or pricing_metadata->>'original_cny_price' is not null
+       or pricing_metadata->>'original_cny_compare_at' is not null
+       or pricing_metadata->>'applied_exchange_rate' is not null
+       or pricing_metadata->>'applied_rate_source' is not null
+       or pricing_metadata->>'exchange_rate_version' is not null then
+      raise exception 'GHS products cannot retain CNY pricing metadata.' using errcode = '22023';
+    end if;
+  end if;
 
   insert into public.product_pricing_metadata (
     product_id, pricing_currency, original_cny_price, original_cny_compare_at,
@@ -304,7 +360,7 @@ begin
     variant_cny_prices, last_converted_at, updated_by, updated_at
   ) values (
     v_product_id,
-    coalesce(nullif(pricing_metadata->>'pricing_currency', ''), 'CNY'),
+    v_pricing_currency,
     (pricing_metadata->>'original_cny_price')::numeric,
     nullif(pricing_metadata->>'original_cny_compare_at', '')::numeric,
     (pricing_metadata->>'applied_exchange_rate')::numeric,
@@ -390,6 +446,10 @@ begin
   if auth.uid() is not null and auth.uid() <> p_administrator_id then
     raise exception 'The authenticated administrator does not match the request.' using errcode = '42501';
   end if;
+  -- This setting is transaction-local and is automatically restored at the
+  -- end of the RPC transaction. It only fences the protected price writes
+  -- performed by this authorized repricing operation.
+  perform set_config('nexus.currency_pricing_write', 'on', true);
   if (select count(*) from unnest(p_product_ids)) <> (select count(distinct item) from unnest(p_product_ids) as item) then
     raise exception 'Duplicate products are not allowed in a repricing operation.' using errcode = '22023';
   end if;

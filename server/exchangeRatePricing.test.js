@@ -39,6 +39,10 @@ test("currency pricing migration keeps private tables service-role-only", () => 
   assert.match(migration, /grant execute on function public\.claim_exchange_rate_refresh\(integer\) to service_role;/);
   assert.match(migration, /grant execute on function public\.release_exchange_rate_refresh\(uuid\) to service_role;/);
   assert.match(migration, /set search_path = ''/);
+  assert.match(migration, /perform set_config\('nexus\.currency_pricing_write', 'on', true\);/);
+  assert.match(migration, /if v_pricing_currency = 'CNY' then[\s\S]+else[\s\S]+GHS products cannot retain CNY pricing metadata/);
+  assert.match(migration, /GHS products cannot retain CNY pricing metadata/);
+  assert.match(migration, /authoritative live exchange rate is stale or no longer current/);
 });
 
 test("scheduled refresh claims a durable lease before calling the provider and releases it", () => {
@@ -63,6 +67,9 @@ test("currency endpoints require active admins and save CNY through server conve
   assert.match(server, /save_priced_product_bundle/);
   assert.match(server, /p_administrator_id: admin\.user\.id/);
   assert.match(server, /variation_combinations: convertedVariationCombinations/);
+  assert.match(server, /if \(pricingCurrency === "GHS"\)/);
+  assert.match(server, /pricing_currency: "GHS"/);
+  assert.match(server, /pricing_metadata: \{ product_id: product\.id \|\| null, pricing_currency: "GHS"/);
 });
 
 test("product editor exposes CNY and GHS pricing explicitly", () => {

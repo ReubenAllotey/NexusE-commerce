@@ -1972,8 +1972,31 @@ async function handleAdminPricedProduct(req, res) {
   if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
   const body = normalizePayload(await readJsonBody(req));
   const product = normalizePayload(body.product);
-  if (clean(product.pricingCurrency ?? product.pricing_currency).toUpperCase() !== "CNY") {
-    return sendJson(res, 400, { ok: false, message: "This endpoint only handles CNY-priced products." });
+  const pricingCurrency = clean(product.pricingCurrency ?? product.pricing_currency).toUpperCase() || "CNY";
+  if (!['CNY', 'GHS'].includes(pricingCurrency)) return sendJson(res, 400, { ok: false, message: "Choose a supported pricing currency." });
+  if (pricingCurrency === "GHS") {
+    const ghsPrice = finiteNonNegativeAmount(product.price);
+    const ghsCompareInput = product.compareAt ?? product.compare_at;
+    const ghsCompareAt = ghsCompareInput === "" || ghsCompareInput == null ? null : finiteNonNegativeAmount(ghsCompareInput);
+    if (ghsPrice == null || (ghsCompareInput !== "" && ghsCompareInput != null && ghsCompareAt == null)) return sendJson(res, 400, { ok: false, message: "Enter valid non-negative GHS prices." });
+    if (ghsCompareAt != null && ghsCompareAt < ghsPrice) return sendJson(res, 400, { ok: false, message: "The compare-at price must be at least the selling price." });
+    const ghsVariations = [];
+    for (const combination of Array.isArray(body.variationCombinations) ? body.variationCombinations : []) {
+      const price = finiteNonNegativeAmount(combination.price);
+      const compareAtInput = combination.compareAt === "" || combination.compareAt == null ? null : combination.compareAt;
+      const compareAt = compareAtInput == null ? null : finiteNonNegativeAmount(compareAtInput);
+      if (!clean(combination.combinationKey ?? combination.combination_key) || price == null || (compareAtInput != null && compareAt == null) || (compareAt != null && compareAt < price)) return sendJson(res, 400, { ok: false, message: "Enter valid GHS prices for every active variation." });
+      ghsVariations.push({ ...combination, price, compareAt });
+    }
+    const serverProduct = { ...product, price: ghsPrice, compareAt: ghsCompareAt };
+    for (const key of ["pricingCurrency", "pricing_currency", "originalCnyPrice", "original_cny_price", "originalCnyCompareAt", "original_cny_compare_at"]) delete serverProduct[key];
+    const { data, error } = await supabaseAdmin.rpc("save_priced_product_bundle", {
+      payload: { ...body, product: serverProduct, variation_combinations: ghsVariations },
+      pricing_metadata: { product_id: product.id || null, pricing_currency: "GHS", variant_cny_prices: {}, updated_by: admin.user.id },
+      p_administrator_id: admin.user.id,
+    });
+    if (error || !data?.product?.id) return sendJson(res, 400, { ok: false, message: error?.message || "Unable to save the product." });
+    return sendJson(res, 200, { ok: true, data });
   }
   const settingsResult = await loadExchangeRateSettings();
   if (!settingsResult.ok) return sendJson(res, 503, settingsResult);
