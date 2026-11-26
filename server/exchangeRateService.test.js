@@ -23,6 +23,14 @@ test("manual pricing remains available without a live provider response", () => 
   });
 });
 
+test("initial settings with null manual and live rates fail closed without throwing", () => {
+  assert.deepEqual(getActiveRate({ activePricingMode: "manual", manualRate: null, liveRate: null }), {
+    ok: false,
+    message: "A manual exchange rate has not been configured.",
+  });
+  assert.equal(isLiveRateFresh({ activePricingMode: "live", manualRate: null, liveRate: null }), false);
+});
+
 test("live pricing fails closed when the rate is stale", () => {
   const old = new Date("2026-11-23T00:00:00.000Z").getTime();
   const now = new Date("2026-11-25T00:00:01.000Z").getTime();

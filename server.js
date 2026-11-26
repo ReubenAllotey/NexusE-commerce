@@ -1863,9 +1863,32 @@ async function getActiveAdminForRequest(req) {
 }
 
 async function loadExchangeRateSettings() {
-  const { data, error } = await supabaseAdmin.rpc("get_exchange_rate_settings");
-  if (error || !data) return { ok: false, message: "Unable to load exchange-rate settings." };
-  return { ok: true, settings: mapExchangeRateSettings(data) };
+  if (!supabaseAdmin) return { ok: false, message: "Supabase server credentials are missing." };
+
+  const { data, error } = await supabaseAdmin.rpc("get_exchange_rate_settings", {});
+  if (!error && data) return { ok: true, settings: mapExchangeRateSettings(data) };
+
+  const errorCode = clean(error?.code);
+  const errorMessage = clean(error?.message);
+  const functionDiscoveryFailed = errorCode === "PGRST202"
+    || /schema cache|could not find the function/i.test(errorMessage);
+
+  if (functionDiscoveryFailed) {
+    const [{ data: settingsRow, error: settingsError }, { count, error: countError }] = await Promise.all([
+      supabaseAdmin.from("exchange_rate_settings").select("*").eq("id", "cny-ghs").maybeSingle(),
+      supabaseAdmin.from("product_pricing_metadata").select("product_id", { count: "exact", head: true }).eq("pricing_currency", "CNY"),
+    ]);
+    if (!settingsError && !countError && settingsRow) {
+      return { ok: true, settings: mapExchangeRateSettings({ ...settingsRow, cny_product_count: count ?? 0 }) };
+    }
+  }
+
+  console.error("Exchange-rate settings load failed", {
+    code: errorCode || "unknown",
+    status: error?.status ?? null,
+    message: errorMessage.slice(0, 240),
+  });
+  return { ok: false, message: "Unable to load exchange-rate settings." };
 }
 
 async function updateExchangeRateSettings(values = {}) {

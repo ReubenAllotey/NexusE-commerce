@@ -5,6 +5,7 @@ import fs from "node:fs";
 const migration = fs.readFileSync(new URL("../supabase/migrations/20261125_0063_currency_exchange_pricing.sql", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../server.js", import.meta.url), "utf8");
 const editor = fs.readFileSync(new URL("../src/pages/Admin/products/ProductEditorForm.jsx", import.meta.url), "utf8");
+const exchangeRatesPage = fs.readFileSync(new URL("../src/pages/Admin/exchangeRates/exchangeRates.jsx", import.meta.url), "utf8");
 
 test("currency pricing migration keeps private tables service-role-only", () => {
   for (const table of ["exchange_rate_settings", "exchange_rate_history", "exchange_rate_refresh_leases", "product_pricing_metadata", "product_repricing_history", "product_repricing_operations"]) {
@@ -83,6 +84,17 @@ test("currency endpoints require active admins and save CNY through server conve
   assert.match(server, /function getVariationCompareAtInput\(combination = \{\}\)/);
   assert.match(server, /const value = combination\.compareAt \?\? combination\.compare_at;/);
   assert.equal((server.match(/getVariationCompareAtInput\(combination\)/g) || []).length, 2);
+  assert.match(server, /rpc\("get_exchange_rate_settings", \{\}\)/);
+  assert.match(server, /PGRST202/);
+  assert.match(server, /exchange_rate_settings/);
+});
+
+test("initial null exchange rates remain a readable unconfigured state", () => {
+  assert.match(server, /manualRate: settings\.manual_rate == null \? null/);
+  assert.match(server, /liveRate: settings\.live_rate == null \? null/);
+  assert.match(exchangeRatesPage, /Retry loading settings/);
+  assert.match(exchangeRatesPage, /const settingsUnavailable = !settings/);
+  assert.match(exchangeRatesPage, /disabled=\{actionsDisabled\}/);
 });
 
 test("variation compare-at normalization preserves canonical precedence and edge values", () => {
