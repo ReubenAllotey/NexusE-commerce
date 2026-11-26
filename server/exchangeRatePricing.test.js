@@ -43,6 +43,13 @@ test("currency pricing migration keeps private tables service-role-only", () => 
   assert.match(migration, /if v_pricing_currency = 'CNY' then[\s\S]+else[\s\S]+GHS products cannot retain CNY pricing metadata/);
   assert.match(migration, /GHS products cannot retain CNY pricing metadata/);
   assert.match(migration, /authoritative live exchange rate is stale or no longer current/);
+  assert.match(migration, /applied_rate_source is not null|applied_rate_source in \('live', 'manual'\)/);
+  assert.match(migration, /A valid authoritative exchange-rate source is required/);
+  assert.match(migration, /where product_id = v_product_id;[\s\S]+Complete variation pricing metadata is required/);
+  assert.match(migration, /CNY compare-at metadata is missing/);
+  assert.match(migration, /The persisted product price does not match the authoritative conversion/);
+  assert.match(migration, /The persisted variation price does not match the authoritative conversion/);
+  assert.match(migration, /Live-rate metadata requires a live observation and refresh lease/);
 });
 
 test("scheduled refresh claims a durable lease before calling the provider and releases it", () => {

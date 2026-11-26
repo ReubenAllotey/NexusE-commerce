@@ -81,6 +81,7 @@ create table if not exists public.product_pricing_metadata (
       and applied_exchange_rate <> 'NaN'::numeric
       and applied_exchange_rate > 0
       and applied_exchange_rate <= 1000000
+      and applied_rate_source is not null
       and applied_rate_source in ('live', 'manual')
       and exchange_rate_version is not null
       and jsonb_typeof(variant_cny_prices) = 'object')
@@ -264,6 +265,7 @@ begin
   if v_pricing_currency = 'CNY'
      and (nullif(pricing_metadata->>'applied_exchange_rate', '')::numeric is null
        or nullif(pricing_metadata->>'exchange_rate_version', '')::uuid is null
+       or nullif(pricing_metadata->>'applied_rate_source', '') is null
        or nullif(pricing_metadata->>'applied_rate_source', '') not in ('live', 'manual')) then
     raise exception 'Complete CNY pricing metadata is required.' using errcode = '22023';
   end if;
@@ -276,7 +278,9 @@ begin
     v_target_source := lower(nullif(pricing_metadata->>'applied_rate_source', ''));
     v_target_rate := nullif(pricing_metadata->>'applied_exchange_rate', '')::numeric;
     v_target_version := nullif(pricing_metadata->>'exchange_rate_version', '')::uuid;
-    if v_target_source = 'live' then
+    if v_target_source not in ('live', 'manual') then
+      raise exception 'A valid authoritative exchange-rate source is required.' using errcode = '22023';
+    elsif v_target_source = 'live' then
       if v_settings.live_rate is null
          or v_settings.live_rate_version is distinct from v_target_version
          or v_settings.live_rate is distinct from v_target_rate
@@ -317,7 +321,7 @@ begin
   if v_pricing_currency = 'CNY' then
     select count(*) into v_actual_variation_count
     from public.product_variation_combinations
-    where product_id = v_product_id and is_active;
+    where product_id = v_product_id;
     select count(*) into v_expected_variation_count
     from jsonb_object_keys(coalesce(pricing_metadata->'variant_cny_prices', '{}'::jsonb));
     if v_actual_variation_count <> v_expected_variation_count then
@@ -326,7 +330,7 @@ begin
     for v_combination in
       select c.combination_key, c.price, c.compare_at
       from public.product_variation_combinations c
-      where c.product_id = v_product_id and c.is_active
+      where c.product_id = v_product_id
     loop
       v_variant := pricing_metadata->'variant_cny_prices' -> v_combination.combination_key;
       if v_variant is null or jsonb_typeof(v_variant) <> 'object'
@@ -414,6 +418,8 @@ declare
   v_previous_price numeric;
   v_new_price numeric;
   v_new_compare_at numeric;
+  v_persisted_variation_price numeric;
+  v_persisted_variation_compare_at numeric;
   v_sorted_product_ids uuid[];
   v_expected jsonb;
   v_variation record;
@@ -527,13 +533,22 @@ begin
     v_previous_price := v_product.price;
     v_new_price := round(v_metadata.original_cny_price * p_rate, 2);
     v_new_compare_at := case when v_metadata.original_cny_compare_at is null then null else round(v_metadata.original_cny_compare_at * p_rate, 2) end;
+    if v_metadata.original_cny_compare_at is null and v_product.compare_at is not null then
+      raise exception 'CNY compare-at metadata is missing for a product with a persisted compare-at price.' using errcode = '40001';
+    end if;
     if v_new_compare_at is not null and v_new_compare_at < v_new_price then
       raise exception 'The approved compare-at price is below the selling price.' using errcode = '40001';
     end if;
-    update public.products set price = v_new_price, compare_at = v_new_compare_at, updated_at = now() where id = v_product_id;
+    update public.products
+    set price = v_new_price, compare_at = v_new_compare_at, updated_at = now()
+    where id = v_product_id
+    returning * into v_product;
+    if v_product.price is distinct from v_new_price or v_product.compare_at is distinct from v_new_compare_at then
+      raise exception 'The persisted product price does not match the authoritative conversion.' using errcode = '40001';
+    end if;
 
     for v_combination in
-      select c.id, c.combination_key, c.updated_at
+      select c.id, c.combination_key, c.updated_at, c.compare_at
       from public.product_variation_combinations c
       where c.product_id = v_product_id
       order by c.id
@@ -545,6 +560,7 @@ begin
          or (v_variant->>'price')::numeric = 'NaN'::numeric
          or (v_variant->>'price')::numeric < 0
          or (v_variant->>'price')::numeric > 1000000000
+         or (v_combination.compare_at is not null and nullif(v_variant->>'compareAt', '') is null)
          or (v_variant ? 'compareAt' and nullif(v_variant->>'compareAt', '') is not null and ((v_variant->>'compareAt')::numeric = 'NaN'::numeric or (v_variant->>'compareAt')::numeric < (v_variant->>'price')::numeric or (v_variant->>'compareAt')::numeric > 1000000000)) then
         raise exception 'Variation pricing metadata is incomplete or invalid.' using errcode = '40001';
       end if;
@@ -559,7 +575,12 @@ begin
       set price = round((v_variant->>'price')::numeric * p_rate, 2),
           compare_at = case when nullif(v_variant->>'compareAt', '') is null then null else round((v_variant->>'compareAt')::numeric * p_rate, 2) end,
           updated_at = now()
-      where id = v_combination.id;
+      where id = v_combination.id
+      returning price, compare_at into v_persisted_variation_price, v_persisted_variation_compare_at;
+      if v_persisted_variation_price is distinct from round((v_variant->>'price')::numeric * p_rate, 2)
+         or v_persisted_variation_compare_at is distinct from (case when nullif(v_variant->>'compareAt', '') is null then null else round((v_variant->>'compareAt')::numeric * p_rate, 2) end) then
+        raise exception 'The persisted variation price does not match the authoritative conversion.' using errcode = '40001';
+      end if;
     end loop;
 
     update public.product_pricing_metadata
@@ -753,6 +774,13 @@ begin
     if p_provider_data_timestamp > clock_timestamp() + interval '5 minutes' then
       raise exception 'A future provider observation is not valid.' using errcode = '22023';
     end if;
+  elsif p_live_rate_provider is not null
+     or p_provider_data_timestamp is not null
+     or p_provider_next_update_at is not null
+     or p_last_successful_fetch_at is not null
+     or p_live_rate_version is not null
+     or p_refresh_lease_token is not null then
+    raise exception 'Live-rate metadata requires a live observation and refresh lease.' using errcode = '22023';
   end if;
 
   v_rate := case when v_mode = 'live' then coalesce(p_live_rate, v_old.live_rate) else coalesce(p_manual_rate, v_old.manual_rate) end;
