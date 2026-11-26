@@ -70,6 +70,23 @@ test("currency endpoints require active admins and save CNY through server conve
   assert.match(server, /if \(pricingCurrency === "GHS"\)/);
   assert.match(server, /pricing_currency: "GHS"/);
   assert.match(server, /pricing_metadata: \{ product_id: product\.id \|\| null, pricing_currency: "GHS"/);
+  assert.match(server, /function getVariationCompareAtInput\(combination = \{\}\)/);
+  assert.match(server, /const value = combination\.compareAt \?\? combination\.compare_at;/);
+  assert.equal((server.match(/getVariationCompareAtInput\(combination\)/g) || []).length, 2);
+});
+
+test("variation compare-at normalization preserves canonical precedence and edge values", () => {
+  const normalize = (combination = {}) => {
+    const value = combination.compareAt ?? combination.compare_at;
+    return value === "" || value == null ? null : value;
+  };
+  assert.equal(normalize({ compareAt: 0, compare_at: 9 }), 0);
+  assert.equal(normalize({ compareAt: null, compare_at: 6 }), 6);
+  assert.equal(normalize({ compare_at: 0 }), 0);
+  assert.equal(normalize({ compareAt: 4, compare_at: 9 }), 4);
+  assert.equal(normalize({ compareAt: "" , compare_at: 9 }), null);
+  assert.equal(normalize({}), null);
+  assert.ok(Number(normalize({ compare_at: 3 })) < 5);
 });
 
 test("product editor exposes CNY and GHS pricing explicitly", () => {

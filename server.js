@@ -1967,6 +1967,11 @@ function finiteNonNegativeAmount(value) {
   return Number.isFinite(amount) && amount >= 0 && amount <= 1_000_000_000 ? amount : null;
 }
 
+function getVariationCompareAtInput(combination = {}) {
+  const value = combination.compareAt ?? combination.compare_at;
+  return value === "" || value == null ? null : value;
+}
+
 async function handleAdminPricedProduct(req, res) {
   const admin = await getActiveAdminForRequest(req);
   if (!admin.ok) return sendJson(res, admin.status, { ok: false, message: admin.message });
@@ -1983,7 +1988,7 @@ async function handleAdminPricedProduct(req, res) {
     const ghsVariations = [];
     for (const combination of Array.isArray(body.variationCombinations) ? body.variationCombinations : []) {
       const price = finiteNonNegativeAmount(combination.price);
-      const compareAtInput = combination.compareAt === "" || combination.compareAt == null ? null : combination.compareAt;
+      const compareAtInput = getVariationCompareAtInput(combination);
       const compareAt = compareAtInput == null ? null : finiteNonNegativeAmount(compareAtInput);
       if (!clean(combination.combinationKey ?? combination.combination_key) || price == null || (compareAtInput != null && compareAt == null) || (compareAt != null && compareAt < price)) return sendJson(res, 400, { ok: false, message: "Enter valid GHS prices for every active variation." });
       ghsVariations.push({ ...combination, price, compareAt });
@@ -2015,7 +2020,7 @@ async function handleAdminPricedProduct(req, res) {
     for (const combination of Array.isArray(body.variationCombinations) ? body.variationCombinations : []) {
       const key = clean(combination.combinationKey ?? combination.combination_key);
       const price = finiteNonNegativeAmount(combination.price);
-      const compareAtInput = combination.compareAt === "" || combination.compareAt == null ? null : combination.compareAt;
+      const compareAtInput = getVariationCompareAtInput(combination);
       const compareAt = compareAtInput == null ? null : finiteNonNegativeAmount(compareAtInput);
       if (!key || price == null || (compareAtInput != null && compareAt == null)) throw new Error("Every active variation combination must have valid CNY prices.");
       const converted = convertCnyToGhs(price, activeRate.rate);
