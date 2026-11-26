@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const migration = fs.readFileSync(new URL("../supabase/migrations/20261125_0063_currency_exchange_pricing.sql", import.meta.url), "utf8");
+const authorizationFixMigration = fs.readFileSync(new URL("../supabase/migrations/20261126_0064_currency_pricing_authorization_fix.sql", import.meta.url), "utf8");
 const server = fs.readFileSync(new URL("../server.js", import.meta.url), "utf8");
 const editor = fs.readFileSync(new URL("../src/pages/Admin/products/ProductEditorForm.jsx", import.meta.url), "utf8");
 const exchangeRatesPage = fs.readFileSync(new URL("../src/pages/Admin/exchangeRates/exchangeRates.jsx", import.meta.url), "utf8");
@@ -95,6 +96,24 @@ test("initial null exchange rates remain a readable unconfigured state", () => {
   assert.match(exchangeRatesPage, /Retry loading settings/);
   assert.match(exchangeRatesPage, /const settingsUnavailable = !settings/);
   assert.match(exchangeRatesPage, /disabled=\{actionsDisabled\}/);
+});
+
+test("currency RPC authorization fix uses modern auth.role guards without widening grants", () => {
+  assert.match(authorizationFixMigration, /v_new_guard text := 'if coalesce\(auth\.role\(\)/);
+  for (const signature of [
+    "save_priced_product_bundle",
+    "apply_product_currency_repricing",
+    "get_exchange_rate_settings",
+    "claim_exchange_rate_refresh",
+    "release_exchange_rate_refresh",
+    "update_exchange_rate_settings",
+  ]) assert.match(authorizationFixMigration, new RegExp(`public\\.${signature}`));
+  assert.match(authorizationFixMigration, /current_setting\(''request\.jwt\.claim\.role''/);
+  assert.match(authorizationFixMigration, /grant execute on function public\.get_exchange_rate_settings\(\) to service_role/);
+  assert.match(authorizationFixMigration, /revoke all on function public\.get_exchange_rate_settings\(\) from public, anon, authenticated/);
+  assert.match(authorizationFixMigration, /set local lock_timeout = '5s'/);
+  assert.match(authorizationFixMigration, /set local statement_timeout = '60s'/);
+  assert.match(authorizationFixMigration, /commit;/);
 });
 
 test("variation compare-at normalization preserves canonical precedence and edge values", () => {

@@ -113,20 +113,20 @@ export default function ExchangeRatesPage() {
     if (result) { setPreview(null); setApprovalToken(""); }
   };
 
-  if (loading) return <main className="admin-exchange-rates"><div className="admin-section-card"><p>Loading exchange-rate settings...</p></div></main>;
+  if (loading) return <main className="admin-exchange-rates"><div className="admin-exchange-rates__loading-card"><span className="admin-exchange-rates__eyebrow">Pricing controls</span><p>Loading exchange-rate settings...</p></div></main>;
 
   return (
     <main className="admin-exchange-rates">
       <header className="admin-exchange-rates__header">
-        <div><p className="admin-kicker">Pricing controls</p><h1>Exchange Rates</h1><p>Manage the CNY to GHS conversion used when products are priced in CNY.</p></div>
+        <div><span className="admin-exchange-rates__eyebrow">Pricing controls</span><h1>Exchange Rates</h1><p>Manage the CNY to GHS conversion used when products are priced in CNY.</p></div>
         <button type="button" className="admin-button admin-button--primary" onClick={refreshLive} disabled={actionsDisabled}>Refresh live rate</button>
       </header>
-      {error ? <div className="admin-alert admin-alert--error"><span>{error}</span><button type="button" className="admin-button admin-button--secondary" onClick={load} disabled={Boolean(busy)}>Retry loading settings</button></div> : null}
-      {message ? <div className="admin-alert admin-alert--success">{message}</div> : null}
-      <section className="admin-exchange-rates__grid">
-        <article className="admin-section-card"><span>Active mode</span><strong>{settings?.activePricingMode ?? "Not configured"}</strong><small>Active rate: {formatRate(activeRate)}</small></article>
+      {error ? <div className="admin-exchange-rates__alert admin-exchange-rates__alert--error" role="alert"><span>{error}</span><button type="button" className="admin-button admin-button--secondary" onClick={load} disabled={Boolean(busy)}>Retry loading settings</button></div> : null}
+      {message ? <div className="admin-exchange-rates__alert admin-exchange-rates__alert--success" role="status">{message}</div> : null}
+      <section className="admin-exchange-rates__summary" aria-label="Exchange rate summary">
+        <article className="admin-exchange-rates__summary-card"><span>Active mode</span><strong>{settings?.activePricingMode ?? "Not configured"}</strong><small>Active rate: {formatRate(activeRate)}</small></article>
         <article className="admin-section-card"><span>Live rate</span><strong>{formatRate(settings?.liveRate)}</strong><small>{settings?.liveRateProvider || "No provider response"} · {formatDate(settings?.lastSuccessfulFetchAt)}</small></article>
-        <article className="admin-section-card"><span>Manual rate</span><strong>{formatRate(settings?.manualRate)}</strong><small>{settings?.cnyProductCount ?? 0} CNY products</small></article>
+        <article className="admin-exchange-rates__summary-card"><span>Manual rate</span><strong>{formatRate(settings?.manualRate)}</strong><small>{settings?.cnyProductCount ?? 0} CNY products</small></article>
       </section>
       <p className="admin-exchange-rates__attribution">Rates are provided by ExchangeRate-API. Please retain provider attribution when using the open endpoint.</p>
       <section className="admin-section-card admin-exchange-rates__controls">
