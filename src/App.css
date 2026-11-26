@@ -38443,6 +38443,18 @@ body[data-theme="dark"] .admin-orders-shipping-modal__info svg {
 .admin-exchange-rates select { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; background: #ffffff; color: #0f172a; font: inherit; }
 .admin-exchange-rates input:focus,
 .admin-exchange-rates select:focus { border-color: #17377a; outline: 3px solid rgba(23, 55, 122, .12); }
+.admin-exchange-rates input.admin-exchange-rates__checkbox,
+.admin-exchange-rates .admin-exchange-rates__checkbox {
+  width: 19px;
+  min-width: 19px;
+  min-height: 19px;
+  margin: 0 auto;
+  padding: 0;
+  accent-color: #17377a;
+  border: 0;
+  border-radius: 4px;
+  outline: 0;
+}
 .admin-exchange-rates .admin-button { min-height: 44px; border-radius: 8px; padding: 0 18px; box-shadow: none; }
 .admin-exchange-rates__note { margin: 0; font-size: 13px; }
 .admin-exchange-rates__conversion-output { display: grid; gap: 8px; min-height: 44px; padding: 14px 16px; border: 1px solid #dbe5f0; border-radius: 8px; background: #f8fafc; }

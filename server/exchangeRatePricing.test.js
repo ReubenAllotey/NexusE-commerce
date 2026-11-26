@@ -96,6 +96,10 @@ test("initial null exchange rates remain a readable unconfigured state", () => {
   assert.match(exchangeRatesPage, /Retry loading settings/);
   assert.match(exchangeRatesPage, /const settingsUnavailable = !settings/);
   assert.match(exchangeRatesPage, /disabled=\{actionsDisabled\}/);
+  assert.match(exchangeRatesPage, /function formatCurrency\(value, currency\)/);
+  assert.match(exchangeRatesPage, /admin-exchange-rates__checkbox/);
+  assert.match(exchangeRatesPage, /preview\.total === 1 \? "product" : "products"/);
+  assert.match(exchangeRatesPage, /No rate changes have been recorded yet/);
 });
 
 test("currency RPC authorization fix uses modern auth.role guards without widening grants", () => {
