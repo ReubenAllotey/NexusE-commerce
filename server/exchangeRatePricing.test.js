@@ -49,6 +49,9 @@ test("currency pricing migration keeps private tables service-role-only", () => 
   assert.match(migration, /CNY compare-at metadata is missing/);
   assert.match(migration, /The persisted product price does not match the authoritative conversion/);
   assert.match(migration, /The persisted variation price does not match the authoritative conversion/);
+  assert.match(migration, /nullif\(v_saved #>> '\{product,price\}', ''\)::numeric/);
+  assert.match(migration, /nullif\(v_saved #>> '\{product,compare_at\}', ''\)::numeric/);
+  assert.match(migration, /v_combination\.compare_at is not null and \(not \(v_variant \? 'compareAt'\) or nullif\(v_variant->>'compareAt', ''\) is null\)/);
   assert.match(migration, /Live-rate metadata requires a live observation and refresh lease/);
 });
 

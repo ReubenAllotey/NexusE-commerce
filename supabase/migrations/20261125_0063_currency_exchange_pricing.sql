@@ -295,7 +295,7 @@ begin
         raise exception 'The authoritative manual exchange rate is no longer current.' using errcode = '40001';
       end if;
     end if;
-    v_expected_product_price := round((payload->'product'->>'price')::numeric, 2);
+    v_expected_product_price := nullif(v_saved #>> '{product,price}', '')::numeric;
     if v_expected_product_price is distinct from round((pricing_metadata->>'original_cny_price')::numeric * v_target_rate, 2) then
       raise exception 'The converted product price does not match the authoritative exchange rate.' using errcode = '22023';
     end if;
@@ -303,7 +303,7 @@ begin
       when nullif(pricing_metadata->>'original_cny_compare_at', '') is null then null
       else round((pricing_metadata->>'original_cny_compare_at')::numeric * v_target_rate, 2)
     end;
-    if v_expected_product_compare_at is distinct from nullif(coalesce(payload->'product'->>'compareAt', payload->'product'->>'compare_at'), '')::numeric then
+    if v_expected_product_compare_at is distinct from nullif(v_saved #>> '{product,compare_at}', '')::numeric then
       raise exception 'The converted product compare-at price does not match the authoritative exchange rate.' using errcode = '22023';
     end if;
   end if;
@@ -338,6 +338,7 @@ begin
          or (v_variant->>'price')::numeric = 'NaN'::numeric
          or (v_variant->>'price')::numeric < 0
          or (v_variant->>'price')::numeric > 1000000000
+          or (v_combination.compare_at is not null and (not (v_variant ? 'compareAt') or nullif(v_variant->>'compareAt', '') is null))
          or v_combination.price is distinct from round((v_variant->>'price')::numeric * v_target_rate, 2)
          or (v_variant ? 'compareAt' and nullif(v_variant->>'compareAt', '') is not null
              and ((v_variant->>'compareAt')::numeric = 'NaN'::numeric
