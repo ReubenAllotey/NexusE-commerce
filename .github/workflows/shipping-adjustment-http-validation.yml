@@ -76,7 +76,8 @@ jobs:
             echo "SUPABASE_DB_URL=$DB_URL"
           } >> "$GITHUB_ENV"
           for attempt in {1..60}; do
-            if curl --silent --fail "$API_URL/rest/v1/" -H "apikey: $ANON_KEY" >/dev/null; then exit 0; fi
+            if curl --silent --fail "$API_URL/rest/v1/" -H "apikey: $ANON_KEY" >/dev/null \
+              && curl --silent --fail "$API_URL/auth/v1/health" -H "apikey: $ANON_KEY" >/dev/null; then exit 0; fi
             sleep 2
           done
           cat /tmp/supabase-start.log
