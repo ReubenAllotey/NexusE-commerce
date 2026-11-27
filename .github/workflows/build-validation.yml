@@ -1,0 +1,50 @@
+name: Build Validation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --test server/*.test.js server/services/*.test.js
+      - run: node --check server.js
+      - run: git diff --check
+      - run: npm run build
+      - name: Start browser harness server
+        run: |
+          nohup npx vite --config browser-tests/shipping-adjustment-vite.config.js --host 127.0.0.1 --port 4176 >/tmp/nexus-vite.log 2>&1 &
+          for attempt in {1..30}; do curl --silent --fail http://127.0.0.1:4176/browser-tests/shipping-adjustment-index.html >/dev/null && break; sleep 1; done
+      - name: Start synthetic browser
+        run: |
+          google-chrome --headless=new --no-sandbox --disable-gpu --no-first-run \
+            --remote-debugging-port=9238 --user-data-dir=/tmp/nexus-chrome about:blank >/tmp/nexus-chrome.log 2>&1 &
+          for attempt in {1..30}; do curl --silent --fail http://127.0.0.1:9238/json/version >/dev/null && break; sleep 1; done
+      - name: Run admin shipping adjustment browser harness
+        run: |
+          node browser-tests/runShippingAdjustmentHarness.mjs > /tmp/shipping-adjustment-desktop.json
+          SHIPPING_ADJUSTMENT_HARNESS_VIEWPORT=tablet node browser-tests/runShippingAdjustmentHarness.mjs > /tmp/shipping-adjustment-tablet.json
+          SHIPPING_ADJUSTMENT_HARNESS_VIEWPORT=mobile node browser-tests/runShippingAdjustmentHarness.mjs > /tmp/shipping-adjustment-mobile.json
+      - name: Run customer shipping credit dashboard browser harness
+        run: |
+          node browser-tests/runShippingCreditDashboardHarness.mjs > /tmp/shipping-credit-dashboard-desktop.json
+          SHIPPING_CREDIT_HARNESS_VIEWPORT=mobile node browser-tests/runShippingCreditDashboardHarness.mjs > /tmp/shipping-credit-dashboard-mobile.json
+          SHIPPING_CREDIT_HARNESS_CASE=zero-credit node browser-tests/runShippingCreditDashboardHarness.mjs > /tmp/shipping-credit-dashboard-zero.json
+          SHIPPING_CREDIT_HARNESS_CASE=unauthorized node browser-tests/runShippingCreditDashboardHarness.mjs > /tmp/shipping-credit-dashboard-unauthorized.json
+      - name: Upload browser validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipping-adjustment-browser-validation
+          path: |
+            /tmp/nexus-vite.log
+            /tmp/nexus-chrome.log
+            /tmp/shipping-*.json
+            /tmp/nexus-shipping-*.png

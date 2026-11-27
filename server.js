@@ -3747,6 +3747,137 @@ async function handleAdminShippingPaymentNotice(req, res) {
   });
 }
 
+async function handleAdminShippingFeeAdjustment(req, res) {
+  const admin = await getActiveAdminForRequest(req);
+  if (!admin.ok) {
+    sendJson(res, admin.status, { ok: false, message: admin.message });
+    return;
+  }
+
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  if (req.method === "GET" && requestUrl.pathname.endsWith("/products")) {
+    const search = clean(requestUrl.searchParams.get("search"));
+    let query = supabaseAdmin
+      .from("products")
+      .select("id,name,slug,shipping_fee,shipping_fee_status")
+      .is("deleted_at", null)
+      .order("name", { ascending: true })
+      .limit(50);
+    if (search) query = query.or(`name.ilike.%${search}%,slug.ilike.%${search}%`);
+    const { data, error } = await query;
+    if (error) {
+      sendJson(res, 503, { ok: false, message: "Unable to load shipping-fee products." });
+      return;
+    }
+    sendJson(res, 200, { ok: true, products: data || [] });
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname.endsWith("/history")) {
+    const { data, error } = await supabaseAdmin
+      .from("shipping_fee_adjustments")
+      .select("id,operation_id,product_id,old_shipping_fee,new_shipping_fee,administrator_id,status,result,created_at,completed_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) {
+      sendJson(res, 503, { ok: false, message: "Unable to load shipping adjustment history." });
+      return;
+    }
+    sendJson(res, 200, { ok: true, history: data || [] });
+    return;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 405, { ok: false, message: "Method Not Allowed" });
+    return;
+  }
+
+  const body = normalizePayload(await readJsonBody(req));
+  const productId = clean(body.productId);
+  const newFee = finiteNonNegativeAmount(body.newShippingFee);
+  if (!productId || newFee == null) {
+    sendJson(res, 400, { ok: false, message: "Select a product and enter a valid non-negative shipping fee." });
+    return;
+  }
+
+  const functionName = requestUrl.pathname.endsWith("/preview")
+    ? "preview_shipping_fee_adjustment"
+    : "apply_shipping_fee_adjustment";
+  const args = functionName === "preview_shipping_fee_adjustment"
+    ? { p_product_id: productId, p_new_shipping_fee: newFee, p_administrator_id: admin.user.id }
+    : {
+        p_operation_id: clean(body.operationId) || crypto.randomUUID(),
+        p_product_id: productId,
+        p_new_shipping_fee: newFee,
+        p_administrator_id: admin.user.id,
+        p_expected_old_shipping_fee: body.expectedOldShippingFee == null ? -1 : finiteNonNegativeAmount(body.expectedOldShippingFee),
+      };
+  const { data, error } = await supabaseAdmin.rpc(functionName, args);
+  if (error) {
+    const status = error.code === "42501" ? 403 : error.code === "40001" ? 409 : 422;
+    sendJson(res, status, { ok: false, message: error.message || "The shipping fee adjustment could not be completed." });
+    return;
+  }
+
+  if (functionName === "preview_shipping_fee_adjustment") {
+    sendJson(res, 200, { ok: true, preview: data });
+    return;
+  }
+
+  const result = data || {};
+  const noticeResults = [];
+  for (const affected of Array.isArray(result.orders) ? result.orders : []) {
+    if (Number(affected.additionalDue || 0) <= 0) continue;
+    const orderResult = await loadAdminOrderPaymentNotice(affected.orderId);
+    if (!orderResult?.ok || !orderResult.order) continue;
+    const notice = await queueShippingPaymentNotice(
+      orderResult.order,
+      orderResult.accounting,
+      {
+        adminId: admin.user.id,
+        mode: "resend",
+        overrideCooldown: true,
+        overrideReason: `Shipping fee adjustment ${result.adjustmentId}`,
+      },
+    );
+    noticeResults.push({ orderId: affected.orderId, status: notice.status || "failed", queued: Boolean(notice.queued) });
+
+    if (Number(affected.creditIssuedMinor || 0) > 0 && affected.userId && supabasePrivate) {
+      await supabasePrivate.rpc("upsert_notification", {
+        p_user_id: affected.userId,
+        p_category: "orders",
+        p_title: "Shipping credit issued",
+        p_message: `A shipping fee adjustment created GHS ${(Number(affected.creditIssuedMinor) / 100).toFixed(2)} in shipping credit for order ${affected.orderNumber || affected.orderId}.`,
+        p_type: "payment_status",
+        p_source_key: `shipping-credit-adjustment:${result.adjustmentId}:${affected.orderId}`,
+        p_order_id: affected.orderId,
+        p_batch_id: null,
+        p_shipment_id: null,
+        p_action_url: "/profile/orders",
+        p_action_label: "View shipping credit",
+        p_action_description: "Review the shipping credit in your Nexus account.",
+      });
+    }
+  }
+  sendJson(res, 200, { ok: true, result, noticeResults });
+}
+
+async function handleMyShippingCredits(req, res) {
+  const authResult = await getAuthenticatedUser(req);
+  if (!authResult.ok || !authResult.user) {
+    sendJson(res, 401, { ok: false, message: authResult.message || "Please sign in to continue." });
+    return;
+  }
+  const { data, error } = await supabaseAdmin.rpc("get_my_shipping_credit_ledger");
+  if (error) {
+    sendJson(res, 503, { ok: false, message: "Unable to load shipping credit history." });
+    return;
+  }
+  const entries = Array.isArray(data) ? data : [];
+  const balanceMinor = entries.reduce((total, entry) => total + (entry.entry_type === "issue" ? Number(entry.amount_minor || 0) : -Number(entry.amount_minor || 0)), 0);
+  sendJson(res, 200, { ok: true, balanceMinor: Math.max(balanceMinor, 0), entries });
+}
+
 async function loadAdminOrderPaymentNotice(orderId) {
   const { data: order, error: orderError } = await supabaseAdmin
     .from("orders")
@@ -9012,6 +9143,11 @@ export function createHttpServer() {
     return;
   }
 
+  if (pathname === "/api/account/shipping-credits" && req.method === "GET") {
+    await handleMyShippingCredits(req, res);
+    return;
+  }
+
   if (pathname === "/api/push/public-key" && req.method === "GET") {
     await handlePushPublicKey(req, res);
     return;
@@ -9084,6 +9220,26 @@ export function createHttpServer() {
 
   if (pathname === "/api/admin/shipping-payment-notices/bulk" && req.method === "POST") {
     await handleAdminBulkShippingPaymentNotices(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/shipping-fee-adjustment/products" && req.method === "GET") {
+    await handleAdminShippingFeeAdjustment(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/shipping-fee-adjustment/preview" && req.method === "POST") {
+    await handleAdminShippingFeeAdjustment(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/shipping-fee-adjustment/history" && req.method === "GET") {
+    await handleAdminShippingFeeAdjustment(req, res);
+    return;
+  }
+
+  if (pathname === "/api/admin/shipping-fee-adjustment/apply" && req.method === "POST") {
+    await handleAdminShippingFeeAdjustment(req, res);
     return;
   }
 

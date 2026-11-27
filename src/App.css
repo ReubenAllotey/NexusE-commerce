@@ -9705,6 +9705,26 @@ body[data-theme="dark"] .location-picker__selected {
   }
 }
 
+.admin-shipment-adjustment-preview {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #334155;
+}
+.admin-shipment-adjustment-preview strong { color: #0f172a; }
+.dashboard-shipping-credit { display: grid; gap: 12px; }
+.dashboard-shipping-credit__amount { font-size: 2rem; color: #0f172a; }
+.dashboard-shipping-credit__note { color: #64748b; }
+.dashboard-shipping-credit__history { margin-top: 4px; }
+.admin-shipment-adjustment-history__list { display: grid; gap: 10px; }
+.admin-shipment-adjustment-history__list article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid #e2e8f0; }
+.admin-shipment-adjustment-history__list article:last-child { border-bottom: 0; }
+.admin-shipment-adjustment-history__list span, .admin-shipment-adjustment-history__list small { color: #64748b; }
+@media (max-width: 640px) { .admin-shipment-adjustment-history__list article { grid-template-columns: 1fr; gap: 4px; } }
+
 .shipping-panel {
   padding: 1.2rem;
   border: 1px solid rgba(207, 217, 230, 0.7);
