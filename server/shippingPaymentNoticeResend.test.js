@@ -97,8 +97,8 @@ test("shipping retries use a transactionally fenced advisory-lock RPC", () => {
   assert.match(serverSource, /shippingOrderId: order\.id/);
   assert.match(migrationSource, /create or replace function public\.retry_shipping_payment_notice_delivery/);
   assert.match(migrationSource, /v_order_id::text \|\| ':shipping-payment'/);
-  assert.match(migrationSource, /from public\.notification_email_deliveries d\n  where d\.notification_id = p_notification_id\n  for update/);
-  assert.match(migrationSource, /grant execute on function public\.retry_shipping_payment_notice_delivery\(uuid\)\n  to service_role/);
+  assert.match(migrationSource, /from public\.notification_email_deliveries d\r?\n  where d\.notification_id = p_notification_id\r?\n  for update/);
+  assert.match(migrationSource, /grant execute on function public\.retry_shipping_payment_notice_delivery\(uuid\)\r?\n  to service_role/);
 });
 
 test("shipping reminder action URLs are order-bound payment links", () => {

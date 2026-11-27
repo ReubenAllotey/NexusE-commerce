@@ -14,7 +14,7 @@ test("remediation uses the complete production source key everywhere", () => {
     .map((match) => match[1]);
   assert.equal(declarations.length, 3);
   assert.deepEqual(declarations, [sourceKey, sourceKey, sourceKey]);
-  assert.ok(sql.includes(`v_legacy_source_key text :=\n    '${legacyKey}'`));
+  assert.match(sql, new RegExp(`v_legacy_source_key text :=\\r?\\n    '${legacyKey}'`));
   assert.ok(sql.includes(`source_key = '${legacyKey}'`));
   assert.match(sql, /source_key = v_source_key/);
   assert.doesNotMatch(sql, /payment:48543e91-2da2-49b6-89ef-2ae4fdfa6a22(?:['"]|\s|;|\))/);
