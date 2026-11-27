@@ -86,8 +86,12 @@ function ShipmentPage({ authUser = null }) {
   const [feeDraft, setFeeDraft] = useState(EMPTY_FEE);
   const [feeSearch, setFeeSearch] = useState("");
   const [feePreview, setFeePreview] = useState(null);
+  const [feePreviewPage, setFeePreviewPage] = useState(1);
   const [feePreviewLoading, setFeePreviewLoading] = useState(false);
   const [feeHistory, setFeeHistory] = useState([]);
+  const [feeHistoryLoading, setFeeHistoryLoading] = useState(true);
+  const [feeHistoryError, setFeeHistoryError] = useState("");
+  const [selectedFeeHistory, setSelectedFeeHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [trackLoadError, setTrackLoadError] = useState("");
   const [error, setError] = useState("");
@@ -100,6 +104,8 @@ function ShipmentPage({ authUser = null }) {
   const refresh = async () => {
     setLoading(true);
     setError("");
+    setFeeHistoryLoading(true);
+    setFeeHistoryError("");
     const [batchResult, trackResult] = await Promise.all([
       loadAdminBatches().catch((loadError) => ({ error: loadError })),
       loadAdminShipmentTracks(),
@@ -115,11 +121,19 @@ function ShipmentPage({ authUser = null }) {
     }
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData?.session?.access_token;
-    if (accessToken) {
-      const historyResponse = await fetch("/api/admin/shipping-fee-adjustment/history", { headers: { Authorization: `Bearer ${accessToken}` } });
-      const historyBody = await historyResponse.json().catch(() => ({}));
-      if (historyResponse.ok && historyBody.ok) setFeeHistory(Array.isArray(historyBody.history) ? historyBody.history : []);
+    if (!accessToken) {
+      setFeeHistoryError("Your administrator session has expired. Please sign in again.");
+    } else {
+      try {
+        const historyResponse = await fetch("/api/admin/shipping-fee-adjustment/history", { headers: { Authorization: `Bearer ${accessToken}` } });
+        const historyBody = await historyResponse.json().catch(() => ({}));
+        if (!historyResponse.ok || !historyBody.ok || !Array.isArray(historyBody.history)) throw new Error(historyBody.message || "Unable to load shipping adjustment history.");
+        setFeeHistory(historyBody.history);
+      } catch (historyError) {
+        setFeeHistoryError(historyError.message || "Unable to load shipping adjustment history.");
+      }
     }
+    setFeeHistoryLoading(false);
     setLoading(false);
     return {
       ok: !batchResult?.error && Boolean(trackResult.ok),
@@ -428,6 +442,7 @@ function ShipmentPage({ authUser = null }) {
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.ok) throw new Error(body.message || "Unable to preview the shipping fee adjustment.");
       setFeePreview(body.preview);
+      setFeePreviewPage(1);
     } catch (previewError) {
       setError(previewError.message || "Unable to preview the shipping fee adjustment.");
     } finally {
@@ -449,7 +464,9 @@ function ShipmentPage({ authUser = null }) {
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.ok) throw new Error(body.message || "Unable to apply the shipping fee adjustment.");
       await refreshProducts();
+      await refresh();
       setFeeModalOpen(false);
+      setFeePreviewPage(1);
       setFeePreview(null);
       setFeeDraft(EMPTY_FEE);
     } catch (applyError) {
@@ -460,6 +477,11 @@ function ShipmentPage({ authUser = null }) {
   };
 
   const activeTracks = tracks.filter((track) => track.currentStatus !== "delivered");
+  const previewOrders = Array.isArray(feePreview?.orders) ? feePreview.orders : [];
+  const previewPageSize = 8;
+  const previewPageCount = Math.max(1, Math.ceil(previewOrders.length / previewPageSize));
+  const visiblePreviewOrders = previewOrders.slice((feePreviewPage - 1) * previewPageSize, feePreviewPage * previewPageSize);
+  const previewExcluded = Array.isArray(feePreview?.excludedOrders) ? feePreview.excludedOrders : [];
   const airTracks = tracks.filter((track) => track.freightType === "air");
   const seaTracks = tracks.filter((track) => track.freightType === "sea");
   const completedTracks = tracks.filter((track) => track.currentStatus === "delivered");
@@ -471,7 +493,7 @@ function ShipmentPage({ authUser = null }) {
           <div><p>Admin operations</p><h1>Shipment Management</h1><span>Create and update freight tracking for managed batches.</span></div>
           <div className="admin-products-header__actions">
             <button type="button" className="admin-products-header__button" onClick={openNew}>New Shipment Track</button>
-            <button type="button" className="admin-products-header__button admin-products-header__button--ghost" onClick={() => { setFeeModalOpen(true); setTrackModalOpen(false); setError(""); setFeePreview(null); }} disabled={productsLoading}>Update Shipping Fee</button>
+            <button type="button" className="admin-products-header__button admin-products-header__button--ghost" onClick={() => { setFeeModalOpen(true); setTrackModalOpen(false); setError(""); setFeePreview(null); setFeePreviewPage(1); }} disabled={productsLoading}>Update Shipping Fee</button>
           </div>
         </header>
 
@@ -485,8 +507,9 @@ function ShipmentPage({ authUser = null }) {
         </section>
 
         <section className="admin-products-panel admin-shipment-panel admin-shipment-adjustment-history">
-          <div className="admin-shipment-panel__heading"><div><p>Audited changes</p><h2>Shipping fee adjustment history</h2></div><span>{feeHistory.length} record{feeHistory.length === 1 ? "" : "s"}</span></div>
-          {feeHistory.length ? <div className="admin-shipment-adjustment-history__list">{feeHistory.map((entry) => <article key={entry.id}><strong>{entry.status === "noop" ? "No change" : "Fee adjusted"}</strong><span>GHS {Number(entry.old_shipping_fee || 0).toFixed(2)} → GHS {Number(entry.new_shipping_fee || 0).toFixed(2)}</span><small>{formatShortDate(entry.created_at)}</small></article>)}</div> : <div className="admin-products-empty"><p>No shipping fee adjustments recorded.</p><span>Completed previews and adjustments will appear here.</span></div>}
+          <div className="admin-shipment-panel__heading"><div><p>Audited changes</p><h2>Shipping fee adjustment history</h2></div><span>{feeHistoryLoading ? "Loading..." : feeHistoryError ? "Unavailable" : `${feeHistory.length} record${feeHistory.length === 1 ? "" : "s"}`}</span></div>
+          {feeHistoryLoading ? <div className="admin-products-empty"><p>Loading adjustment history...</p><span>Checking the audited shipping fee changes.</span></div> : feeHistoryError ? <div className="admin-products-empty admin-shipment-empty--error"><p>Unable to load shipping adjustment history.</p><span>{feeHistoryError}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void refresh()}>Retry</button></div> : feeHistory.length ? <div className="admin-shipment-adjustment-history__list">{feeHistory.map((entry) => <article key={entry.id}><strong>{entry.status === "noop" ? "No change" : "Fee adjusted"}</strong><span>{entry.product_name}</span><span>GHS {Number(entry.old_shipping_fee || 0).toFixed(2)} -&gt; GHS {Number(entry.new_shipping_fee || 0).toFixed(2)}</span><span>{Number(entry.new_shipping_fee || 0) >= Number(entry.old_shipping_fee || 0) ? "Increased" : "Decreased"}: GHS {Math.abs(Number(entry.new_shipping_fee || 0) - Number(entry.old_shipping_fee || 0)).toFixed(2)}</span><span>{entry.affected_order_items || 0} affected order item{entry.affected_order_items === 1 ? "" : "s"}</span><span>Additional balance: GHS {Number(entry.total_additional_shipping || 0).toFixed(2)}</span><span>Credit generated: GHS {(Number(entry.total_credit_issued_minor || 0) / 100).toFixed(2)}</span><span>Administrator: {entry.administrator_name || "Unknown administrator"}</span><small>{formatShortDate(entry.created_at)} - {entry.status}</small><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(entry)}>View details</button></article>)}</div> : <div className="admin-products-empty"><p>No shipping fee adjustments recorded.</p><span>Completed previews and adjustments will appear here.</span></div>}
+          {selectedFeeHistory ? <div className="admin-shipment-adjustment-history__details" role="dialog" aria-label="Shipping fee adjustment details"><strong>Adjustment details</strong><span>{selectedFeeHistory.product_name}</span><span>{selectedFeeHistory.affected_order_items || 0} affected order items</span><span>Operation: {selectedFeeHistory.operation_id}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(null)}>Close details</button></div> : null}
         </section>
 
         <section className="admin-products-panel admin-shipment-panel">
@@ -563,7 +586,25 @@ function ShipmentPage({ authUser = null }) {
       {feeModalOpen ? (
         <div className="admin-shipment-modal" role="dialog" aria-modal="true" aria-label="Shipping fee editor">
           <button type="button" className="admin-shipment-modal__scrim" onClick={closeDialogs} aria-label="Close shipping fee editor" />
-          <aside className="admin-shipment-modal__panel"><header className="admin-shipment-modal__header"><div><p>Catalog operations</p><h2>Update Shipping Fee</h2><span>Preview eligible open-batch orders before applying the audited adjustment.</span></div><button type="button" className="admin-shipment-modal__close" onClick={closeDialogs}>Close</button></header><form className="admin-shipment-modal__form" onSubmit={handlePreviewFee}><label className="admin-shipment-modal__field"><span>Search product</span><input value={feeSearch} onChange={(event) => setFeeSearch(event.target.value)} placeholder="Name, slug, or UUID" /></label><label className="admin-shipment-modal__field"><span>Product</span><select value={feeDraft.productId} onChange={(event) => { setFeeDraft((current) => ({ ...current, productId: event.target.value })); setFeePreview(null); }}><option value="">Select a product</option>{filteredFeeProducts.map((product) => <option key={product.id} value={product.id}>{product.name} ({product.slug})</option>)}</select></label><label className="admin-shipment-modal__field"><span>Current shipping fee</span><input value={selectedFeeProduct?.shippingFee == null ? "Pending" : `GHS ${Number(selectedFeeProduct.shippingFee).toFixed(2)}`} readOnly /></label><label className="admin-shipment-modal__field"><span>New shipping fee (GHS)</span><input type="number" min="0" step="0.01" value={feeDraft.newShippingFee} onChange={(event) => { setFeeDraft((current) => ({ ...current, newShippingFee: event.target.value })); setFeePreview(null); }} placeholder="0.00" /></label>{feePreview ? <div className="admin-shipment-adjustment-preview"><strong>{feePreview.orders?.length || 0} eligible order items</strong><span>Current: GHS {Number(feePreview.currentShippingFee || 0).toFixed(2)} · New: GHS {Number(feePreview.newShippingFee || 0).toFixed(2)}</span>{(feePreview.orders || []).slice(0, 8).map((row) => <span key={row.orderItemId}>Order {row.orderNumber || row.orderId}: due GHS {Number(row.additionalDue || 0).toFixed(2)} · credit GHS {(Number(row.creditIssuedMinor || 0) / 100).toFixed(2)}</span>)}{(feePreview.orders || []).length > 8 ? <span>Additional affected orders are included in the server-side operation.</span> : null}</div> : null}<div className="admin-shipment-modal__actions"><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={closeDialogs}>Cancel</button>{feePreview ? <><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={() => setFeePreview(null)} disabled={savingFee}>Back</button><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--primary" onClick={handleApplyFee} disabled={savingFee}>{savingFee ? "Applying..." : "Confirm Update Fee"}</button></> : <button type="submit" className="admin-shipment-modal__button admin-shipment-modal__button--primary" disabled={feePreviewLoading}>{feePreviewLoading ? "Previewing..." : "Preview Adjustment"}</button>}</div></form></aside>
+          <aside className="admin-shipment-modal__panel admin-shipment-fee-modal__panel">
+            <header className="admin-shipment-modal__header admin-shipment-fee-modal__header"><div><p>Catalog operations</p><h2>Update Shipping Fee</h2><span>Preview eligible open-batch orders before applying the audited adjustment.</span></div><button type="button" className="admin-shipment-modal__close" onClick={closeDialogs}>Close</button></header>
+            <form className="admin-shipment-modal__form admin-shipment-fee-modal__form" onSubmit={handlePreviewFee}>
+              <div className="admin-shipment-modal__grid admin-shipment-fee-modal__fields">
+                <label className="admin-shipment-modal__field"><span>Search product</span><input value={feeSearch} onChange={(event) => setFeeSearch(event.target.value)} placeholder="Name, slug, or UUID" /></label>
+                <label className="admin-shipment-modal__field"><span>Product</span><select value={feeDraft.productId} onChange={(event) => { setFeeDraft((current) => ({ ...current, productId: event.target.value })); setFeePreview(null); setFeePreviewPage(1); }}><option value="">Select a product</option>{filteredFeeProducts.map((product) => <option key={product.id} value={product.id}>{product.name} ({product.slug})</option>)}</select></label>
+                <label className="admin-shipment-modal__field"><span>Current shipping fee</span><input className="admin-shipment-fee-modal__readonly" value={selectedFeeProduct?.shippingFee == null ? "Pending" : `GHS ${Number(selectedFeeProduct.shippingFee).toFixed(2)}`} readOnly /></label>
+                <label className="admin-shipment-modal__field"><span>New shipping fee (GHS)</span><input type="number" min="0" step="0.01" value={feeDraft.newShippingFee} onChange={(event) => { setFeeDraft((current) => ({ ...current, newShippingFee: event.target.value })); setFeePreview(null); setFeePreviewPage(1); }} placeholder="0.00" /></label>
+              </div>
+              {feePreview ? <div className="admin-shipment-adjustment-preview">
+                <div className="admin-shipment-fee-summary"><div><span>Old fee</span><strong>GHS {Number(feePreview.currentShippingFee || 0).toFixed(2)}</strong></div><div><span>New fee</span><strong>GHS {Number(feePreview.newShippingFee || 0).toFixed(2)}</strong></div><div><span>Difference</span><strong>{Number(feePreview.newShippingFee || 0) >= Number(feePreview.currentShippingFee || 0) ? "+" : "-"}GHS {Math.abs(Number(feePreview.newShippingFee || 0) - Number(feePreview.currentShippingFee || 0)).toFixed(2)}</strong></div></div>
+                <div className="admin-shipment-fee-summary admin-shipment-fee-summary--secondary"><div><span>eligible order items</span><strong>{previewOrders.length}</strong></div><div><span>Additional balance</span><strong>GHS {previewOrders.reduce((sum, row) => sum + Number(row.additionalDue || 0), 0).toFixed(2)}</strong></div><div><span>Credit generated</span><strong>GHS {(previewOrders.reduce((sum, row) => sum + Number(row.creditIssuedMinor || 0), 0) / 100).toFixed(2)}</strong></div></div>
+                <div className="admin-shipment-fee-table-wrap"><table className="admin-shipment-fee-table"><thead><tr><th>Order</th><th>Previous balance</th><th>Updated balance</th><th>Credit generated</th></tr></thead><tbody>{visiblePreviewOrders.map((row) => <tr key={row.orderItemId}><td>{row.orderNumber || row.orderId}</td><td>GHS {Math.max(Number(row.oldLineShipping || 0) - Number(row.cashPaid || 0), 0).toFixed(2)}</td><td><span>GHS {Math.max(Number(row.newLineShipping ?? row.additionalDue ?? 0) - Number(row.cashPaid || 0), 0).toFixed(2)}</span><small>due GHS {Number(row.additionalDue || 0).toFixed(2)}</small></td><td>GHS {(Number(row.creditIssuedMinor || 0) / 100).toFixed(2)}</td></tr>)}</tbody></table></div>
+                {previewPageCount > 1 ? <div className="admin-shipment-fee-pagination"><span>Page {feePreviewPage} of {previewPageCount}</span><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={() => setFeePreviewPage((page) => Math.max(1, page - 1))} disabled={feePreviewPage === 1}>Previous</button><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={() => setFeePreviewPage((page) => Math.min(previewPageCount, page + 1))} disabled={feePreviewPage === previewPageCount}>Next</button></div> : null}
+                {previewExcluded.length ? <details className="admin-shipment-fee-excluded"><summary>{previewExcluded.length} excluded order{previewExcluded.length === 1 ? "" : "s"}</summary>{previewExcluded.map((row, index) => <div key={row.orderId || index}><span>{row.orderNumber || row.orderId}</span><small>{row.reason || "Not eligible"}</small></div>)}</details> : null}
+              </div> : null}
+              <div className="admin-shipment-modal__actions"><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={closeDialogs}>Cancel</button>{feePreview ? <><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={() => { setFeePreview(null); setFeePreviewPage(1); }} disabled={savingFee}>Back</button><button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--primary" onClick={handleApplyFee} disabled={savingFee}>{savingFee ? "Applying..." : "Confirm Update Fee"}</button></> : <button type="submit" className="admin-shipment-modal__button admin-shipment-modal__button--primary" disabled={feePreviewLoading}>{feePreviewLoading ? "Previewing..." : "Preview Adjustment"}</button>}</div>
+            </form>
+          </aside>
         </div>
       ) : null}
     </main>

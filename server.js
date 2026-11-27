@@ -3783,7 +3783,41 @@ async function handleAdminShippingFeeAdjustment(req, res) {
       sendJson(res, 503, { ok: false, message: "Unable to load shipping adjustment history." });
       return;
     }
-    sendJson(res, 200, { ok: true, history: data || [] });
+    const adjustments = Array.isArray(data) ? data : [];
+    const productIds = [...new Set(adjustments.map((entry) => entry.product_id).filter(Boolean))];
+    const administratorIds = [...new Set(adjustments.map((entry) => entry.administrator_id).filter(Boolean))];
+    const adjustmentIds = adjustments.map((entry) => entry.id).filter(Boolean);
+    const [productResult, administratorResult, orderResult] = await Promise.all([
+      productIds.length ? supabaseAdmin.from("products").select("id,name").in("id", productIds) : Promise.resolve({ data: [], error: null }),
+      administratorIds.length ? supabaseAdmin.from("profiles").select("id,full_name,email").in("id", administratorIds) : Promise.resolve({ data: [], error: null }),
+      adjustmentIds.length ? supabaseAdmin.from("shipping_fee_adjustment_orders").select("adjustment_id,order_item_id,additional_due,credit_issued_minor,result_code").in("adjustment_id", adjustmentIds) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (productResult.error || administratorResult.error || orderResult.error) {
+      sendJson(res, 503, { ok: false, message: "Unable to load shipping adjustment history details." });
+      return;
+    }
+    const productsById = new Map((productResult.data || []).map((product) => [product.id, product]));
+    const administratorsById = new Map((administratorResult.data || []).map((administrator) => [administrator.id, administrator]));
+    const ordersByAdjustment = new Map();
+    for (const row of orderResult.data || []) {
+      const rows = ordersByAdjustment.get(row.adjustment_id) || [];
+      rows.push(row);
+      ordersByAdjustment.set(row.adjustment_id, rows);
+    }
+    const history = adjustments.map((entry) => {
+      const affectedOrders = ordersByAdjustment.get(entry.id) || [];
+      const administrator = administratorsById.get(entry.administrator_id);
+      return {
+        ...entry,
+        product_name: productsById.get(entry.product_id)?.name || "Unknown product",
+        administrator_name: administrator?.full_name || administrator?.email || "Unknown administrator",
+        affected_order_items: affectedOrders.length,
+        total_additional_shipping: affectedOrders.reduce((sum, row) => sum + Number(row.additional_due || 0), 0),
+        total_credit_issued_minor: affectedOrders.reduce((sum, row) => sum + Number(row.credit_issued_minor || 0), 0),
+        affected_orders: affectedOrders,
+      };
+    });
+    sendJson(res, 200, { ok: true, history });
     return;
   }
 

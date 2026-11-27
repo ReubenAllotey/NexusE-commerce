@@ -127,3 +127,33 @@ test("order details expose automatic shipping-credit deductions", () => {
   assert.match(ordersPage, /Shipping paid \{formatMoney\(item\.shippingPaidAmount\)\}/);
   assert.match(ordersPage, /Shipping remaining \{formatMoney\(/);
 });
+
+test("shipping adjustment history enriches persisted records and fails closed on detail errors", () => {
+  assert.match(server, /shipping_fee_adjustment_orders/);
+  assert.match(server, /product_name:/);
+  assert.match(server, /administrator_name:/);
+  assert.match(server, /affected_order_items:/);
+  assert.match(server, /total_additional_shipping:/);
+  assert.match(server, /total_credit_issued_minor:/);
+  assert.match(server, /Unable to load shipping adjustment history details/);
+});
+
+test("admin history distinguishes loading, errors, empty state, and persisted records", () => {
+  assert.match(shipment, /feeHistoryLoading/);
+  assert.match(shipment, /feeHistoryError/);
+  assert.match(shipment, /Unable to load shipping adjustment history/);
+  assert.match(shipment, /View details/);
+  assert.match(shipment, /await refresh\(\)/);
+  assert.match(shipment, /total_additional_shipping/);
+  assert.match(shipment, /total_credit_issued_minor/);
+});
+
+test("shipping fee preview uses a responsive, paginated table without changing calculations", () => {
+  assert.match(shipment, /admin-shipment-fee-table/);
+  assert.match(shipment, /Previous balance/);
+  assert.match(shipment, /Updated balance/);
+  assert.match(shipment, /Credit generated/);
+  assert.match(shipment, /feePreviewPage/);
+  assert.match(shipment, /previewExcluded/);
+  assert.match(shipment, /Confirm Update Fee/);
+});
