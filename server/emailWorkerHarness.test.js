@@ -98,6 +98,8 @@ const functionNames = [
   "getEmailRetryDelaySeconds",
   "isValidQueuedEmailAddress",
   "updateClaimedEmailJob",
+  "createShippingFeeAdjustmentNotificationIntent",
+  "recoverAutomaticShippingFeeAdjustmentNotifications",
   "drainNotificationEmailQueue",
   "runNotificationEmailWorkerCycle",
 ];
@@ -152,6 +154,7 @@ function createState(overrides = {}) {
       line_subtotal: 3800,
     }],
     notifications: overrides.notifications ?? [],
+    adjustmentIntents: overrides.adjustmentIntents ?? [],
     jobs: overrides.jobs ?? [],
     queueUpdates: [],
     rpcCalls: [],
@@ -182,6 +185,8 @@ function createQuery(state, table, operation = "read") {
   const query = {
     select() { return query; },
     eq(column, value) { filters.push([column, value]); return query; },
+    in(column, values) { filters.push([column, values]); return query; },
+    limit(value) { query.limitValue = value; return query; },
     order() { return query; },
     update(values) {
       operation = "update";
@@ -205,6 +210,9 @@ function createQuery(state, table, operation = "read") {
       if (table === "payments") return { data: state.payments.find((row) => row.id === id || row.provider_reference === reference) ?? null, error: null };
       if (table === "notifications") return { data: state.notifications.find((row) => row.id === id) ?? null, error: null };
       if (table === "notification_email_deliveries") return { data: state.jobs[0] ?? null, error: null };
+      if (table === "shipping_fee_adjustment_notification_intents") {
+        return { data: state.adjustmentIntents[0] ?? null, error: null };
+      }
       return { data: null, error: null };
     },
     then(resolve) {
@@ -221,6 +229,17 @@ function createQuery(state, table, operation = "read") {
         if (job) Object.assign(job, query.updateValues);
         state.queueUpdates.push({ id, values: query.updateValues, matched: Boolean(job) });
         return resolve({ data: job ? { id: job.id } : null, error: null });
+      }
+      if (table === "shipping_fee_adjustment_notification_intents") {
+        const automatic = filters.find(([column]) => column === "automatic_recovery")?.[1];
+        const statuses = filters.find(([column]) => column === "status")?.[1] || [];
+        return resolve({
+          data: state.adjustmentIntents.filter((intent) =>
+            (automatic === undefined || intent.automatic_recovery === automatic)
+            && (!statuses.length || statuses.includes(intent.status)),
+          ).slice(0, query.limitValue || state.adjustmentIntents.length),
+          error: null,
+        });
       }
       return resolve({ data: [], error: null });
     },
@@ -246,6 +265,11 @@ function createSupabaseMock(state) {
       state.rpcCalls.push({ name, payload });
       if (name === "claim_notification_email_job" || name === "claim_notification_email_jobs") {
         return Promise.resolve({ data: state.jobs, error: state.claimError ?? null });
+      }
+      if (name === "create_shipping_fee_adjustment_notification") {
+        const intent = state.adjustmentIntents.find((row) => row.id === payload?.p_intent_id);
+        if (intent) intent.status = "queued";
+        return Promise.resolve({ data: [{ result_code: "created", status: "queued", notification_id: "notification-adjustment-fictional" }], error: null });
       }
       return Promise.resolve({ data: null, error: null });
     },
@@ -639,6 +663,22 @@ test("worker reports an invalid allowlist delivery ID without claiming a job", a
     processed: 0,
   });
   assert.equal(state.rpcCalls.length, 0);
+});
+
+test("email worker recovers only new automatic adjustment intents", async () => {
+  const state = createState({
+    adjustmentIntents: [
+      { id: "intent-automatic", automatic_recovery: true, status: "pending" },
+      { id: "intent-historical", automatic_recovery: false, status: "pending" },
+    ],
+  });
+  const { drainNotificationEmailQueue } = buildHarness(state);
+  const result = await drainNotificationEmailQueue();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.adjustmentRecovery, 1);
+  assert.deepEqual(state.rpcCalls.filter((call) => call.name === "create_shipping_fee_adjustment_notification").map((call) => call.payload.p_intent_id), ["intent-automatic"]);
+  assert.equal(state.adjustmentIntents[1].status, "pending");
 });
 
 test("worker reports claim failure without exposing the database error", async () => {

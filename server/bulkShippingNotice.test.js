@@ -98,6 +98,28 @@ test("bulk summaries distinguish duplicate protection and eligible totals", () =
   assert.equal(summary.missingDelivery, 1);
 });
 
+test("bulk summaries expose shipping-credit coverage without changing payable totals", () => {
+  const summary = summarizeShippingNoticeResults([
+    {
+      eligible: true,
+      customerKey: "registered-customer",
+      accounting: { outstandingShipping: 0.7 },
+      shippingCreditApplied: 0.3,
+    },
+    {
+      eligible: false,
+      reason: "already_sent",
+      customerKey: "guest@example.com",
+      accounting: { outstandingShipping: 0 },
+      shippingCreditIssued: 1,
+    },
+  ]);
+
+  assert.equal(summary.eligibleOutstandingShipping, 0.7);
+  assert.equal(summary.totalOutstandingShipping, 0.7);
+  assert.equal(summary.withShippingCredit, 2);
+});
+
 test("bulk summary totals use integer pesewas for decimal GHS values", () => {
   const summary = summarizeShippingNoticeResults([
     { eligible: true, customerKey: "a", accounting: { outstandingShipping: 0.1 } },
@@ -123,6 +145,11 @@ test("bulk endpoint is admin-only, revalidates, and uses the existing queue sour
   assert.match(serverSource, /\.eq\("order_id", order\.id\)/);
   assert.match(serverSource, /recipient\.valid/);
   assert.match(serverSource, /No email was sent/);
+  assert.match(serverSource, /startsWith\("shipping-fee-adjustment:"\)/);
+  assert.match(serverSource, /action_label === "Pay Shipping Balance"/);
+  assert.match(serverSource, /get_shipping_notice_credit_summary/);
+  assert.match(adminOrdersSource, /Orders with shipping credit/);
+  assert.match(adminOrdersSource, /recipientType/);
 });
 
 test("durable bulk migration is service-role-only and resumable", () => {

@@ -1897,12 +1897,13 @@ function AdminOrdersPage({ orders = [], authUser = null, onRefreshOrders = null,
                 <div><span>Skipped</span><strong>{bulkShippingPreview.summary?.skippedOrders ?? 0}</strong></div>
                 <div><span>Already queued</span><strong>{bulkShippingPreview.summary?.blockedByDuplicateProtection ?? 0}</strong></div>
                 <div><span>Missing recipient</span><strong>{bulkShippingPreview.summary?.missingRecipient ?? 0}</strong></div>
+                <div><span>Orders with shipping credit</span><strong>{bulkShippingPreview.summary?.withShippingCredit ?? 0}</strong></div>
               </div>
               {bulkShippingPreview.orders?.length ? (
                 <div className="admin-orders-bulk-shipping-list">
                   {bulkShippingPreview.orders.map((order) => (
                     <div className="admin-orders-bulk-shipping-list__row" key={order.id}>
-                      <span><strong>{order.orderNumber}</strong><small>{order.customerName}</small></span>
+                      <span><strong>{order.orderNumber}</strong><small>{order.customerName} · {order.recipientType}</small><small>{order.recipientEmail || "No recipient email"}</small></span>
                       <strong>{formatMoney(order.outstandingShipping)}</strong>
                     </div>
                   ))}

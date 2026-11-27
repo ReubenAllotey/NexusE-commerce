@@ -1,0 +1,164 @@
+name: Shipping Adjustment HTTP Validation
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches:
+      - validation/shipping-fee-adjustments
+
+permissions:
+  contents: read
+
+jobs:
+  postgrest-http-validation:
+    runs-on: ubuntu-latest
+    env:
+      EMAIL_QUEUE_ENABLED: "true"
+      EMAIL_QUEUE_WORKER_SECRET: synthetic-worker-secret
+      PAYSTACK_SECRET_KEY: synthetic-paystack-secret
+      PUBLIC_APP_URL: http://127.0.0.1:8787
+      BREVO_API_KEY: synthetic-brevo-key
+      BREVO_SENDER_EMAIL: sender@example.invalid
+      BREVO_SENDER_NAME: Nexus CI
+      NEXUS_DISABLE_LISTEN: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Verify migration chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in \
+            20261125_0063_currency_exchange_pricing.sql \
+            20261126_0064_currency_pricing_authorization_fix.sql \
+            20261126_0065_shipping_fee_adjustments_and_credits.sql \
+            20261127_0066_guest_notification_push_guard.sql \
+            20261128_0067_reconcile_shipping_payment_overpayments.sql \
+            20261128_0068_apply_shipping_credit_on_order_creation.sql \
+            20261129_0069_shipping_adjustment_history_read_permissions.sql \
+            20261129_0070_shipping_fee_adjustment_notifications.sql; do
+            test -f "supabase/migrations/$migration"
+          done
+      - name: Start isolated Supabase stack
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nexus-migrations
+          restore_migrations() {
+            if compgen -G "/tmp/nexus-migrations/*.sql" > /dev/null; then
+              mv /tmp/nexus-migrations/*.sql supabase/migrations/
+            fi
+          }
+          trap restore_migrations EXIT
+          mv supabase/migrations/*.sql /tmp/nexus-migrations/
+          supabase init --force
+          if ! supabase start --ignore-health-check \
+            -x studio,imgproxy,edge-runtime,logflare,vector,postgres-meta,mailpit,realtime,storage-api,supavisor \
+            > /tmp/supabase-start.log 2>&1; then
+            cat /tmp/supabase-start.log
+            docker ps -a
+            exit 1
+          fi
+          supabase status -o env > /tmp/supabase.env
+          set -a
+          source /tmp/supabase.env
+          set +a
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "SUPABASE_DB_URL=$DB_URL"
+          } >> "$GITHUB_ENV"
+          for attempt in {1..60}; do
+            if curl --silent --fail "$API_URL/rest/v1/" -H "apikey: $ANON_KEY" >/dev/null \
+              && curl --silent --fail "$API_URL/auth/v1/health" -H "apikey: $ANON_KEY" >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/supabase-start.log
+          supabase status
+          docker ps -a
+          exit 1
+      - name: Apply migrations through 0069
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/nexus-migration.log
+          while IFS= read -r migration; do
+            name=$(basename "$migration")
+            case "$name" in
+              20261129_0070_shipping_fee_adjustment_notifications.sql) continue ;;
+            esac
+            printf 'Applying %s\n' "$name" | tee -a /tmp/nexus-migration.log
+            if ! psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$migration" >> /tmp/nexus-migration.log 2>&1; then
+              tail -n 120 /tmp/nexus-migration.log
+              exit 1
+            fi
+          done < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
+          test "$(psql "$SUPABASE_DB_URL" -Atc "select count(*) from public.exchange_rate_settings;")" = "1"
+          test "$(psql "$SUPABASE_DB_URL" -Atc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='get_exchange_rate_settings';")" = "1"
+      - name: Run complete 0070 rollback rehearsal
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f docs/shipping-adjustment-notification-rollback-rehearsal.sql
+          test -z "$(psql "$SUPABASE_DB_URL" -Atc "select to_regclass('public.shipping_fee_adjustment_notification_intents');")"
+          test -z "$(psql "$SUPABASE_DB_URL" -Atc "select to_regprocedure('public.create_shipping_fee_adjustment_notification(uuid)');")"
+      - name: Apply migration 0070 and verify it
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261129_0070_shipping_fee_adjustment_notifications.sql
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f docs/shipping-adjustment-notification-post-migration-verification.sql
+      - name: Install dependencies
+        run: npm ci
+      - name: Create synthetic auth fixtures
+        run: node scripts/shipping-adjustment-http-users.mjs >> "$GITHUB_ENV"
+      - name: Seed twelve synthetic affected orders
+        run: |
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
+            -v admin_user_id="$CI_ADMIN_USER_ID" \
+            -v registered_user_id="$CI_REGISTERED_USER_ID" \
+            -v product_id='70000000-0000-4000-8000-000000000070' \
+            -v adjustment_id='71000000-0000-4000-8000-000000000070' \
+            -f scripts/shipping-adjustment-http-fixtures.sql
+      - name: Start backend with mocked Brevo provider
+        run: |
+          set -euo pipefail
+          export BREVO_MOCK_LOG=/tmp/nexus-brevo-mock.ndjson
+          export NODE_OPTIONS="--import=./scripts/mock-brevo-fetch.mjs"
+          PORT=8787 node server.js >/tmp/nexus-server.log 2>&1 &
+          echo $! >/tmp/nexus-server.pid
+          for attempt in {1..60}; do
+            if curl --silent --fail http://127.0.0.1:8787/api/paystack/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/nexus-server.log
+          exit 1
+      - name: Run real PostgREST-backed HTTP validation
+        run: node scripts/shipping-adjustment-http-integration.mjs | tee /tmp/shipping-adjustment-http-result.json
+      - name: Verify mocked Brevo evidence
+        run: |
+          set -euo pipefail
+          test "$(wc -l < /tmp/nexus-brevo-mock.ndjson)" -eq 12
+          node --input-type=module -e 'import fs from "node:fs"; const rows=fs.readFileSync("/tmp/nexus-brevo-mock.ndjson","utf8").trim().split(/\n/).map(JSON.parse); if(rows.length!==12 || rows.some(row=>!row.containsShippingLink || !row.containsSyntheticProduct)) process.exit(1);'
+      - name: Run regression suite and build
+        run: |
+          node --test server/*.test.js server/services/*.test.js
+          node --check server.js
+          npm run build
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipping-adjustment-postgrest-http-validation
+          path: |
+            /tmp/nexus-server.log
+            /tmp/supabase-start.log
+            /tmp/nexus-migration.log
+            /tmp/nexus-brevo-mock.ndjson
+            /tmp/shipping-adjustment-http-result.json
+          retention-days: 7

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildShippingPaymentConfirmationEmail,
   buildShippingPaymentRequiredEmail,
+  buildShippingFeeAdjustmentEmail,
   buildShipmentUpdateEmail,
 } from "./shipmentNotificationEmail.js";
 
@@ -73,4 +74,33 @@ test("guest shipment update omits an inaccessible tracking action", () => {
   assert.doesNotMatch(email.text, /View shipment tracking/);
   assert.doesNotMatch(email.html, /View Shipment Tracking/);
   assert.doesNotMatch(email.html, /profile\/shipments/);
+});
+
+test("shipping adjustment email includes financial context and a fresh-payment action", () => {
+  const email = buildShippingFeeAdjustmentEmail({
+    customerName: "Test Customer",
+    title: "Shipping Fee Increased",
+    message: "Order NX-ADJ-001: shipping fee changed from GHS 0.03 to GHS 0.05 for product Test 2. Amount already paid: GHS 0.03. Credit applied: GHS 0.00.",
+    outstanding: 0.02,
+    appUrl: "https://example.invalid",
+    actionUrl: "/payment?purpose=shipping-balance&orderId=order-1&token=fresh-token",
+  });
+  assert.match(email.subject, /Shipping Fee Increased/);
+  assert.match(email.text, /Amount already paid/);
+  assert.match(email.text, /Pay Shipping Balance/);
+  assert.match(email.html, /valid for 48 hours/);
+});
+
+test("shipping adjustment credit email does not request payment", () => {
+  const email = buildShippingFeeAdjustmentEmail({
+    customerName: "Test Customer",
+    title: "Shipping Credit Added",
+    message: "GHS 30.00 shipping credit was added.",
+    outstanding: 0,
+    appUrl: "https://example.invalid",
+  });
+  assert.match(email.subject, /Shipping Credit Added/);
+  assert.match(email.text, /deducted automatically from the next eligible shipping fee/);
+  assert.doesNotMatch(email.text, /Pay Shipping Balance:/);
+  assert.doesNotMatch(email.html, /Pay Shipping Balance<\/a>/);
 });

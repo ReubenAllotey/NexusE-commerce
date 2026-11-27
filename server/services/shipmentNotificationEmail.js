@@ -50,6 +50,35 @@ export function buildShippingPaymentRequiredEmail({
   return { subject, text, html };
 }
 
+export function buildShippingFeeAdjustmentEmail({
+  customerName,
+  title,
+  message,
+  outstanding,
+  actionUrl,
+  appUrl,
+}) {
+  const name = clean(customerName) || "Customer";
+  const heading = clean(title) || "Shipping Fee Updated";
+  const details = clean(message) || "Your shipping fee details have been updated.";
+  const amount = Number(outstanding) > 0 ? formatCedis(outstanding) : null;
+  const resolvedAction = clean(actionUrl).startsWith("http")
+    ? clean(actionUrl)
+    : `${resolveAppUrl(appUrl)}${clean(actionUrl) || "/profile/orders"}`;
+  const hasPayment = Boolean(amount && Number(outstanding) > 0 && clean(actionUrl));
+  const subject = `${heading} for your Nexus order`;
+  const validity = "This secure payment link is valid for 48 hours. If it expires, please sign in to your Nexus account or contact Nexus Import Hub to request a new payment link.";
+  const paymentText = hasPayment
+    ? `\n\nCurrent outstanding shipping balance: ${amount}\n\n${validity}\n\nPay Shipping Balance: ${resolvedAction}`
+    : "\n\nAny available shipping credit will be deducted automatically from the next eligible shipping fee.";
+  const text = `Dear ${name},\n\n${details}${paymentText}\n\nNexus Import Hub\nShop Beyond Borders. We Handle the Rest.`;
+  const paymentHtml = hasPayment
+    ? `<p><strong>Current outstanding shipping balance:</strong> ${escapeHtml(amount)}</p><p style="color:#64748b">${escapeHtml(validity)}</p><p><a href="${escapeHtml(resolvedAction)}" style="display:inline-block;background:#0240CD;color:#fff;padding:11px 18px;text-decoration:none;border-radius:6px">Pay Shipping Balance</a></p>`
+    : "<p>Any available shipping credit will be deducted automatically from the next eligible shipping fee.</p>";
+  const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#172033;max-width:640px"><h2 style="color:#0240CD">Nexus Import Hub</h2><p>Dear ${escapeHtml(name)},</p><h1 style="color:#0240CD;font-size:22px">${escapeHtml(heading)}</h1><p>${escapeHtml(details)}</p>${paymentHtml}<p style="color:#64748b">Shop Beyond Borders. We Handle the Rest.</p></div>`;
+  return { subject, text, html };
+}
+
 export function buildShippingPaymentConfirmationEmail({
   customerName,
   orderNumber,

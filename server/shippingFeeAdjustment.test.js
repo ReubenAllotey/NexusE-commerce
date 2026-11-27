@@ -62,8 +62,9 @@ test("backend uses authoritative admin session and existing shipping notice queu
   assert.match(server, /getActiveAdminForRequest\(req\)/);
   assert.match(server, /preview_shipping_fee_adjustment/);
   assert.match(server, /apply_shipping_fee_adjustment/);
-  assert.match(server, /queueShippingPaymentNotice/);
-  assert.match(server, /overrideReason: hasPreviousNotice \? `Shipping fee adjustment/);
+  assert.match(server, /processShippingFeeAdjustmentNotifications/);
+  assert.match(server, /create_shipping_fee_adjustment_notification/);
+  assert.match(server, /notificationsRecoverable: true/);
 });
 
 test("admin UI previews before applying and submits product UUIDs", () => {
@@ -114,12 +115,25 @@ test("checkout applies registered customer credit before returning the order bun
 
 test("confirmed shipping fees retain the existing backend reminder integration", () => {
   assert.match(server, /apply_shipping_fee_adjustment/);
-  assert.match(server, /queueShippingPaymentNotice/);
-  assert.match(server, /const hasPreviousNotice = Boolean\(existingNoticeStates\.get\(orderResult\.order\.id\)\)/);
-  assert.match(server, /mode: hasPreviousNotice \? "resend" : "initial"/);
-  assert.match(server, /overrideCooldown: hasPreviousNotice/);
-  assert.match(server, /overrideReason: hasPreviousNotice \? `Shipping fee adjustment/);
+  assert.match(server, /shipping_fee_adjustment_notification_intents/);
+  assert.match(server, /shipping-fee-adjustment:/);
+  assert.match(server, /notifications\/recover/);
   assert.doesNotMatch(checkoutCreditMigration, /queue_shipping_notice_after_adjustment/);
+});
+
+test("adjustment notification migration is durable, idempotent, and service-role-only", () => {
+  const notificationMigration = readFileSync("supabase/migrations/20261129_0070_shipping_fee_adjustment_notifications.sql", "utf8");
+  assert.match(notificationMigration, /unique \(adjustment_id, order_id\)/);
+  assert.match(notificationMigration, /shipping_fee_adjustment_notification_intent_trigger/);
+  assert.match(notificationMigration, /create constraint trigger/);
+  assert.match(notificationMigration, /create_shipping_fee_adjustment_notification\(p_intent_id uuid\)/);
+  assert.match(notificationMigration, /coalesce\(auth\.role\(\), ''\) <> 'service_role'/);
+  assert.match(notificationMigration, /grant execute on function public\.create_shipping_fee_adjustment_notification\(uuid\) to service_role/);
+  assert.match(notificationMigration, /get_shipping_notice_credit_summary\(p_order_ids uuid\[\]\)/);
+  assert.match(notificationMigration, /grant execute on function public\.get_shipping_notice_credit_summary\(uuid\[\]\) to service_role/);
+  assert.match(notificationMigration, /shipping-fee-adjustment:/);
+  assert.match(notificationMigration, /v_product public\.products%rowtype/);
+  assert.match(notificationMigration, /coalesce\(v_product\.name, v_intent\.product_id::text\)/);
 });
 
 test("order details expose automatic shipping-credit deductions", () => {
@@ -146,6 +160,8 @@ test("admin history distinguishes loading, errors, empty state, and persisted re
   assert.match(shipment, /await refresh\(\)/);
   assert.match(shipment, /total_additional_shipping/);
   assert.match(shipment, /total_credit_issued_minor/);
+  assert.match(shipment, /Recover All Eligible Notices/);
+  assert.match(shipment, /This queues one notice per eligible affected order/);
 });
 
 test("shipping fee preview uses a responsive, paginated table without changing calculations", () => {
