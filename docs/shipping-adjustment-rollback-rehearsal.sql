@@ -1,8 +1,5 @@
--- Disposable rollback rehearsal for shipping adjustments 0065-0067.
+-- Disposable rollback rehearsal for shipping adjustments 0065-0068.
 BEGIN;
-SET LOCAL lock_timeout = '5s';
-SET LOCAL statement_timeout = '60s';
-
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -397,8 +394,6 @@ grant execute on function public.reverse_shipping_credit(text,uuid,text) to serv
 revoke all on function public.get_my_shipping_credit_ledger() from public, anon, authenticated, service_role;
 grant execute on function public.get_my_shipping_credit_ledger() to authenticated;
 
-
-
 -- Guest notifications are email-addressed and intentionally have no auth user.
 -- They must not enter the authenticated push queue, whose user_id is required.
 create or replace function private.queue_notification_push()
@@ -421,7 +416,6 @@ end;
 $function$;
 
 revoke all on function private.queue_notification_push() from public, anon, authenticated;
-
 
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
@@ -740,8 +734,9 @@ grant execute on function public.finalize_shipping_payment(uuid, numeric, text) 
 revoke all on function public.finalize_shipping_payment(uuid, numeric, text) from public, anon, authenticated;
 grant execute on function public.finalize_shipping_payment(uuid, numeric, text) to service_role;
 
+set local lock_timeout = '5s';
+set local statement_timeout = '60s';
 
--- Migration 0068: automatic shipping credit consumption during checkout.
 -- Apply customer shipping credit during order creation. The immediate trigger
 -- keeps the returned order bundle authoritative while using the same payment
 -- advisory lock as shipping initialization/finalization.
@@ -893,7 +888,4 @@ for each row execute function private.apply_shipping_credit_to_order();
 
 revoke all on function private.apply_shipping_credit_to_order() from public, anon, authenticated, service_role;
 
--- Assertions execute before the final rollback.
-select to_regclass('public.shipping_fee_adjustments') as adjustment_table, to_regclass('public.shipping_credit_ledger') as credit_table, to_regclass('public.shipping_payment_allocations') as allocation_table;
-select p.proname, pg_get_function_identity_arguments(p.oid) as arguments, p.prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='finalize_shipping_payment';
 ROLLBACK;

@@ -3,15 +3,17 @@
 
 select current_database(), current_user;
 
-select table_schema, table_name, row_security
-from information_schema.tables
-where table_schema = 'public'
-  and table_name in (
+select n.nspname as table_schema, c.relname as table_name, c.relrowsecurity as row_security
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relname in (
     'shipping_fee_adjustments',
     'shipping_fee_adjustment_orders',
     'shipping_credit_ledger'
   )
-order by table_name;
+  and c.relkind = 'r'
+order by c.relname;
 
 select to_regclass('public.shipping_payment_allocations') as shipping_payment_allocations;
 
