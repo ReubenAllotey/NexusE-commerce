@@ -7,12 +7,14 @@ const migrationPath = new URL("../supabase/migrations/20261126_0065_shipping_fee
 const serverPath = new URL("../server.js", import.meta.url);
 const shipmentPath = new URL("../src/pages/Admin/shipment/shipment.jsx", import.meta.url);
 const overpaymentMigrationPath = new URL("../supabase/migrations/20261128_0067_reconcile_shipping_payment_overpayments.sql", import.meta.url);
+const checkoutCreditMigrationPath = new URL("../supabase/migrations/20261128_0068_apply_shipping_credit_on_order_creation.sql", import.meta.url);
 
-const [migration, server, shipment, overpaymentMigration] = await Promise.all([
+const [migration, server, shipment, overpaymentMigration, checkoutCreditMigration] = await Promise.all([
   readFile(migrationPath, "utf8"),
   readFile(serverPath, "utf8"),
   readFile(shipmentPath, "utf8"),
   readFile(overpaymentMigrationPath, "utf8"),
+  readFile(checkoutCreditMigrationPath, "utf8"),
 ]);
 
 test("shipping adjustment migration uses forward-only audited objects", () => {
@@ -61,7 +63,7 @@ test("backend uses authoritative admin session and existing shipping notice queu
   assert.match(server, /preview_shipping_fee_adjustment/);
   assert.match(server, /apply_shipping_fee_adjustment/);
   assert.match(server, /queueShippingPaymentNotice/);
-  assert.match(server, /overrideReason: `Shipping fee adjustment/);
+  assert.match(server, /overrideReason: hasPreviousNotice \? `Shipping fee adjustment/);
 });
 
 test("admin UI previews before applying and submits product UUIDs", () => {
@@ -98,4 +100,30 @@ test("verified shipping overpayments settle obligations and issue idempotent cre
   assert.match(overpaymentMigration, /Shipping credit available/);
   assert.match(overpaymentMigration, /v_payment\.user_id is distinct from v_order\.user_id/);
   assert.match(overpaymentMigration, /v_verified_amount > v_outstanding_shipping[\s\S]*not v_provider_verified/);
+});
+
+test("checkout applies registered customer credit before returning the order bundle", () => {
+  assert.match(checkoutCreditMigration, /create or replace function private\.apply_shipping_credit_to_order\(\)/);
+  assert.match(checkoutCreditMigration, /create constraint trigger order_items_apply_shipping_credit[\s\S]*after insert on public\.order_items[\s\S]*for each row/);
+  assert.doesNotMatch(checkoutCreditMigration, /deferrable initially deferred[\s\S]*order_items_apply_shipping_credit/);
+  assert.match(checkoutCreditMigration, /shipping-credit:order:/);
+  assert.match(checkoutCreditMigration, /on conflict \(source_key\) do nothing/);
+  assert.match(checkoutCreditMigration, /set shipping_payment_status = case[\s\S]*when v_has_pending_shipping then 'pending'/);
+  assert.match(checkoutCreditMigration, /v_order\.user_id is null/);
+});
+
+test("confirmed shipping fees retain the existing backend reminder integration", () => {
+  assert.match(server, /apply_shipping_fee_adjustment/);
+  assert.match(server, /queueShippingPaymentNotice/);
+  assert.match(server, /const hasPreviousNotice = Boolean\(existingNoticeStates\.get\(orderResult\.order\.id\)\)/);
+  assert.match(server, /mode: hasPreviousNotice \? "resend" : "initial"/);
+  assert.match(server, /overrideCooldown: hasPreviousNotice/);
+  assert.match(server, /overrideReason: hasPreviousNotice \? `Shipping fee adjustment/);
+  assert.doesNotMatch(checkoutCreditMigration, /queue_shipping_notice_after_adjustment/);
+});
+
+test("order details expose automatic shipping-credit deductions", () => {
+  const ordersPage = readFileSync("src/pages/Profile/MyOrders.jsx", "utf8");
+  assert.match(ordersPage, /Shipping paid \{formatMoney\(item\.shippingPaidAmount\)\}/);
+  assert.match(ordersPage, /Shipping remaining \{formatMoney\(/);
 });

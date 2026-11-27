@@ -3830,14 +3830,16 @@ async function handleAdminShippingFeeAdjustment(req, res) {
     if (Number(affected.additionalDue || 0) <= 0) continue;
     const orderResult = await loadAdminOrderPaymentNotice(affected.orderId);
     if (!orderResult?.ok || !orderResult.order) continue;
+    const existingNoticeStates = await loadExistingShippingNoticeStates([orderResult.order]);
+    const hasPreviousNotice = Boolean(existingNoticeStates.get(orderResult.order.id));
     const notice = await queueShippingPaymentNotice(
       orderResult.order,
       orderResult.accounting,
       {
         adminId: admin.user.id,
-        mode: "resend",
-        overrideCooldown: true,
-        overrideReason: `Shipping fee adjustment ${result.adjustmentId}`,
+        mode: hasPreviousNotice ? "resend" : "initial",
+        overrideCooldown: hasPreviousNotice,
+        overrideReason: hasPreviousNotice ? `Shipping fee adjustment ${result.adjustmentId}` : "",
       },
     );
     noticeResults.push({ orderId: affected.orderId, status: notice.status || "failed", queued: Boolean(notice.queued) });

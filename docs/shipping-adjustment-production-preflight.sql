@@ -15,6 +15,14 @@ order by table_name;
 
 select to_regclass('public.shipping_payment_allocations') as shipping_payment_allocations;
 
+select tg.tgname, c.relname, pg_get_triggerdef(tg.oid)
+from pg_trigger tg
+join pg_class c on c.oid = tg.tgrelid
+join pg_namespace n on n.oid = c.relnamespace
+where not tg.tgisinternal
+  and n.nspname = 'public'
+  and tg.tgname in ('order_items_apply_shipping_credit');
+
 select n.nspname as schema_name, p.proname, pg_get_function_identity_arguments(p.oid) as arguments,
        p.prosecdef, p.proconfig
 from pg_proc p
