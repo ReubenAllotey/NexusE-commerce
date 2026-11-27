@@ -6,7 +6,7 @@ const baseUrl = process.env.SHIPPING_CREDIT_HARNESS_URL || "http://127.0.0.1:417
 const cdpPort = process.env.SHIPPING_CREDIT_HARNESS_CDP_PORT || "9238";
 const viewport = process.env.SHIPPING_CREDIT_HARNESS_VIEWPORT || "desktop";
 const caseName = process.env.SHIPPING_CREDIT_HARNESS_CASE || "credit-dashboard";
-const sizes = { desktop: [1440, 900], mobile: [390, 844] };
+const sizes = { desktop: [1440, 900], tablet: [768, 1024], mobile: [390, 844] };
 let nextId = 1;
 
 function call(socket, method, params = {}) {
@@ -29,7 +29,7 @@ const version = await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).
 const browserSocket = new WebSocket(version.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => { browserSocket.addEventListener("open", resolve, { once: true }); browserSocket.addEventListener("error", reject, { once: true }); });
 const context = await call(browserSocket, "Target.createBrowserContext");
-const target = await call(browserSocket, "Target.createTarget", { browserContextId: context.browserContextId, url: `${baseUrl}?case=${caseName}` });
+const target = await call(browserSocket, "Target.createTarget", { browserContextId: context.browserContextId, url: "about:blank" });
 let targetInfo;
 for (let attempt = 0; attempt < 50 && !targetInfo; attempt += 1) {
   const targets = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json();
@@ -41,10 +41,6 @@ const socket = new WebSocket(targetInfo.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => { socket.addEventListener("open", resolve, { once: true }); socket.addEventListener("error", reject, { once: true }); });
 const [width, height] = sizes[viewport] || sizes.desktop;
 await call(socket, "Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: viewport === "mobile", screenWidth: width, screenHeight: height });
-await call(socket, "Runtime.enable");
-await call(socket, "Page.enable");
-await call(socket, "Network.enable");
-await call(socket, "Log.enable");
 const errors = [];
 const failedRequests = [];
 const requestUrls = new Map();
@@ -63,13 +59,18 @@ socket.addEventListener("message", (event) => {
   if (message.method === "Network.requestWillBeSent") requestUrls.set(message.params.requestId, message.params.request.url);
   if (message.method === "Network.loadingFailed") {
     const url = requestUrls.get(message.params.requestId) || "unknown URL";
-    if (!ignoredExternalHosts.has(new URL(url).hostname)) failedRequests.push(`${message.params.type || "request"}: ${message.params.errorText} (${url})`);
+    if (!ignoredExternalHosts.has(URL.canParse(url) ? new URL(url).hostname : "")) failedRequests.push(`${message.params.type || "request"}: ${message.params.errorText} (${url})`);
   }
   if (message.method === "Network.responseReceived" && message.params.response.status >= 400) {
     const url = message.params.response.url;
     if (!ignoredExternalHosts.has(new URL(url).hostname)) failedRequests.push(`${message.params.response.status} ${url}`);
   }
 });
+await call(socket, "Runtime.enable");
+await call(socket, "Page.enable");
+await call(socket, "Network.enable");
+await call(socket, "Log.enable");
+await call(socket, "Page.navigate", { url: `${baseUrl}?case=${encodeURIComponent(caseName)}` });
 let report;
 for (let i = 0; i < 150; i += 1) {
   const value = await call(socket, "Runtime.evaluate", { expression: "document.querySelector('#harness-result')?.textContent || ''", returnByValue: true });
@@ -82,7 +83,7 @@ if (!report) {
     returnByValue: true,
   });
   const screenshot = await call(socket, "Page.captureScreenshot", { format: "png" });
-  const screenshotPath = path.join(os.tmpdir(), `nexus-shipping-credit-dashboard-timeout-${viewport}.png`);
+  const screenshotPath = path.join(os.tmpdir(), `nexus-shipping-credit-dashboard-timeout-${viewport}-${caseName}.png`);
   fs.writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
   console.error(JSON.stringify({
     error: "Timed out waiting for dashboard harness result",
@@ -95,11 +96,14 @@ if (!report) {
   process.exit();
 }
 const screenshot = await call(socket, "Page.captureScreenshot", { format: "png" });
-const screenshotPath = path.join(os.tmpdir(), `nexus-shipping-credit-dashboard-${viewport}.png`);
+const screenshotPath = path.join(os.tmpdir(), `nexus-shipping-credit-dashboard-${viewport}-${caseName}.png`);
 fs.writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
 report.viewport = viewport;
 report.screenshotPath = screenshotPath;
 report.consoleErrors = errors;
 report.failedRequests = failedRequests;
 console.log(JSON.stringify(report, null, 2));
-if (report.results.some((result) => !result.passed) || errors.length) process.exitCode = 1;
+if (report.results.some((result) => !result.passed) || errors.length || failedRequests.length) process.exitCode = 1;
+await call(browserSocket, "Target.disposeBrowserContext", { browserContextId: context.browserContextId });
+socket.close();
+browserSocket.close();
