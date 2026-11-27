@@ -50,7 +50,11 @@ jobs:
         run: |
           set -euo pipefail
           supabase init --force
-          supabase start
+          if ! supabase start --ignore-health-check > /tmp/supabase-start.log 2>&1; then
+            cat /tmp/supabase-start.log
+            docker ps -a
+            exit 1
+          fi
           supabase status -o env > /tmp/supabase.env
           set -a
           source /tmp/supabase.env
@@ -61,6 +65,14 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
             echo "SUPABASE_DB_URL=$DB_URL"
           } >> "$GITHUB_ENV"
+          for attempt in {1..60}; do
+            if curl --silent --fail "$API_URL/rest/v1/" -H "apikey: $ANON_KEY" >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/supabase-start.log
+          supabase status
+          docker ps -a
+          exit 1
       - name: Apply migrations through 0069
         shell: bash
         run: |
