@@ -17,6 +17,8 @@ export default defineConfig({
     { find: "../../../shared/batchStorage", replacement: mockBatchStorage },
     { find: "../../../shared/shipmentStorage", replacement: mockShipmentStorage },
     { find: "../../../shared/ShipmentTrack", replacement: mockShipmentTrack },
+    { find: "../../shared/shipmentStorage", replacement: mockShipmentStorage },
+    { find: "../../shared/ShipmentTrack", replacement: mockShipmentTrack },
     { find: "../../Products/productData", replacement: mockProductData },
     { find: "../Auth/adminAuthStorage", replacement: mockAdminAuth },
     { find: /[\\/]shared[\\/]batchStorage(?:\.js)?$/, replacement: mockBatchStorage },
@@ -31,8 +33,8 @@ export default defineConfig({
       if (source.includes("lib/supabaseClient")) return mockSupabase;
       if (source.includes("Products/productData")) return mockProductData;
       if (source.includes("shared/batchStorage")) return mockBatchStorage;
-      if (source.includes("shared/shipmentStorage")) return mockShipmentStorage;
-      if (source.includes("shared/ShipmentTrack")) return mockShipmentTrack;
+      if (source.replaceAll("\\\\", "/").includes("shared/shipmentStorage")) return mockShipmentStorage;
+      if (source.replaceAll("\\\\", "/").includes("shared/ShipmentTrack")) return mockShipmentTrack;
       if (source.includes("Auth/adminAuthStorage")) return mockAdminAuth;
       return null;
     },

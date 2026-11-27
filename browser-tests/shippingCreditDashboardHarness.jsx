@@ -5,7 +5,10 @@ import Dashboard from "../src/pages/Profile/Dashboard.jsx";
 import "../src/App.css";
 
 const results = [];
-const authUser = { id: "synthetic-customer", name: "Synthetic Customer", email: "customer@example.invalid" };
+const caseName = new URLSearchParams(window.location.search).get("case");
+const authUser = caseName === "unauthorized"
+  ? null
+  : { id: "synthetic-customer", name: "Synthetic Customer", email: "customer@example.invalid" };
 
 function record(name, passed, detail = "") {
   results.push({ name, passed, detail });
@@ -47,7 +50,6 @@ async function run() {
 
   await waitForText("Shipping Credit");
   record("customer dashboard renders", document.body.textContent.includes("Shipping Credit"));
-  const caseName = new URLSearchParams(window.location.search).get("case");
   if (caseName === "zero-credit") {
     await waitForText("No shipping credit activity.");
     record("zero-credit state is displayed", document.body.textContent.includes("GHS 0.00") && document.body.textContent.includes("No shipping credit activity."));
@@ -61,7 +63,9 @@ async function run() {
     record("credit endpoint uses authenticated session", window.__creditRequests.includes("/api/account/shipping-credits"));
   }
   record("zero-credit messaging remains available", document.body.textContent.includes("Credit is applied only to eligible shipping obligations"));
-  record("unauthorized dashboard has no customer credit request", Boolean(authUser?.id));
+  if (caseName === "unauthorized") {
+    record("unauthorized dashboard has no customer credit request", !window.__creditRequests.includes("/api/account/shipping-credits"));
+  }
   document.body.insertAdjacentHTML("beforeend", `<pre id="harness-result">${JSON.stringify({ results })}</pre>`);
 }
 
