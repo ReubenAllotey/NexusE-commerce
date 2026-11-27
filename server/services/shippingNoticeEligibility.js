@@ -65,6 +65,9 @@ export function summarizeShippingNoticeResults(results = []) {
     (total, row) => total + toMinorUnits(row.accounting?.outstandingShipping),
     0,
   ) / 100;
+  const withShippingCredit = rows.filter((row) =>
+    Number(row.shippingCreditIssued || 0) > 0 || Number(row.shippingCreditApplied || 0) > 0,
+  ).length;
 
   return {
     eligibleOrders: eligible.length,
@@ -85,5 +88,6 @@ export function summarizeShippingNoticeResults(results = []) {
     alreadyPaid: count("already_paid"),
     pendingShipping: count("pending_shipping"),
     noPreviousNotice: count("no_previous_notice"),
+    withShippingCredit,
   };
 }

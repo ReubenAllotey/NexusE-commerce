@@ -92,6 +92,7 @@ function ShipmentPage({ authUser = null }) {
   const [feeHistoryLoading, setFeeHistoryLoading] = useState(true);
   const [feeHistoryError, setFeeHistoryError] = useState("");
   const [selectedFeeHistory, setSelectedFeeHistory] = useState(null);
+  const [recoveringAdjustmentId, setRecoveringAdjustmentId] = useState("");
   const [loading, setLoading] = useState(true);
   const [trackLoadError, setTrackLoadError] = useState("");
   const [error, setError] = useState("");
@@ -142,6 +143,28 @@ function ShipmentPage({ authUser = null }) {
   };
 
   useEffect(() => { void refresh(); }, []);
+
+  const recoverAdjustmentNotifications = async (adjustmentId) => {
+    if (!window.confirm("Recover all eligible shipping adjustment notices for this adjustment? This queues one notice per eligible affected order and does not repeat the financial adjustment.")) return;
+    setRecoveringAdjustmentId(adjustmentId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) throw new Error("Your administrator session has expired. Please sign in again.");
+      const response = await fetch("/api/admin/shipping-fee-adjustment/notifications/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ adjustmentId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.ok) throw new Error(body.message || "Unable to recover adjustment notifications.");
+      await refresh();
+    } catch (recoveryError) {
+      setFeeHistoryError(recoveryError.message || "Unable to recover adjustment notifications.");
+    } finally {
+      setRecoveringAdjustmentId("");
+    }
+  };
 
   if (!session) return <Navigate to="/admin/login" replace />;
 
@@ -508,8 +531,8 @@ function ShipmentPage({ authUser = null }) {
 
         <section className="admin-products-panel admin-shipment-panel admin-shipment-adjustment-history">
           <div className="admin-shipment-panel__heading"><div><p>Audited changes</p><h2>Shipping fee adjustment history</h2></div><span>{feeHistoryLoading ? "Loading..." : feeHistoryError ? "Unavailable" : `${feeHistory.length} record${feeHistory.length === 1 ? "" : "s"}`}</span></div>
-          {feeHistoryLoading ? <div className="admin-products-empty"><p>Loading adjustment history...</p><span>Checking the audited shipping fee changes.</span></div> : feeHistoryError ? <div className="admin-products-empty admin-shipment-empty--error"><p>Unable to load shipping adjustment history.</p><span>{feeHistoryError}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void refresh()}>Retry</button></div> : feeHistory.length ? <div className="admin-shipment-adjustment-history__list">{feeHistory.map((entry) => <article key={entry.id}><strong>{entry.status === "noop" ? "No change" : "Fee adjusted"}</strong><span>{entry.product_name}</span><span>GHS {Number(entry.old_shipping_fee || 0).toFixed(2)} -&gt; GHS {Number(entry.new_shipping_fee || 0).toFixed(2)}</span><span>{Number(entry.new_shipping_fee || 0) >= Number(entry.old_shipping_fee || 0) ? "Increased" : "Decreased"}: GHS {Math.abs(Number(entry.new_shipping_fee || 0) - Number(entry.old_shipping_fee || 0)).toFixed(2)}</span><span>{entry.affected_order_items || 0} affected order item{entry.affected_order_items === 1 ? "" : "s"}</span><span>Additional balance: GHS {Number(entry.total_additional_shipping || 0).toFixed(2)}</span><span>Credit generated: GHS {(Number(entry.total_credit_issued_minor || 0) / 100).toFixed(2)}</span><span>Administrator: {entry.administrator_name || "Unknown administrator"}</span><small>{formatShortDate(entry.created_at)} - {entry.status}</small><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(entry)}>View details</button></article>)}</div> : <div className="admin-products-empty"><p>No shipping fee adjustments recorded.</p><span>Completed previews and adjustments will appear here.</span></div>}
-          {selectedFeeHistory ? <div className="admin-shipment-adjustment-history__details" role="dialog" aria-label="Shipping fee adjustment details"><strong>Adjustment details</strong><span>{selectedFeeHistory.product_name}</span><span>{selectedFeeHistory.affected_order_items || 0} affected order items</span><span>Operation: {selectedFeeHistory.operation_id}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(null)}>Close details</button></div> : null}
+          {feeHistoryLoading ? <div className="admin-products-empty"><p>Loading adjustment history...</p><span>Checking the audited shipping fee changes.</span></div> : feeHistoryError ? <div className="admin-products-empty admin-shipment-empty--error"><p>Unable to load shipping adjustment history.</p><span>{feeHistoryError}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void refresh()}>Retry</button></div> : feeHistory.length ? <div className="admin-shipment-adjustment-history__list">{feeHistory.map((entry) => { const intents = Array.isArray(entry.notification_intents) ? entry.notification_intents : []; const pendingIntents = intents.filter((intent) => ["pending", "failed", "skipped"].includes(intent.status)); return <article key={entry.id}><strong>{entry.status === "noop" ? "No change" : "Fee adjusted"}</strong><span>{entry.product_name}</span><span>GHS {Number(entry.old_shipping_fee || 0).toFixed(2)} -&gt; GHS {Number(entry.new_shipping_fee || 0).toFixed(2)}</span><span>{Number(entry.new_shipping_fee || 0) >= Number(entry.old_shipping_fee || 0) ? "Increased" : "Decreased"}: GHS {Math.abs(Number(entry.new_shipping_fee || 0) - Number(entry.old_shipping_fee || 0)).toFixed(2)}</span><span>{entry.affected_order_items || 0} affected order item{entry.affected_order_items === 1 ? "" : "s"}</span><span>Additional balance: GHS {Number(entry.total_additional_shipping || 0).toFixed(2)}</span><span>Credit generated: GHS {(Number(entry.total_credit_issued_minor || 0) / 100).toFixed(2)}</span><span>Administrator: {entry.administrator_name || "Unknown administrator"}</span><small>{formatShortDate(entry.created_at)} - {entry.status}</small><small>Notifications: {intents.length ? intents.map((intent) => `${intent.status} (${intent.order_id})`).join(", ") : "not generated"}</small>{pendingIntents.length ? <button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void recoverAdjustmentNotifications(entry.id)} disabled={recoveringAdjustmentId === entry.id}>{recoveringAdjustmentId === entry.id ? "Recovering..." : "Recover All Eligible Notices"}</button> : null}<button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(entry)}>View details</button></article>; })}</div> : <div className="admin-products-empty"><p>No shipping fee adjustments recorded.</p><span>Completed previews and adjustments will appear here.</span></div>}
+          {selectedFeeHistory ? <div className="admin-shipment-adjustment-history__details" role="dialog" aria-label="Shipping fee adjustment details"><strong>Adjustment details</strong><span>{selectedFeeHistory.product_name}</span><span>{selectedFeeHistory.affected_order_items || 0} affected order items</span><span>Operation: {selectedFeeHistory.operation_id}</span>{(selectedFeeHistory.notification_intents || []).map((intent) => <div key={intent.id}><span>Order {intent.order_id}: {intent.status}</span><small>{intent.last_error || "Notification intent recorded."}</small></div>)}<button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(null)}>Close details</button></div> : null}
         </section>
 
         <section className="admin-products-panel admin-shipment-panel">

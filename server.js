@@ -13,6 +13,7 @@ import { resolvePaymentNoticeRecipient } from "./server/services/paymentNoticeRe
 import {
   buildShippingPaymentConfirmationEmail,
   buildShippingPaymentRequiredEmail,
+  buildShippingFeeAdjustmentEmail,
   buildShipmentUpdateEmail,
 } from "./server/services/shipmentNotificationEmail.js";
 import {
@@ -2926,6 +2927,56 @@ async function loadShippingNoticeRecipient(order) {
   return { valid, email, reason: valid ? "valid" : "missing_recipient" };
 }
 
+async function processShippingFeeAdjustmentNotifications(adjustmentId) {
+  if (!supabaseAdmin || !adjustmentId) return [];
+  const { data: intents, error } = await supabaseAdmin
+    .from("shipping_fee_adjustment_notification_intents")
+    .select("id,status,notification_id,order_id,additional_due,credit_issued_minor")
+    .eq("adjustment_id", adjustmentId)
+    .in("status", ["pending", "failed", "skipped"])
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  const results = [];
+  for (const intent of intents || []) {
+    const { data, error: rpcError } = await createShippingFeeAdjustmentNotificationIntent(intent.id);
+    const result = Array.isArray(data) ? data[0] : data;
+    results.push({
+      intentId: intent.id,
+      orderId: intent.order_id,
+      status: rpcError ? "failed" : result?.status || result?.result_code || "failed",
+      notificationId: result?.notification_id || null,
+      error: rpcError?.message || null,
+    });
+  }
+  return results;
+}
+
+async function createShippingFeeAdjustmentNotificationIntent(intentId) {
+  const { data, error: rpcError } = await supabaseAdmin.rpc("create_shipping_fee_adjustment_notification", {
+    p_intent_id: intentId,
+  });
+  return { data, error: rpcError };
+}
+
+async function recoverAutomaticShippingFeeAdjustmentNotifications() {
+  if (!supabaseAdmin) return { processed: 0 };
+  const { data: intents, error } = await supabaseAdmin
+    .from("shipping_fee_adjustment_notification_intents")
+    .select("id")
+    .eq("automatic_recovery", true)
+    .in("status", ["pending", "failed"])
+    .order("updated_at", { ascending: true })
+    .limit(25);
+  if (error) throw error;
+
+  let processed = 0;
+  for (const intent of intents || []) {
+    const result = await createShippingFeeAdjustmentNotificationIntent(intent.id);
+    if (!result.error) processed += 1;
+  }
+  return { processed };
+}
+
 function getShippingNoticeDeliveryState(notification, delivery) {
   if (!notification) return { status: "pending", reason: "new_notice" };
   if (!delivery) return { status: "missing_delivery", reason: "missing_delivery", notificationId: notification.id, createdAt: notification.created_at || null };
@@ -2967,15 +3018,17 @@ async function loadExistingShippingNoticeStates(orders) {
 
   const { data: notifications, error: notificationError } = await supabaseAdmin
     .from("notifications")
-    .select("id, order_id, source_key, created_at")
+    .select("id, order_id, source_key, title, action_label, created_at")
     .eq("source_type", "payment_status")
-    .like("source_key", "shipping-payment-request:%")
     .in("order_id", orderIds);
   if (notificationError) throw notificationError;
 
   const notificationRows = (Array.isArray(notifications) ? notifications : []).filter((notification) => {
     const baseKey = `shipping-payment-request:${notification.order_id}`;
-    return notification.source_key === baseKey || notification.source_key.startsWith(`${baseKey}:reminder:`);
+    const ordinaryPaymentRequest = notification.source_key === baseKey || notification.source_key.startsWith(`${baseKey}:reminder:`);
+    const adjustmentPaymentRequest = notification.source_key.startsWith("shipping-fee-adjustment:")
+      && notification.action_label === "Pay Shipping Balance";
+    return ordinaryPaymentRequest || adjustmentPaymentRequest;
   });
   const notificationIds = notificationRows.map((notification) => notification.id).filter(Boolean);
   const deliveries = notificationIds.length
@@ -2996,7 +3049,11 @@ async function loadExistingShippingNoticeStates(orders) {
     const currentCreatedAt = Date.parse(current?.createdAt || "") || 0;
     const nextCreatedAt = Date.parse(notification.created_at || "") || 0;
     if (!current || nextCreatedAt >= currentCreatedAt) {
-      latestByOrder.set(notification.order_id, getShippingNoticeDeliveryState(notification, delivery));
+      latestByOrder.set(notification.order_id, {
+        ...getShippingNoticeDeliveryState(notification, delivery),
+        sourceKey: notification.source_key,
+        title: notification.title || null,
+      });
     }
   }
   return latestByOrder;
@@ -3029,6 +3086,50 @@ async function queueShippingPaymentNotice(order, accounting, {
   });
   if (!eligibility.eligible) {
     return { ok: true, queued: false, status: "skipped", ...eligibility, accounting };
+  }
+
+  // Coordinate adjustment payment notices with ordinary notices before the
+  // shared RPC runs, while leaving adjustment creation on its own path.
+  const coordinatedState = (await loadExistingShippingNoticeStates([order])).get(order.id) || null;
+  if (coordinatedState && coordinatedState.reason !== "new_notice") {
+    if (mode === "initial") {
+      return {
+        ok: true,
+        queued: false,
+        status: "already_notified",
+        reason: "already_notified",
+        existingState: coordinatedState,
+        accounting,
+        message: "A shipping payment notice already exists for this order.",
+      };
+    }
+    const cooldownUntil = coordinatedState.sentAt
+      ? new Date(Date.parse(coordinatedState.sentAt) + 48 * 60 * 60 * 1000).toISOString()
+      : null;
+    const cooldownActive = Boolean(cooldownUntil) && Date.now() < Date.parse(cooldownUntil);
+    if (coordinatedState.status !== "already_sent") {
+      return {
+        ok: true,
+        queued: false,
+        status: coordinatedState.status,
+        reason: coordinatedState.reason,
+        existingState: coordinatedState,
+        accounting,
+        message: `Existing shipping notice is ${coordinatedState.status.replaceAll("_", " ")}.`,
+      };
+    }
+    if (cooldownActive && !overrideCooldown) {
+      return {
+        ok: true,
+        queued: false,
+        status: "cooldown",
+        reason: "cooldown",
+        cooldownUntil,
+        existingState: coordinatedState,
+        accounting,
+        message: `A shipping notice was sent recently. The next resend is available after ${cooldownUntil}.`,
+      };
+    }
   }
 
   if (!adminId) {
@@ -3156,11 +3257,24 @@ async function buildBulkShippingNoticeCandidates(orders, { mode = "initial", ove
     .in("order_id", orderIds);
   if (itemError) throw itemError;
 
+  const { data: creditRows, error: creditError } = await supabaseAdmin.rpc("get_shipping_notice_credit_summary", {
+    p_order_ids: orderIds,
+  });
+  if (creditError) throw creditError;
+
   const itemsByOrderId = new Map();
   for (const item of Array.isArray(items) ? items : []) {
     const rows = itemsByOrderId.get(item.order_id) || [];
     rows.push(item);
     itemsByOrderId.set(item.order_id, rows);
+  }
+
+  const creditsByOrderId = new Map();
+  for (const credit of Array.isArray(creditRows) ? creditRows : []) {
+    creditsByOrderId.set(credit.order_id, {
+      issued: Math.max(Number(credit.issued_minor) || 0, 0) / 100,
+      applied: Math.max(Number(credit.consumed_minor) || 0, 0) / 100,
+    });
   }
 
   const registeredIds = orders.map((order) => order.user_id).filter(Boolean);
@@ -3176,6 +3290,7 @@ async function buildBulkShippingNoticeCandidates(orders, { mode = "initial", ove
 
   return orders.map((order) => {
     const accounting = getServerShippingAccounting(itemsByOrderId.get(order.id) || []);
+    const creditSummary = creditsByOrderId.get(order.id) || { issued: 0, applied: 0 };
     const profile = order.user_id ? profileById.get(order.user_id) : null;
     const guestCustomerEmail = clean(order.customer_email).toLowerCase();
     const guestEmail = clean(order.guest_email).toLowerCase();
@@ -3202,6 +3317,8 @@ async function buildBulkShippingNoticeCandidates(orders, { mode = "initial", ove
     return {
       order,
       accounting,
+      shippingCreditIssued: creditSummary.issued,
+      shippingCreditApplied: creditSummary.applied,
       ...eligibility,
       ...(eligibility.eligible && mode === "initial" && existingState && existingState.reason !== "new_notice"
         ? { eligible: false, reason: existingState.reason, message: `Existing shipping notice is ${existingState.status.replaceAll("_", " ")}.` }
@@ -3218,6 +3335,7 @@ async function buildBulkShippingNoticeCandidates(orders, { mode = "initial", ove
       existingState,
       cooldownUntil,
       noticeMode: mode,
+      recipientEmail,
       customerKey: clean(order.user_id) || recipientEmail,
     };
   });
@@ -3581,7 +3699,10 @@ async function handleAdminBulkShippingPaymentNotices(req, res) {
         id: candidate.order.id,
         orderNumber: candidate.order.order_number || candidate.order.id,
         customerName: candidate.order.customer_name || "Customer",
+        recipientType: candidate.order.user_id ? "registered" : "guest",
+        recipientEmail: candidate.recipientEmail,
         outstandingShipping: candidate.accounting.outstandingShipping,
+        shippingCreditApplied: candidate.shippingCreditApplied || 0,
       })),
     });
     return;
@@ -3787,12 +3908,13 @@ async function handleAdminShippingFeeAdjustment(req, res) {
     const productIds = [...new Set(adjustments.map((entry) => entry.product_id).filter(Boolean))];
     const administratorIds = [...new Set(adjustments.map((entry) => entry.administrator_id).filter(Boolean))];
     const adjustmentIds = adjustments.map((entry) => entry.id).filter(Boolean);
-    const [productResult, administratorResult, orderResult] = await Promise.all([
+    const [productResult, administratorResult, orderResult, intentResult] = await Promise.all([
       productIds.length ? supabaseAdmin.from("products").select("id,name").in("id", productIds) : Promise.resolve({ data: [], error: null }),
       administratorIds.length ? supabaseAdmin.from("profiles").select("id,full_name,email").in("id", administratorIds) : Promise.resolve({ data: [], error: null }),
       adjustmentIds.length ? supabaseAdmin.from("shipping_fee_adjustment_orders").select("adjustment_id,order_item_id,additional_due,credit_issued_minor,result_code").in("adjustment_id", adjustmentIds) : Promise.resolve({ data: [], error: null }),
+      adjustmentIds.length ? supabaseAdmin.from("shipping_fee_adjustment_notification_intents").select("id,adjustment_id,order_id,additional_due,credit_issued_minor,status,notification_id,last_error,attempts,updated_at").in("adjustment_id", adjustmentIds) : Promise.resolve({ data: [], error: null }),
     ]);
-    if (productResult.error || administratorResult.error || orderResult.error) {
+    if (productResult.error || administratorResult.error || orderResult.error || intentResult.error) {
       sendJson(res, 503, { ok: false, message: "Unable to load shipping adjustment history details." });
       return;
     }
@@ -3803,6 +3925,12 @@ async function handleAdminShippingFeeAdjustment(req, res) {
       const rows = ordersByAdjustment.get(row.adjustment_id) || [];
       rows.push(row);
       ordersByAdjustment.set(row.adjustment_id, rows);
+    }
+    const intentsByAdjustment = new Map();
+    for (const intent of intentResult.data || []) {
+      const rows = intentsByAdjustment.get(intent.adjustment_id) || [];
+      rows.push(intent);
+      intentsByAdjustment.set(intent.adjustment_id, rows);
     }
     const history = adjustments.map((entry) => {
       const affectedOrders = ordersByAdjustment.get(entry.id) || [];
@@ -3815,9 +3943,45 @@ async function handleAdminShippingFeeAdjustment(req, res) {
         total_additional_shipping: affectedOrders.reduce((sum, row) => sum + Number(row.additional_due || 0), 0),
         total_credit_issued_minor: affectedOrders.reduce((sum, row) => sum + Number(row.credit_issued_minor || 0), 0),
         affected_orders: affectedOrders,
+        notification_intents: intentsByAdjustment.get(entry.id) || [],
       };
     });
     sendJson(res, 200, { ok: true, history });
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname.endsWith("/notifications/preview")) {
+    const adjustmentId = clean(requestUrl.searchParams.get("adjustmentId"));
+    if (!adjustmentId) {
+      sendJson(res, 400, { ok: false, message: "An adjustment is required." });
+      return;
+    }
+    const { data, error } = await supabaseAdmin
+      .from("shipping_fee_adjustment_notification_intents")
+      .select("id,order_id,additional_due,credit_issued_minor,status,notification_id,last_error,attempts,updated_at")
+      .eq("adjustment_id", adjustmentId)
+      .order("created_at", { ascending: true });
+    if (error) {
+      sendJson(res, 503, { ok: false, message: "Unable to load adjustment notification recovery status." });
+      return;
+    }
+    sendJson(res, 200, { ok: true, intents: data || [] });
+    return;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname.endsWith("/notifications/recover")) {
+    const body = normalizePayload(await readJsonBody(req));
+    const adjustmentId = clean(body.adjustmentId);
+    if (!adjustmentId) {
+      sendJson(res, 400, { ok: false, message: "An adjustment is required." });
+      return;
+    }
+    try {
+      const results = await processShippingFeeAdjustmentNotifications(adjustmentId);
+      sendJson(res, 200, { ok: true, results });
+    } catch (recoveryError) {
+      sendJson(res, 503, { ok: false, message: "Unable to recover adjustment notifications." });
+    }
     return;
   }
 
@@ -3859,43 +4023,13 @@ async function handleAdminShippingFeeAdjustment(req, res) {
   }
 
   const result = data || {};
-  const noticeResults = [];
-  for (const affected of Array.isArray(result.orders) ? result.orders : []) {
-    if (Number(affected.additionalDue || 0) <= 0) continue;
-    const orderResult = await loadAdminOrderPaymentNotice(affected.orderId);
-    if (!orderResult?.ok || !orderResult.order) continue;
-    const existingNoticeStates = await loadExistingShippingNoticeStates([orderResult.order]);
-    const hasPreviousNotice = Boolean(existingNoticeStates.get(orderResult.order.id));
-    const notice = await queueShippingPaymentNotice(
-      orderResult.order,
-      orderResult.accounting,
-      {
-        adminId: admin.user.id,
-        mode: hasPreviousNotice ? "resend" : "initial",
-        overrideCooldown: hasPreviousNotice,
-        overrideReason: hasPreviousNotice ? `Shipping fee adjustment ${result.adjustmentId}` : "",
-      },
-    );
-    noticeResults.push({ orderId: affected.orderId, status: notice.status || "failed", queued: Boolean(notice.queued) });
-
-    if (Number(affected.creditIssuedMinor || 0) > 0 && affected.userId && supabasePrivate) {
-      await supabasePrivate.rpc("upsert_notification", {
-        p_user_id: affected.userId,
-        p_category: "orders",
-        p_title: "Shipping credit issued",
-        p_message: `A shipping fee adjustment created GHS ${(Number(affected.creditIssuedMinor) / 100).toFixed(2)} in shipping credit for order ${affected.orderNumber || affected.orderId}.`,
-        p_type: "payment_status",
-        p_source_key: `shipping-credit-adjustment:${result.adjustmentId}:${affected.orderId}`,
-        p_order_id: affected.orderId,
-        p_batch_id: null,
-        p_shipment_id: null,
-        p_action_url: "/profile/orders",
-        p_action_label: "View shipping credit",
-        p_action_description: "Review the shipping credit in your Nexus account.",
-      });
-    }
+  let noticeResults = [];
+  try {
+    noticeResults = await processShippingFeeAdjustmentNotifications(result.adjustmentId);
+  } catch (notificationError) {
+    console.error("Shipping adjustment notification processing failed:", notificationError.code || "unknown");
   }
-  sendJson(res, 200, { ok: true, result, noticeResults });
+  sendJson(res, 200, { ok: true, result, noticeResults, notificationsRecoverable: true });
 }
 
 async function handleMyShippingCredits(req, res) {
@@ -4799,6 +4933,29 @@ async function sendNotificationEmailForRow(notification, delivery = {}) {
   }
 
   const shippingSourceKey = clean(notification.source_key);
+  if (clean(notification.source_type) === "payment_status"
+    && shippingSourceKey.startsWith("shipping-fee-adjustment:")) {
+    const orderResult = notification.order_id ? await loadOrderBundle(notification.order_id) : null;
+    if (!orderResult?.ok) {
+      return { ok: false, message: "Shipping adjustment details are unavailable; the email will be retried." };
+    }
+    const accounting = getServerShippingAccounting(orderResult.items);
+    const hasBalance = accounting.outstandingShipping > 0;
+    const adjustmentEmail = buildShippingFeeAdjustmentEmail({
+      customerName,
+      title: notification.title,
+      message: notification.message,
+      outstanding: accounting.outstandingShipping,
+      appUrl,
+      actionUrl: hasBalance ? buildShippingPaymentReminderUrl(notification.order_id) : "",
+    });
+    return sendTransactionalEmail({
+      to: recipient,
+      subject: adjustmentEmail.subject,
+      text: adjustmentEmail.text,
+      html: adjustmentEmail.html,
+    });
+  }
   const shippingSourcePrefix = notification.order_id
     ? `shipping-payment-request:${notification.order_id}`
     : "";
@@ -4958,6 +5115,13 @@ async function drainNotificationEmailQueue() {
     return { ok: false, code: "invalid_delivery_id", message: "The configured delivery ID is invalid; no email job was claimed.", processed: 0 };
   }
 
+  let adjustmentRecovery = { processed: 0 };
+  try {
+    adjustmentRecovery = await recoverAutomaticShippingFeeAdjustmentNotifications();
+  } catch (error) {
+    console.error("Shipping adjustment notification recovery failed:", error?.code || "unknown");
+  }
+
   const claimFunction = testDeliveryId
     ? "claim_notification_email_job"
     : "claim_notification_email_jobs";
@@ -4968,7 +5132,7 @@ async function drainNotificationEmailQueue() {
 
   if (claimError) {
     console.error("Email queue claim failed:", claimError.code || "unknown");
-    return { ok: false, code: "claim_failed", message: "The email queue claim failed.", processed: 0 };
+    return { ok: false, code: "claim_failed", message: "The email queue claim failed.", processed: adjustmentRecovery.processed };
   }
 
   let processed = 0;
@@ -5010,7 +5174,7 @@ async function drainNotificationEmailQueue() {
       });
       if (!persisted) {
         console.error("Email delivery outcome is uncertain because the sent state could not be persisted.");
-        return { ok: false, code: "delivery_update_failed", processed };
+        return { ok: false, code: "delivery_update_failed", processed, adjustmentRecovery: adjustmentRecovery.processed };
       }
     } else {
       const attempts = Number(job.attempts) || 1;
@@ -5025,7 +5189,7 @@ async function drainNotificationEmailQueue() {
         });
         if (!persisted) {
           console.error("Ambiguous email delivery could not be moved to manual review.");
-          return { ok: false, code: "delivery_update_failed", processed };
+          return { ok: false, code: "delivery_update_failed", processed, adjustmentRecovery: adjustmentRecovery.processed };
         }
         processed += 1;
         continue;
@@ -5044,14 +5208,14 @@ async function drainNotificationEmailQueue() {
       });
       if (!persisted) {
         console.error("Email delivery failure state could not be persisted.");
-        return { ok: false, code: "delivery_update_failed", processed };
+          return { ok: false, code: "delivery_update_failed", processed, adjustmentRecovery: adjustmentRecovery.processed };
       }
     }
 
     processed += 1;
   }
 
-  return { ok: true, processed };
+  return { ok: true, processed, adjustmentRecovery: adjustmentRecovery.processed };
 }
 
 let emailWorkerRunning = false;
@@ -9270,6 +9434,14 @@ export function createHttpServer() {
   }
 
   if (pathname === "/api/admin/shipping-fee-adjustment/history" && req.method === "GET") {
+    await handleAdminShippingFeeAdjustment(req, res);
+    return;
+  }
+  if (pathname === "/api/admin/shipping-fee-adjustment/notifications/preview" && req.method === "GET") {
+    await handleAdminShippingFeeAdjustment(req, res);
+    return;
+  }
+  if (pathname === "/api/admin/shipping-fee-adjustment/notifications/recover" && req.method === "POST") {
     await handleAdminShippingFeeAdjustment(req, res);
     return;
   }
