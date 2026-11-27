@@ -49,3 +49,6 @@ jobs:
             /tmp/nexus-chrome.log
             /tmp/shipping-*.json
             /tmp/nexus-shipping-*.png
+
+  shipping-adjustment-http:
+    uses: ./.github/workflows/shipping-adjustment-http-validation.yml

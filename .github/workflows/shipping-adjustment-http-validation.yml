@@ -2,6 +2,7 @@ name: Shipping Adjustment HTTP Validation
 
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     branches:
       - validation/shipping-fee-adjustments
