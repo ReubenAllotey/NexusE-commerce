@@ -49,6 +49,14 @@ jobs:
       - name: Start isolated Supabase stack
         run: |
           set -euo pipefail
+          mkdir -p /tmp/nexus-migrations
+          restore_migrations() {
+            if compgen -G "/tmp/nexus-migrations/*.sql" > /dev/null; then
+              mv /tmp/nexus-migrations/*.sql supabase/migrations/
+            fi
+          }
+          trap restore_migrations EXIT
+          mv supabase/migrations/*.sql /tmp/nexus-migrations/
           supabase init --force
           if ! supabase start --ignore-health-check \
             -x studio,imgproxy,edge-runtime,logflare,vector,postgres-meta,mailpit,realtime,storage-api,supavisor \
@@ -79,11 +87,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          migration='supabase/migrations/20261129_0070_shipping_fee_adjustment_notifications.sql'
-          mv "$migration" /tmp/0070.sql
-          trap 'mv /tmp/0070.sql "$migration"' EXIT
-          supabase db reset --local
+          : > /tmp/nexus-migration.log
+          while IFS= read -r migration; do
+            name=$(basename "$migration")
+            case "$name" in
+              20261129_0070_shipping_fee_adjustment_notifications.sql) continue ;;
+            esac
+            printf 'Applying %s\n' "$name" | tee -a /tmp/nexus-migration.log
+            if ! psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$migration" >> /tmp/nexus-migration.log 2>&1; then
+              tail -n 120 /tmp/nexus-migration.log
+              exit 1
+            fi
+          done < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
           test "$(psql "$SUPABASE_DB_URL" -Atc "select count(*) from public.exchange_rate_settings;")" = "1"
+          test "$(psql "$SUPABASE_DB_URL" -Atc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='get_exchange_rate_settings';")" = "1"
       - name: Run complete 0070 rollback rehearsal
         run: |
           set -euo pipefail
@@ -139,6 +156,8 @@ jobs:
           name: shipping-adjustment-postgrest-http-validation
           path: |
             /tmp/nexus-server.log
+            /tmp/supabase-start.log
+            /tmp/nexus-migration.log
             /tmp/nexus-brevo-mock.ndjson
             /tmp/shipping-adjustment-http-result.json
           retention-days: 7
