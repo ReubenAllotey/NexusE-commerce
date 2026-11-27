@@ -329,6 +329,24 @@ function MyOrders({
                             <div className="orders-item__price">
                               <strong>{formatMoney(item.lineSubtotal)}</strong>
                               <span>Shipping {formatMoney(item.lineShipping)}</span>
+                              {(Number(item.shippingPaidAmount) || 0) > 0 ? (
+                                <span>
+                                  Shipping paid {formatMoney(item.shippingPaidAmount)}
+                                </span>
+                              ) : null}
+                              {Math.max(
+                                (Number(item.lineShipping) || 0) - (Number(item.shippingPaidAmount) || 0),
+                                0,
+                              ) > 0 ? (
+                                <span>
+                                  Shipping remaining {formatMoney(
+                                    Math.max(
+                                      (Number(item.lineShipping) || 0) - (Number(item.shippingPaidAmount) || 0),
+                                      0,
+                                    ),
+                                  )}
+                                </span>
+                              ) : null}
                             </div>
                           </li>
                         ))}
