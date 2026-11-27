@@ -9746,6 +9746,76 @@ body[data-theme="dark"] .location-picker__selected {
 .admin-shipment-adjustment-history__details { display: grid; gap: 8px; margin-top: 16px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
 @media (max-width: 640px) { .admin-shipment-adjustment-history__list article { grid-template-columns: 1fr; gap: 4px; } }
 
+.admin-shipment-history-filters {
+  display: grid;
+  grid-template-columns: minmax(13rem, 2fr) repeat(4, minmax(8rem, 1fr));
+  gap: 12px;
+  margin: 20px 0 24px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.admin-shipment-history-filters label { display: grid; gap: 6px; min-width: 0; }
+.admin-shipment-history-filters label span { color: #475569; font-size: .75rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.admin-shipment-history-filters input,
+.admin-shipment-history-filters select { width: 100%; min-height: 40px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #0f172a; padding: 0 11px; }
+.admin-shipment-history-table-wrap,
+.admin-shipment-history-detail-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.admin-shipment-history-table { width: 100%; min-width: 1080px; border-collapse: collapse; text-align: left; }
+.admin-shipment-history-table th,
+.admin-shipment-history-table td { padding: 14px 16px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+.admin-shipment-history-table th { background: #f8fafc; color: #475569; font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.admin-shipment-history-table tbody tr:last-child td { border-bottom: 0; }
+.admin-shipment-history-table td strong,
+.admin-shipment-history-table td small { display: block; }
+.admin-shipment-history-table td strong { color: #0f172a; }
+.admin-shipment-history-table td small { margin-top: 5px; color: #64748b; line-height: 1.35; }
+.admin-shipment-history__positive { color: #047857 !important; font-weight: 700; }
+.admin-shipment-history__credit { color: #b45309 !important; font-weight: 700; }
+.admin-shipment-history__status-summary { max-width: 15rem; color: #334155; font-size: .82rem; line-height: 1.45; white-space: normal; }
+.admin-shipment-history__actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 9rem; }
+.admin-shipment-history__actions .admin-products-action { white-space: nowrap; }
+.admin-shipment-history-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.admin-shipment-history-pagination span { margin-right: auto; color: #64748b; font-size: .9rem; }
+.admin-shipment-history-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; }
+.admin-shipment-history-modal__panel { position: relative; z-index: 1; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(1180px, 100%); max-height: min(88vh, 900px); overflow: hidden; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; box-shadow: 0 20px 60px rgba(15, 23, 42, .18); }
+.admin-shipment-history-modal__content { min-height: 0; overflow: auto; padding: 24px; }
+.admin-shipment-history-modal__footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid #e2e8f0; background: #fff; }
+.admin-shipment-history-detail-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.admin-shipment-history-detail-summary div { display: grid; gap: 5px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
+.admin-shipment-history-detail-summary span { color: #64748b; font-size: .74rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.admin-shipment-history-detail-summary strong { color: #0f172a; }
+.admin-shipment-history-detail-notifications { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 16px; color: #64748b; }
+.admin-shipment-history-detail-notifications strong { width: 100%; color: #0f172a; }
+.admin-shipment-history-detail-notifications span.is-present { color: #0f766e; font-weight: 700; }
+.admin-shipment-history-detail-filters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr); gap: 12px; margin: 0 0 16px; }
+.admin-shipment-history-detail-filters label { display: grid; gap: 6px; }
+.admin-shipment-history-detail-filters label span { color: #475569; font-size: .75rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.admin-shipment-history-detail-filters input,
+.admin-shipment-history-detail-filters select { width: 100%; min-height: 40px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #0f172a; padding: 0 11px; }
+.admin-shipment-history-detail-table { min-width: 1120px; }
+.admin-shipment-history-detail-table td small { max-width: 13rem; white-space: normal; }
+@media (max-width: 900px) {
+  .admin-shipment-history-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .admin-shipment-history-filters label:first-child { grid-column: 1 / -1; }
+  .admin-shipment-history-detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .admin-shipment-history-filters { grid-template-columns: 1fr; padding: 12px; }
+  .admin-shipment-history-filters label:first-child { grid-column: auto; }
+  .admin-shipment-history-pagination { justify-content: stretch; flex-wrap: wrap; }
+  .admin-shipment-history-pagination span { width: 100%; }
+  .admin-shipment-history-pagination .admin-products-action { flex: 1 1 8rem; }
+  .admin-shipment-history-modal { padding: 0; }
+  .admin-shipment-history-modal__panel { width: 100%; max-height: 100vh; min-height: 100vh; border-radius: 0; }
+  .admin-shipment-history-modal__content { padding: 16px; }
+  .admin-shipment-history-detail-summary { grid-template-columns: 1fr; }
+  .admin-shipment-history-detail-filters { grid-template-columns: 1fr; }
+  .admin-shipment-history-modal__footer { padding: 12px 16px; flex-wrap: wrap; }
+  .admin-shipment-history-modal__footer > * { flex: 1 1 12rem; }
+}
+
 @media (max-width: 720px) {
   .admin-shipment-fee-summary { grid-template-columns: 1fr; }
   .admin-shipment-fee-pagination { justify-content: stretch; flex-wrap: wrap; }

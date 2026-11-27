@@ -40,7 +40,50 @@ function labelControl(text) {
 
 function syntheticFetch(url, options = {}) {
   window.__shippingRequests.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
-  if (url === "/api/admin/shipping-fee-adjustment/history") {
+  const harnessCase = new URLSearchParams(window.location.search).get("case");
+  if (harnessCase === "history" && url.startsWith("/api/admin/shipping-fee-adjustment/history/details")) {
+    const affectedOrders = Array.from({ length: 120 }, (_, index) => ({
+      order_id: `synthetic-order-id-${index + 1}`,
+      order_reference: `SYN-${String(index + 1).padStart(3, "0")}`,
+      customer_name: index % 3 === 0 ? `Guest Customer ${index + 1}` : `Registered Customer ${index + 1}`,
+      customer_type: index % 3 === 0 ? "guest" : "registered",
+      previous_shipping_fee: 0.03,
+      updated_shipping_fee: 0.05,
+      amount_paid: 0.01,
+      outstanding_balance: 0.04,
+      credit_generated: 0,
+      notification_status: ["sent", "queued", "failed", "skipped"][index % 4],
+      notification_reason: index % 4 === 3 ? "Synthetic recipient review." : null,
+    }));
+    return Promise.resolve(new Response(JSON.stringify({ ok: true, adjustment: {
+      id: "synthetic-adjustment-1",
+      product_name: "Synthetic Shipping Product",
+      old_shipping_fee: 0.03,
+      new_shipping_fee: 0.05,
+      created_at: "2026-11-27T10:00:00.000Z",
+      notification_summary: { pending: 1, queued: 1, processing: 1, sent: 114, failed: 1, skipped: 2 },
+      affected_orders: affectedOrders,
+    } }), { status: 200 }));
+  }
+  if (harnessCase === "history" && url.startsWith("/api/admin/shipping-fee-adjustment/history")) {
+    const history = Array.from({ length: 10 }, (_, index) => ({
+      id: `synthetic-adjustment-${index + 1}`,
+      product_name: index % 2 ? "Second Product" : "Synthetic Shipping Product",
+      old_shipping_fee: 0.03,
+      new_shipping_fee: index % 2 ? 0.02 : 0.05,
+      affected_orders_count: 12,
+      affected_order_items: 14,
+      total_additional_shipping: index % 2 ? 0 : 0.57,
+      total_credit_issued_minor: index % 2 ? 12 : 0,
+      created_at: "2026-11-27T10:00:00.000Z",
+      administrator_name: "Synthetic Administrator",
+      notification_total: 12,
+      notification_summary: index % 2 ? { sent: 12 } : { pending: 1, queued: 1, processing: 1, sent: 8, failed: 1 },
+      status: "applied",
+    }));
+    return Promise.resolve(new Response(JSON.stringify({ ok: true, history, page: 1, page_size: 10, total: 12, total_pages: 2 }), { status: 200 }));
+  }
+  if (url.startsWith("/api/admin/shipping-fee-adjustment/history")) {
     return Promise.resolve(new Response(JSON.stringify({ ok: true, history: [] }), { status: 200 }));
   }
   if (url === "/api/admin/shipping-fee-adjustment/preview") {
@@ -70,6 +113,28 @@ async function run() {
 
   await waitForText("Shipment Management");
   record("shipment page renders", document.body.textContent.includes("Shipment Management"));
+  if (new URLSearchParams(window.location.search).get("case") === "history") {
+    await waitForText("Shipping fee adjustment history");
+    await waitForText("Synthetic Shipping Product");
+    record("history table renders compact adjustment rows", document.querySelectorAll(".admin-shipment-history-table tbody tr").length === 10);
+    record("history avoids raw order UUIDs", !document.body.textContent.includes("synthetic-order-id-"));
+    record("history shows notification counts and recovery", document.body.textContent.includes("pending 1") && document.body.textContent.includes("Recover all"));
+    record("history pagination is bounded", document.body.textContent.includes("Page 1 of 2"));
+    const viewDetails = [...document.querySelectorAll("button")].find((button) => button.textContent.includes("View details"));
+    viewDetails?.click();
+    await waitForText("SYN-001");
+    record("details modal shows customer-facing order references", document.body.textContent.includes("SYN-001") && !document.body.textContent.includes("synthetic-order-id-1"));
+    record("details modal caps rendered affected orders", document.querySelectorAll(".admin-shipment-history-detail-table tbody tr").length === 25);
+    record("details modal exposes status counts and recovery", document.body.textContent.includes("processing: 1") && document.body.textContent.includes("Recover All Eligible Notices"));
+    const detailSearch = [...document.querySelectorAll("input")].find((input) => input.placeholder === "Order reference or customer");
+    record("details modal has order search and status filter", Boolean(detailSearch && [...document.querySelectorAll("select")].some((select) => select.textContent.includes("processing"))));
+    const nextDetails = document.querySelector(".admin-shipment-history-modal .admin-shipment-history-pagination button:last-child");
+    nextDetails?.click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    record("details modal pagination advances", document.body.textContent.includes("Page 2 of 5"));
+    document.body.insertAdjacentHTML("beforeend", `<pre id="harness-result">${JSON.stringify({ results })}</pre>`);
+    return;
+  }
   document.querySelector("button") && [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Update Shipping Fee"))?.click();
   await waitForText("Search product");
   record("adjustment modal opens", document.body.textContent.includes("Preview eligible open-batch orders"));
@@ -94,5 +159,5 @@ async function run() {
 }
 
 run().catch((error) => {
-  document.body.insertAdjacentHTML("beforeend", `<pre id="harness-result">${JSON.stringify({ results: [{ name: "harness completed", passed: false, detail: error.stack || error.message }] })}</pre>`);
+  document.body.insertAdjacentHTML("beforeend", `<pre id="harness-result">${JSON.stringify({ results: [{ name: "harness completed", passed: false, detail: `${error.stack || error.message}; requests=${JSON.stringify(window.__shippingRequests || [])}` }] })}</pre>`);
 });

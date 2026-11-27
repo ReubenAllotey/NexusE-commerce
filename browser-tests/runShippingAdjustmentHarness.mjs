@@ -38,7 +38,8 @@ const version = await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).
 const browserSocket = new WebSocket(version.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => { browserSocket.addEventListener("open", resolve, { once: true }); browserSocket.addEventListener("error", reject, { once: true }); });
 const context = await call(browserSocket, "Target.createBrowserContext");
-const target = await call(browserSocket, "Target.createTarget", { browserContextId: context.browserContextId, url: `${baseUrl}?case=shipping-adjustment` });
+const targetUrl = baseUrl.includes("?") ? baseUrl : `${baseUrl}?case=shipping-adjustment`;
+const target = await call(browserSocket, "Target.createTarget", { browserContextId: context.browserContextId, url: targetUrl });
 const socket = new WebSocket(await targetSocket(browserSocket, target.targetId));
 await new Promise((resolve, reject) => { socket.addEventListener("open", resolve, { once: true }); socket.addEventListener("error", reject, { once: true }); });
 const [width, height] = sizes[viewport] || sizes.desktop;

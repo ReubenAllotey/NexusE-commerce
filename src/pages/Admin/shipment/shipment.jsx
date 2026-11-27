@@ -31,6 +31,21 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function formatGhs(value) {
+  return `GHS ${Number(value || 0).toFixed(2)}`;
+}
+
+function formatNotificationSummary(summary = {}) {
+  return ["pending", "queued", "processing", "sent", "failed", "skipped"]
+    .filter((status) => Number(summary[status] || 0) > 0)
+    .map((status) => `${status} ${summary[status]}`)
+    .join(" · ") || "Not generated";
+}
+
+function notificationCount(summary = {}, status) {
+  return Number(summary[status] || 0);
+}
+
 function SummaryCard({ title, value, note }) {
   return (
     <article className="admin-products-metric admin-shipment-metric">
@@ -89,9 +104,17 @@ function ShipmentPage({ authUser = null }) {
   const [feePreviewPage, setFeePreviewPage] = useState(1);
   const [feePreviewLoading, setFeePreviewLoading] = useState(false);
   const [feeHistory, setFeeHistory] = useState([]);
+  const [feeHistoryFilters, setFeeHistoryFilters] = useState({ search: "", from: "", to: "", type: "", notificationStatus: "" });
+  const [feeHistoryPage, setFeeHistoryPage] = useState(1);
+  const [feeHistoryTotalPages, setFeeHistoryTotalPages] = useState(1);
   const [feeHistoryLoading, setFeeHistoryLoading] = useState(true);
   const [feeHistoryError, setFeeHistoryError] = useState("");
   const [selectedFeeHistory, setSelectedFeeHistory] = useState(null);
+  const [feeHistoryDetailsLoading, setFeeHistoryDetailsLoading] = useState(false);
+  const [feeHistoryDetailsError, setFeeHistoryDetailsError] = useState("");
+  const [feeHistoryDetailSearch, setFeeHistoryDetailSearch] = useState("");
+  const [feeHistoryDetailStatus, setFeeHistoryDetailStatus] = useState("");
+  const [feeHistoryDetailPage, setFeeHistoryDetailPage] = useState(1);
   const [recoveringAdjustmentId, setRecoveringAdjustmentId] = useState("");
   const [loading, setLoading] = useState(true);
   const [trackLoadError, setTrackLoadError] = useState("");
@@ -126,10 +149,13 @@ function ShipmentPage({ authUser = null }) {
       setFeeHistoryError("Your administrator session has expired. Please sign in again.");
     } else {
       try {
-        const historyResponse = await fetch("/api/admin/shipping-fee-adjustment/history", { headers: { Authorization: `Bearer ${accessToken}` } });
+        const historyParams = new URLSearchParams({ page: String(feeHistoryPage), pageSize: "10" });
+        Object.entries(feeHistoryFilters).forEach(([key, value]) => { if (value) historyParams.set(key, value); });
+        const historyResponse = await fetch(`/api/admin/shipping-fee-adjustment/history?${historyParams.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` } });
         const historyBody = await historyResponse.json().catch(() => ({}));
         if (!historyResponse.ok || !historyBody.ok || !Array.isArray(historyBody.history)) throw new Error(historyBody.message || "Unable to load shipping adjustment history.");
         setFeeHistory(historyBody.history);
+        setFeeHistoryTotalPages(Math.max(1, Number(historyBody.total_pages) || 1));
       } catch (historyError) {
         setFeeHistoryError(historyError.message || "Unable to load shipping adjustment history.");
       }
@@ -142,7 +168,31 @@ function ShipmentPage({ authUser = null }) {
     };
   };
 
-  useEffect(() => { void refresh(); }, []);
+  // Filter and pagination changes intentionally reload the authoritative history endpoint.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { const loadHistory = async () => { await refresh(); }; void loadHistory(); }, [feeHistoryFilters, feeHistoryPage]);
+
+  const openFeeHistoryDetails = async (entry) => {
+    setSelectedFeeHistory({ ...entry, affected_orders: [] });
+    setFeeHistoryDetailsLoading(true);
+    setFeeHistoryDetailsError("");
+    setFeeHistoryDetailSearch("");
+    setFeeHistoryDetailStatus("");
+    setFeeHistoryDetailPage(1);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) throw new Error("Your administrator session has expired. Please sign in again.");
+      const response = await fetch(`/api/admin/shipping-fee-adjustment/history/details?adjustmentId=${encodeURIComponent(entry.id)}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.ok || !body.adjustment) throw new Error(body.message || "Unable to load adjustment details.");
+      setSelectedFeeHistory(body.adjustment);
+    } catch (detailsError) {
+      setFeeHistoryDetailsError(detailsError.message || "Unable to load adjustment details.");
+    } finally {
+      setFeeHistoryDetailsLoading(false);
+    }
+  };
 
   const recoverAdjustmentNotifications = async (adjustmentId) => {
     if (!window.confirm("Recover all eligible shipping adjustment notices for this adjustment? This queues one notice per eligible affected order and does not repeat the financial adjustment.")) return;
@@ -508,6 +558,16 @@ function ShipmentPage({ authUser = null }) {
   const airTracks = tracks.filter((track) => track.freightType === "air");
   const seaTracks = tracks.filter((track) => track.freightType === "sea");
   const completedTracks = tracks.filter((track) => track.currentStatus === "delivered");
+  const detailOrders = Array.isArray(selectedFeeHistory?.affected_orders) ? selectedFeeHistory.affected_orders : [];
+  const filteredDetailOrders = detailOrders.filter((order) => {
+    const query = clean(feeHistoryDetailSearch).toLowerCase();
+    const matchesSearch = !query || [order.order_reference, order.customer_name].some((value) => clean(value).toLowerCase().includes(query));
+    const matchesStatus = !feeHistoryDetailStatus || clean(order.notification_status).toLowerCase() === feeHistoryDetailStatus;
+    return matchesSearch && matchesStatus;
+  });
+  const detailPageSize = 25;
+  const detailPageCount = Math.max(1, Math.ceil(filteredDetailOrders.length / detailPageSize));
+  const visibleDetailOrders = filteredDetailOrders.slice((feeHistoryDetailPage - 1) * detailPageSize, feeHistoryDetailPage * detailPageSize);
 
   return (
     <main className="admin-products-page admin-shipment-page">
@@ -530,10 +590,21 @@ function ShipmentPage({ authUser = null }) {
         </section>
 
         <section className="admin-products-panel admin-shipment-panel admin-shipment-adjustment-history">
-          <div className="admin-shipment-panel__heading"><div><p>Audited changes</p><h2>Shipping fee adjustment history</h2></div><span>{feeHistoryLoading ? "Loading..." : feeHistoryError ? "Unavailable" : `${feeHistory.length} record${feeHistory.length === 1 ? "" : "s"}`}</span></div>
-          {feeHistoryLoading ? <div className="admin-products-empty"><p>Loading adjustment history...</p><span>Checking the audited shipping fee changes.</span></div> : feeHistoryError ? <div className="admin-products-empty admin-shipment-empty--error"><p>Unable to load shipping adjustment history.</p><span>{feeHistoryError}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void refresh()}>Retry</button></div> : feeHistory.length ? <div className="admin-shipment-adjustment-history__list">{feeHistory.map((entry) => { const intents = Array.isArray(entry.notification_intents) ? entry.notification_intents : []; const pendingIntents = intents.filter((intent) => ["pending", "failed", "skipped"].includes(intent.status)); return <article key={entry.id}><strong>{entry.status === "noop" ? "No change" : "Fee adjusted"}</strong><span>{entry.product_name}</span><span>GHS {Number(entry.old_shipping_fee || 0).toFixed(2)} -&gt; GHS {Number(entry.new_shipping_fee || 0).toFixed(2)}</span><span>{Number(entry.new_shipping_fee || 0) >= Number(entry.old_shipping_fee || 0) ? "Increased" : "Decreased"}: GHS {Math.abs(Number(entry.new_shipping_fee || 0) - Number(entry.old_shipping_fee || 0)).toFixed(2)}</span><span>{entry.affected_order_items || 0} affected order item{entry.affected_order_items === 1 ? "" : "s"}</span><span>Additional balance: GHS {Number(entry.total_additional_shipping || 0).toFixed(2)}</span><span>Credit generated: GHS {(Number(entry.total_credit_issued_minor || 0) / 100).toFixed(2)}</span><span>Administrator: {entry.administrator_name || "Unknown administrator"}</span><small>{formatShortDate(entry.created_at)} - {entry.status}</small><small>Notifications: {intents.length ? intents.map((intent) => `${intent.status} (${intent.order_id})`).join(", ") : "not generated"}</small>{pendingIntents.length ? <button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void recoverAdjustmentNotifications(entry.id)} disabled={recoveringAdjustmentId === entry.id}>{recoveringAdjustmentId === entry.id ? "Recovering..." : "Recover All Eligible Notices"}</button> : null}<button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(entry)}>View details</button></article>; })}</div> : <div className="admin-products-empty"><p>No shipping fee adjustments recorded.</p><span>Completed previews and adjustments will appear here.</span></div>}
-          {selectedFeeHistory ? <div className="admin-shipment-adjustment-history__details" role="dialog" aria-label="Shipping fee adjustment details"><strong>Adjustment details</strong><span>{selectedFeeHistory.product_name}</span><span>{selectedFeeHistory.affected_order_items || 0} affected order items</span><span>Operation: {selectedFeeHistory.operation_id}</span>{(selectedFeeHistory.notification_intents || []).map((intent) => <div key={intent.id}><span>Order {intent.order_id}: {intent.status}</span><small>{intent.last_error || "Notification intent recorded."}</small></div>)}<button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setSelectedFeeHistory(null)}>Close details</button></div> : null}
+          <div className="admin-shipment-panel__heading"><div><p>Audited changes</p><h2>Shipping fee adjustment history</h2></div><span>{feeHistoryLoading ? "Loading..." : feeHistoryError ? "Unavailable" : `${feeHistory.length} record${feeHistory.length === 1 ? "" : "s"} on this page`}</span></div>
+          <div className="admin-shipment-history-filters" aria-label="Shipping adjustment history filters">
+            <label><span>Product search</span><input value={feeHistoryFilters.search} onChange={(event) => { setFeeHistoryPage(1); setFeeHistoryFilters((current) => ({ ...current, search: event.target.value })); }} placeholder="Search product" /></label>
+            <label><span>From</span><input type="date" value={feeHistoryFilters.from} onChange={(event) => { setFeeHistoryPage(1); setFeeHistoryFilters((current) => ({ ...current, from: event.target.value })); }} /></label>
+            <label><span>To</span><input type="date" value={feeHistoryFilters.to} onChange={(event) => { setFeeHistoryPage(1); setFeeHistoryFilters((current) => ({ ...current, to: event.target.value })); }} /></label>
+            <label><span>Adjustment</span><select value={feeHistoryFilters.type} onChange={(event) => { setFeeHistoryPage(1); setFeeHistoryFilters((current) => ({ ...current, type: event.target.value })); }}><option value="">All types</option><option value="increase">Increases</option><option value="decrease">Decreases</option></select></label>
+            <label><span>Notification</span><select value={feeHistoryFilters.notificationStatus} onChange={(event) => { setFeeHistoryPage(1); setFeeHistoryFilters((current) => ({ ...current, notificationStatus: event.target.value })); }}><option value="">All statuses</option>{["pending", "queued", "processing", "sent", "failed", "skipped"].map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
+          </div>
+          {feeHistoryLoading ? <div className="admin-products-empty"><p>Loading adjustment history...</p><span>Checking the audited shipping fee changes.</span></div> : feeHistoryError ? <div className="admin-products-empty admin-shipment-empty--error"><p>Unable to load shipping adjustment history.</p><span>{feeHistoryError}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void refresh()}>Retry</button></div> : feeHistory.length ? <>
+            <div className="admin-shipment-history-table-wrap"><table className="admin-shipment-history-table"><thead><tr><th>Product</th><th>Fee change</th><th>Orders</th><th>Additional due</th><th>Credit</th><th>Notifications</th><th>Adjusted</th><th>Administrator</th><th aria-label="Actions" /></tr></thead><tbody>{feeHistory.map((entry) => { const increase = Number(entry.new_shipping_fee || 0) >= Number(entry.old_shipping_fee || 0); const recoverable = notificationCount(entry.notification_summary, "pending") + notificationCount(entry.notification_summary, "failed") + notificationCount(entry.notification_summary, "skipped") > 0; return <tr key={entry.id}><td><strong>{entry.product_name}</strong><small>{entry.status === "noop" ? "No change" : increase ? "Increased" : "Decreased"}</small></td><td><span>{formatGhs(entry.old_shipping_fee)} -&gt; {formatGhs(entry.new_shipping_fee)}</span><small className={increase ? "admin-shipment-history__positive" : "admin-shipment-history__credit"}>{increase ? "+" : "-"}{formatGhs(Math.abs(Number(entry.new_shipping_fee || 0) - Number(entry.old_shipping_fee || 0)))}</small></td><td><strong>{entry.affected_orders_count || 0}</strong><small>{entry.affected_order_items || 0} item{entry.affected_order_items === 1 ? "" : "s"}</small></td><td>{formatGhs(entry.total_additional_shipping)}</td><td>{formatGhs(Number(entry.total_credit_issued_minor || 0) / 100)}</td><td><span className="admin-shipment-history__status-summary">{formatNotificationSummary(entry.notification_summary)}</span><small>{entry.notification_total || 0} total</small></td><td>{formatShortDate(entry.created_at)}</td><td>{entry.administrator_name || "Unknown administrator"}</td><td><div className="admin-shipment-history__actions"><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void openFeeHistoryDetails(entry)}>View details</button>{recoverable ? <button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void recoverAdjustmentNotifications(entry.id)} disabled={recoveringAdjustmentId === entry.id}>{recoveringAdjustmentId === entry.id ? "Recovering..." : "Recover all"}</button> : null}</div></td></tr>; })}</tbody></table></div>
+            <div className="admin-shipment-history-pagination"><span>Page {feeHistoryPage} of {feeHistoryTotalPages}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setFeeHistoryPage((page) => Math.max(1, page - 1))} disabled={feeHistoryPage <= 1}>Previous</button><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setFeeHistoryPage((page) => Math.min(feeHistoryTotalPages, page + 1))} disabled={feeHistoryPage >= feeHistoryTotalPages}>Next</button></div>
+          </> : <div className="admin-products-empty"><p>No shipping fee adjustments recorded.</p><span>Completed previews and adjustments will appear here.</span></div>}
         </section>
+
+        {selectedFeeHistory ? <div className="admin-shipment-history-modal" role="dialog" aria-modal="true" aria-label="Shipping fee adjustment details"><button type="button" className="admin-shipment-modal__scrim" onClick={() => setSelectedFeeHistory(null)} aria-label="Close adjustment details" /><aside className="admin-shipment-history-modal__panel"><header className="admin-shipment-modal__header"><div><p>Audited change</p><h2>{selectedFeeHistory.product_name}</h2><span>{formatGhs(selectedFeeHistory.old_shipping_fee)} -&gt; {formatGhs(selectedFeeHistory.new_shipping_fee)} - {formatShortDate(selectedFeeHistory.created_at)}</span></div><button type="button" className="admin-shipment-modal__close" onClick={() => setSelectedFeeHistory(null)}>Close</button></header><div className="admin-shipment-history-modal__content">{feeHistoryDetailsLoading ? <div className="admin-products-empty"><p>Loading affected orders...</p></div> : feeHistoryDetailsError ? <div className="admin-products-empty admin-shipment-empty--error"><p>Unable to load adjustment details.</p><span>{feeHistoryDetailsError}</span></div> : <><div className="admin-shipment-history-detail-summary"><div><span>Adjustment</span><strong>{Number(selectedFeeHistory.new_shipping_fee || 0) >= Number(selectedFeeHistory.old_shipping_fee || 0) ? "Increase" : "Decrease"}</strong></div><div><span>Orders</span><strong>{detailOrders.length}</strong></div><div><span>Additional due</span><strong>{formatGhs(detailOrders.reduce((sum, order) => sum + Number(order.outstanding_balance || 0), 0))}</strong></div><div><span>Credit generated</span><strong>{formatGhs(detailOrders.reduce((sum, order) => sum + Number(order.credit_generated || 0), 0))}</strong></div></div><div className="admin-shipment-history-detail-notifications"><strong>Notification status</strong>{["pending", "queued", "processing", "sent", "failed", "skipped"].map((status) => <span key={status} className={notificationCount(selectedFeeHistory.notification_summary, status) ? "is-present" : ""}>{status}: {notificationCount(selectedFeeHistory.notification_summary, status)}</span>)}</div><div className="admin-shipment-history-detail-filters"><label><span>Search orders</span><input value={feeHistoryDetailSearch} onChange={(event) => { setFeeHistoryDetailPage(1); setFeeHistoryDetailSearch(event.target.value); }} placeholder="Order reference or customer" /></label><label><span>Notification status</span><select value={feeHistoryDetailStatus} onChange={(event) => { setFeeHistoryDetailPage(1); setFeeHistoryDetailStatus(event.target.value); }}><option value="">All statuses</option>{["pending", "queued", "processing", "sent", "failed", "skipped"].map((status) => <option key={status} value={status}>{status}</option>)}</select></label></div><div className="admin-shipment-history-detail-table-wrap"><table className="admin-shipment-history-table admin-shipment-history-detail-table"><thead><tr><th>Order</th><th>Customer</th><th>Type</th><th>Previous fee</th><th>Updated fee</th><th>Paid</th><th>Outstanding</th><th>Credit</th><th>Status</th></tr></thead><tbody>{visibleDetailOrders.map((order) => <tr key={`${order.order_id}-${order.notification_status}`}><td>{order.order_reference}</td><td>{order.customer_name}</td><td>{order.customer_type}</td><td>{formatGhs(order.previous_shipping_fee)}</td><td>{formatGhs(order.updated_shipping_fee)}</td><td>{formatGhs(order.amount_paid)}</td><td>{formatGhs(order.outstanding_balance)}</td><td>{formatGhs(order.credit_generated)}</td><td><span className="admin-shipment-history__status-summary">{order.notification_status}</span>{order.notification_reason ? <small>{order.notification_reason}</small> : null}</td></tr>)}</tbody></table></div><div className="admin-shipment-history-pagination"><span>Orders {filteredDetailOrders.length ? (feeHistoryDetailPage - 1) * detailPageSize + 1 : 0}-{Math.min(feeHistoryDetailPage * detailPageSize, filteredDetailOrders.length)} of {filteredDetailOrders.length} · Page {feeHistoryDetailPage} of {detailPageCount}</span><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setFeeHistoryDetailPage((page) => Math.max(1, page - 1))} disabled={feeHistoryDetailPage <= 1}>Previous</button><button type="button" className="admin-products-action admin-products-action--edit" onClick={() => setFeeHistoryDetailPage((page) => Math.min(detailPageCount, page + 1))} disabled={feeHistoryDetailPage >= detailPageCount}>Next</button></div></>}</div><footer className="admin-shipment-history-modal__footer">{!feeHistoryDetailsLoading && !feeHistoryDetailsError && (selectedFeeHistory.notification_summary?.pending || selectedFeeHistory.notification_summary?.failed || selectedFeeHistory.notification_summary?.skipped) ? <button type="button" className="admin-products-action admin-products-action--edit" onClick={() => void recoverAdjustmentNotifications(selectedFeeHistory.id)} disabled={recoveringAdjustmentId === selectedFeeHistory.id}>{recoveringAdjustmentId === selectedFeeHistory.id ? "Recovering..." : "Recover All Eligible Notices"}</button> : null}<button type="button" className="admin-shipment-modal__button admin-shipment-modal__button--ghost" onClick={() => setSelectedFeeHistory(null)}>Close</button></footer></aside></div> : null}
 
         <section className="admin-products-panel admin-shipment-panel">
           <div className="admin-shipment-panel__heading"><div><p>Managed tracking</p><h2>Existing tracks</h2></div><span>{loading ? "Loading..." : `${tracks.length} track${tracks.length === 1 ? "" : "s"}`}</span></div>

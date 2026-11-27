@@ -147,9 +147,15 @@ test("shipping adjustment history enriches persisted records and fails closed on
   assert.match(server, /product_name:/);
   assert.match(server, /administrator_name:/);
   assert.match(server, /affected_order_items:/);
+  assert.match(server, /affected_orders_count:/);
   assert.match(server, /total_additional_shipping:/);
   assert.match(server, /total_credit_issued_minor:/);
   assert.match(server, /Unable to load shipping adjustment history details/);
+  assert.match(server, /history\/details/);
+  assert.match(server, /async function handleAdminShippingFeeAdjustment\(req, res\) \{\s+const admin = await getActiveAdminForRequest\(req\)/);
+  assert.match(server, /requestUrl\.pathname\.endsWith\("\/history\/details"\)/);
+  assert.match(server, /total_pages/);
+  assert.match(server, /notification_status:/);
 });
 
 test("admin history distinguishes loading, errors, empty state, and persisted records", () => {
@@ -162,6 +168,10 @@ test("admin history distinguishes loading, errors, empty state, and persisted re
   assert.match(shipment, /total_credit_issued_minor/);
   assert.match(shipment, /Recover All Eligible Notices/);
   assert.match(shipment, /This queues one notice per eligible affected order/);
+  assert.match(shipment, /feeHistoryFilters/);
+  assert.match(shipment, /admin-shipment-history-table/);
+  assert.match(shipment, /notification_summary/);
+  assert.match(shipment, /order\.order_reference/);
 });
 
 test("shipping fee preview uses a responsive, paginated table without changing calculations", () => {

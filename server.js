@@ -3895,21 +3895,93 @@ async function handleAdminShippingFeeAdjustment(req, res) {
   }
 
   if (req.method === "GET" && requestUrl.pathname.endsWith("/history")) {
-    const { data, error } = await supabaseAdmin
+    const page = Math.max(Number.parseInt(requestUrl.searchParams.get("page") || "1", 10) || 1, 1);
+    const pageSize = Math.min(Math.max(Number.parseInt(requestUrl.searchParams.get("pageSize") || "10", 10) || 10, 1), 50);
+    const search = clean(requestUrl.searchParams.get("search"));
+    const adjustmentType = clean(requestUrl.searchParams.get("type")).toLowerCase();
+    const notificationStatus = clean(requestUrl.searchParams.get("notificationStatus")).toLowerCase();
+    const fromDate = clean(requestUrl.searchParams.get("from"));
+    const toDate = clean(requestUrl.searchParams.get("to"));
+    let productIds = null;
+    if (search) {
+      const { data: products, error: productSearchError } = await supabaseAdmin
+        .from("products")
+        .select("id")
+        .or(`name.ilike.%${search}%,slug.ilike.%${search}%`)
+        .limit(5000);
+      if (productSearchError) {
+        sendJson(res, 503, { ok: false, message: "Unable to filter shipping adjustment history." });
+        return;
+      }
+      productIds = (products || []).map((product) => product.id).filter(Boolean);
+      if (!productIds.length) {
+        sendJson(res, 200, { ok: true, history: [], page, page_size: pageSize, total: 0, total_pages: 0 });
+        return;
+      }
+    }
+    let notificationAdjustmentIds = null;
+    if (notificationStatus) {
+      const { data: intents, error: statusError } = await supabaseAdmin
+        .from("shipping_fee_adjustment_notification_intents")
+        .select("id,adjustment_id,notification_id,status")
+        .limit(10000);
+      if (statusError) {
+        sendJson(res, 503, { ok: false, message: "Unable to filter shipping adjustment notifications." });
+        return;
+      }
+      const notificationIds = (intents || []).map((intent) => intent.notification_id).filter(Boolean);
+      const { data: deliveries, error: deliveryError } = notificationIds.length
+        ? await supabaseAdmin.from("notification_email_deliveries").select("notification_id,status").in("notification_id", notificationIds)
+        : { data: [], error: null };
+      if (deliveryError) {
+        sendJson(res, 503, { ok: false, message: "Unable to filter shipping adjustment deliveries." });
+        return;
+      }
+      const deliveryByNotificationId = new Map((deliveries || []).map((delivery) => [delivery.notification_id, delivery.status]));
+      notificationAdjustmentIds = [...new Set((intents || []).filter((intent) => (deliveryByNotificationId.get(intent.notification_id) || intent.status || "skipped").toLowerCase() === notificationStatus).map((intent) => intent.adjustment_id))];
+      if (!notificationAdjustmentIds.length) {
+        sendJson(res, 200, { ok: true, history: [], page, page_size: pageSize, total: 0, total_pages: 0 });
+        return;
+      }
+    }
+    let typeAdjustmentIds = null;
+    if (["increase", "decrease"].includes(adjustmentType)) {
+      const { data: typedAdjustments, error: typeError } = await supabaseAdmin
+        .from("shipping_fee_adjustments")
+        .select("id,old_shipping_fee,new_shipping_fee")
+        .limit(10000);
+      if (typeError) {
+        sendJson(res, 503, { ok: false, message: "Unable to filter shipping adjustment history." });
+        return;
+      }
+      typeAdjustmentIds = typedAdjustments.filter((entry) => adjustmentType === "increase"
+        ? Number(entry.new_shipping_fee) > Number(entry.old_shipping_fee)
+        : Number(entry.new_shipping_fee) < Number(entry.old_shipping_fee)).map((entry) => entry.id);
+      if (!typeAdjustmentIds.length) {
+        sendJson(res, 200, { ok: true, history: [], page, page_size: pageSize, total: 0, total_pages: 0 });
+        return;
+      }
+    }
+    let historyQuery = supabaseAdmin
       .from("shipping_fee_adjustments")
-      .select("id,operation_id,product_id,old_shipping_fee,new_shipping_fee,administrator_id,status,result,created_at,completed_at")
-      .order("created_at", { ascending: false })
-      .limit(50);
+      .select("id,operation_id,product_id,old_shipping_fee,new_shipping_fee,administrator_id,status,result,created_at,completed_at", { count: "exact" })
+      .order("created_at", { ascending: false });
+    if (productIds) historyQuery = historyQuery.in("product_id", productIds);
+    if (notificationAdjustmentIds) historyQuery = historyQuery.in("id", notificationAdjustmentIds);
+    if (typeAdjustmentIds) historyQuery = historyQuery.in("id", typeAdjustmentIds);
+    if (fromDate) historyQuery = historyQuery.gte("created_at", `${fromDate}T00:00:00.000Z`);
+    if (toDate) historyQuery = historyQuery.lt("created_at", `${toDate}T00:00:00.000Z`);
+    const { data, error, count } = await historyQuery.range((page - 1) * pageSize, page * pageSize - 1);
     if (error) {
       sendJson(res, 503, { ok: false, message: "Unable to load shipping adjustment history." });
       return;
     }
     const adjustments = Array.isArray(data) ? data : [];
-    const productIds = [...new Set(adjustments.map((entry) => entry.product_id).filter(Boolean))];
+    const adjustmentProductIds = [...new Set(adjustments.map((entry) => entry.product_id).filter(Boolean))];
     const administratorIds = [...new Set(adjustments.map((entry) => entry.administrator_id).filter(Boolean))];
     const adjustmentIds = adjustments.map((entry) => entry.id).filter(Boolean);
     const [productResult, administratorResult, orderResult, intentResult] = await Promise.all([
-      productIds.length ? supabaseAdmin.from("products").select("id,name").in("id", productIds) : Promise.resolve({ data: [], error: null }),
+      adjustmentProductIds.length ? supabaseAdmin.from("products").select("id,name").in("id", adjustmentProductIds) : Promise.resolve({ data: [], error: null }),
       administratorIds.length ? supabaseAdmin.from("profiles").select("id,full_name,email").in("id", administratorIds) : Promise.resolve({ data: [], error: null }),
       adjustmentIds.length ? supabaseAdmin.from("shipping_fee_adjustment_orders").select("adjustment_id,order_item_id,additional_due,credit_issued_minor,result_code").in("adjustment_id", adjustmentIds) : Promise.resolve({ data: [], error: null }),
       adjustmentIds.length ? supabaseAdmin.from("shipping_fee_adjustment_notification_intents").select("id,adjustment_id,order_id,additional_due,credit_issued_minor,status,notification_id,last_error,attempts,updated_at").in("adjustment_id", adjustmentIds) : Promise.resolve({ data: [], error: null }),
@@ -3932,21 +4004,123 @@ async function handleAdminShippingFeeAdjustment(req, res) {
       rows.push(intent);
       intentsByAdjustment.set(intent.adjustment_id, rows);
     }
+    const notificationIds = [...new Set((intentResult.data || []).map((intent) => intent.notification_id).filter(Boolean))];
+    const { data: deliveryRows, error: deliveryError } = notificationIds.length
+      ? await supabaseAdmin.from("notification_email_deliveries").select("notification_id,status,sent_at").in("notification_id", notificationIds)
+      : { data: [], error: null };
+    if (deliveryError) {
+      sendJson(res, 503, { ok: false, message: "Unable to load shipping adjustment delivery details." });
+      return;
+    }
+    const deliveryByNotificationId = new Map((deliveryRows || []).map((delivery) => [delivery.notification_id, delivery]));
     const history = adjustments.map((entry) => {
       const affectedOrders = ordersByAdjustment.get(entry.id) || [];
       const administrator = administratorsById.get(entry.administrator_id);
+      const intents = (intentsByAdjustment.get(entry.id) || []).map((intent) => ({
+        ...intent,
+        delivery_status: deliveryByNotificationId.get(intent.notification_id)?.status || null,
+        sent_at: deliveryByNotificationId.get(intent.notification_id)?.sent_at || null,
+      }));
+      const notificationCounts = intents.reduce((counts, intent) => {
+        const status = clean(intent.delivery_status || intent.status || "skipped").toLowerCase() || "skipped";
+        counts[status] = (counts[status] || 0) + 1;
+        return counts;
+      }, {});
       return {
         ...entry,
         product_name: productsById.get(entry.product_id)?.name || "Unknown product",
         administrator_name: administrator?.full_name || administrator?.email || "Unknown administrator",
         affected_order_items: affectedOrders.length,
+        affected_orders_count: new Set(affectedOrders.map((row) => row.order_id).filter(Boolean)).size,
         total_additional_shipping: affectedOrders.reduce((sum, row) => sum + Number(row.additional_due || 0), 0),
         total_credit_issued_minor: affectedOrders.reduce((sum, row) => sum + Number(row.credit_issued_minor || 0), 0),
-        affected_orders: affectedOrders,
-        notification_intents: intentsByAdjustment.get(entry.id) || [],
+        notification_summary: notificationCounts,
+        notification_total: intents.length,
       };
     });
-    sendJson(res, 200, { ok: true, history });
+    sendJson(res, 200, { ok: true, history, page, page_size: pageSize, total: count || 0, total_pages: Math.ceil((count || 0) / pageSize) });
+    return;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname.endsWith("/history/details")) {
+    const adjustmentId = clean(requestUrl.searchParams.get("adjustmentId"));
+    if (!adjustmentId) {
+      sendJson(res, 400, { ok: false, message: "An adjustment is required." });
+      return;
+    }
+    const { data: adjustment, error: adjustmentError } = await supabaseAdmin
+      .from("shipping_fee_adjustments")
+      .select("id,operation_id,product_id,old_shipping_fee,new_shipping_fee,administrator_id,status,result,created_at,completed_at")
+      .eq("id", adjustmentId)
+      .maybeSingle();
+    if (adjustmentError || !adjustment) {
+      sendJson(res, adjustmentError ? 503 : 404, { ok: false, message: "Unable to load shipping adjustment details." });
+      return;
+    }
+    const [productResult, administratorResult, orderResult, intentResult] = await Promise.all([
+      supabaseAdmin.from("products").select("id,name").eq("id", adjustment.product_id).maybeSingle(),
+      supabaseAdmin.from("profiles").select("id,full_name,email").eq("id", adjustment.administrator_id).maybeSingle(),
+      supabaseAdmin.from("shipping_fee_adjustment_orders").select("order_id,order_item_id,old_line_shipping,new_line_shipping,cash_paid_before,credit_applied,additional_due,credit_issued_minor,result_code").eq("adjustment_id", adjustmentId).order("created_at", { ascending: true }),
+      supabaseAdmin.from("shipping_fee_adjustment_notification_intents").select("id,order_id,additional_due,credit_applied,credit_issued_minor,status,notification_id,last_error,attempts,updated_at").eq("adjustment_id", adjustmentId).order("created_at", { ascending: true }),
+    ]);
+    if (productResult.error || administratorResult.error || orderResult.error || intentResult.error) {
+      sendJson(res, 503, { ok: false, message: "Unable to load shipping adjustment details." });
+      return;
+    }
+    const orderIds = [...new Set((orderResult.data || []).map((row) => row.order_id).filter(Boolean))];
+    const itemIds = [...new Set((orderResult.data || []).map((row) => row.order_item_id).filter(Boolean))];
+    const [ordersResult, itemsResult, deliveriesResult] = await Promise.all([
+      orderIds.length ? supabaseAdmin.from("orders").select("id,order_number,customer_name,user_id,customer_email,guest_email").in("id", orderIds) : Promise.resolve({ data: [], error: null }),
+      itemIds.length ? supabaseAdmin.from("order_items").select("id,order_id,quantity").in("id", itemIds) : Promise.resolve({ data: [], error: null }),
+      (intentResult.data || []).map((intent) => intent.notification_id).filter(Boolean).length
+        ? supabaseAdmin.from("notification_email_deliveries").select("notification_id,status,sent_at").in("notification_id", (intentResult.data || []).map((intent) => intent.notification_id).filter(Boolean))
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (ordersResult.error || itemsResult.error || deliveriesResult.error) {
+      sendJson(res, 503, { ok: false, message: "Unable to load affected shipping orders." });
+      return;
+    }
+    const ordersById = new Map((ordersResult.data || []).map((order) => [order.id, order]));
+    const itemsById = new Map((itemsResult.data || []).map((item) => [item.id, item]));
+    const intentsByOrder = new Map((intentResult.data || []).map((intent) => [intent.order_id, intent]));
+    const deliveriesByNotification = new Map((deliveriesResult.data || []).map((delivery) => [delivery.notification_id, delivery]));
+    const affectedOrders = (orderResult.data || []).map((row) => {
+      const order = ordersById.get(row.order_id) || {};
+      const item = itemsById.get(row.order_item_id) || {};
+      const intent = intentsByOrder.get(row.order_id);
+      const delivery = deliveriesByNotification.get(intent?.notification_id);
+      return {
+        order_id: row.order_id,
+        order_reference: order.order_number || row.order_id,
+        customer_name: order.customer_name || "Customer",
+        customer_type: order.user_id ? "registered" : "guest",
+        previous_shipping_fee: row.old_line_shipping,
+        updated_shipping_fee: row.new_line_shipping,
+        amount_paid: row.cash_paid_before,
+        outstanding_balance: row.additional_due,
+        credit_applied: row.credit_applied,
+        credit_generated: Number(row.credit_issued_minor || 0) / 100,
+        quantity: item.quantity || null,
+        notification_status: delivery?.status || intent?.status || "skipped",
+        notification_updated_at: delivery?.sent_at || intent?.updated_at || null,
+        notification_reason: intent?.last_error || null,
+      };
+    });
+    const counts = affectedOrders.reduce((summary, order) => {
+      const status = clean(order.notification_status).toLowerCase() || "skipped";
+      summary[status] = (summary[status] || 0) + 1;
+      return summary;
+    }, {});
+    sendJson(res, 200, {
+      ok: true,
+      adjustment: {
+        ...adjustment,
+        product_name: productResult.data?.name || "Unknown product",
+        administrator_name: administratorResult.data?.full_name || administratorResult.data?.email || "Unknown administrator",
+        notification_summary: counts,
+        affected_orders: affectedOrders,
+      },
+    });
     return;
   }
 
