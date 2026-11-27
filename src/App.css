@@ -9715,15 +9715,44 @@ body[data-theme="dark"] .location-picker__selected {
   color: #334155;
 }
 .admin-shipment-adjustment-preview strong { color: #0f172a; }
+.admin-shipment-fee-modal__panel { width: min(72rem, 100%); overflow: hidden; grid-template-rows: auto minmax(0, 1fr); }
+.admin-shipment-fee-modal__form { min-height: 0; overflow: auto; padding-right: 4px; }
+.admin-shipment-fee-modal__form > .admin-shipment-modal__actions { position: sticky; bottom: -1rem; z-index: 2; padding: 12px 0 4px; background: #fff; }
+.admin-shipment-fee-modal__fields { flex: 0 0 auto; }
+.admin-shipment-fee-modal__readonly { background: #f1f5f9 !important; color: #475569 !important; cursor: not-allowed; }
+.admin-shipment-fee-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.admin-shipment-fee-summary div { display: grid; gap: 4px; padding: 12px; border: 1px solid #dbe4ee; border-radius: 10px; background: #fff; }
+.admin-shipment-fee-summary span { color: #64748b; font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+.admin-shipment-fee-summary strong { font-size: 1.05rem; }
+.admin-shipment-fee-summary--secondary { margin-top: 12px; }
+.admin-shipment-fee-table-wrap { max-width: 100%; overflow-x: auto; margin-top: 16px; border: 1px solid #dbe4ee; border-radius: 10px; background: #fff; }
+.admin-shipment-fee-table { width: 100%; min-width: 620px; border-collapse: collapse; text-align: left; }
+.admin-shipment-fee-table th, .admin-shipment-fee-table td { padding: 12px 14px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+.admin-shipment-fee-table th { color: #334155; background: #f8fafc; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.admin-shipment-fee-table tr:last-child td { border-bottom: 0; }
+.admin-shipment-fee-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.admin-shipment-fee-pagination span { margin-right: auto; color: #64748b; font-size: 0.9rem; }
+.admin-shipment-fee-excluded { margin-top: 16px; padding: 12px; border: 1px solid #dbe4ee; border-radius: 10px; background: #fff; }
+.admin-shipment-fee-excluded > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid #e2e8f0; }
+.admin-shipment-fee-excluded small { color: #64748b; }
 .dashboard-shipping-credit { display: grid; gap: 12px; }
 .dashboard-shipping-credit__amount { font-size: 2rem; color: #0f172a; }
 .dashboard-shipping-credit__note { color: #64748b; }
 .dashboard-shipping-credit__history { margin-top: 4px; }
 .admin-shipment-adjustment-history__list { display: grid; gap: 10px; }
-.admin-shipment-adjustment-history__list article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid #e2e8f0; }
+.admin-shipment-adjustment-history__list article { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 8px 16px; align-items: center; padding: 16px 0; border-bottom: 1px solid #e2e8f0; }
 .admin-shipment-adjustment-history__list article:last-child { border-bottom: 0; }
 .admin-shipment-adjustment-history__list span, .admin-shipment-adjustment-history__list small { color: #64748b; }
+.admin-shipment-adjustment-history__details { display: grid; gap: 8px; margin-top: 16px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
 @media (max-width: 640px) { .admin-shipment-adjustment-history__list article { grid-template-columns: 1fr; gap: 4px; } }
+
+@media (max-width: 720px) {
+  .admin-shipment-fee-summary { grid-template-columns: 1fr; }
+  .admin-shipment-fee-pagination { justify-content: stretch; flex-wrap: wrap; }
+  .admin-shipment-fee-pagination span { width: 100%; }
+  .admin-shipment-fee-pagination .admin-shipment-modal__button { flex: 1 1 8rem; }
+  .admin-shipment-fee-excluded > div { flex-direction: column; gap: 2px; }
+}
 
 .shipping-panel {
   padding: 1.2rem;
