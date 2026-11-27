@@ -50,7 +50,9 @@ jobs:
         run: |
           set -euo pipefail
           supabase init --force
-          if ! supabase start --ignore-health-check > /tmp/supabase-start.log 2>&1; then
+          if ! supabase start --ignore-health-check \
+            -x studio,imgproxy,edge-runtime,logflare,vector,postgres-meta,mailpit,realtime,storage-api,supavisor \
+            > /tmp/supabase-start.log 2>&1; then
             cat /tmp/supabase-start.log
             docker ps -a
             exit 1
