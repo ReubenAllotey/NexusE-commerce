@@ -9611,6 +9611,10 @@ export function createHttpServer() {
     await handleAdminShippingFeeAdjustment(req, res);
     return;
   }
+  if (pathname === "/api/admin/shipping-fee-adjustment/history/details" && req.method === "GET") {
+    await handleAdminShippingFeeAdjustment(req, res);
+    return;
+  }
   if (pathname === "/api/admin/shipping-fee-adjustment/notifications/preview" && req.method === "GET") {
     await handleAdminShippingFeeAdjustment(req, res);
     return;

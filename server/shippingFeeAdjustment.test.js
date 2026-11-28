@@ -152,6 +152,7 @@ test("shipping adjustment history enriches persisted records and fails closed on
   assert.match(server, /total_credit_issued_minor:/);
   assert.match(server, /Unable to load shipping adjustment history details/);
   assert.match(server, /history\/details/);
+  assert.match(server, /pathname === "\/api\/admin\/shipping-fee-adjustment\/history\/details" && req\.method === "GET"/);
   assert.match(server, /async function handleAdminShippingFeeAdjustment\(req, res\) \{\s+const admin = await getActiveAdminForRequest\(req\)/);
   assert.match(server, /requestUrl\.pathname\.endsWith\("\/history\/details"\)/);
   assert.match(server, /total_pages/);
